@@ -17,7 +17,7 @@ from collections import defaultdict
 
 from neo4j import GraphDatabase
 
-from .card import Card
+from .card import SIGNAL_KINDS, Card
 from .cluster import ClusterResult
 from .report import Campaign
 from .scoring import Edge, Scorer
@@ -82,10 +82,12 @@ class Neo4jStore:
             MERGE (a:Ad {id: r.id})
             SET a.source = r.source, a.url = r.url, a.fetched_at = r.fetched_at,
                 a.first_seen = r.first_seen, a.last_seen = r.last_seen, a.status = r.status,
-                a.text = r.text, a.transcript = r.transcript, a.audio_duration_s = r.audio_duration""",
+                a.text = r.text, a.transcript = r.transcript, a.audio_duration_s = r.audio_duration,
+                a.trusted_domains = r.trusted, a.signals = r.signals, a.signals_present = r.n_signals""",
             [{"id": c.id, "source": c.source, "url": c.url, "fetched_at": c.fetched_at,
               "first_seen": c.first_seen, "last_seen": c.last_seen, "status": c.status, "text": c.ad_text,
-              "transcript": c.audio_transcript, "audio_duration": c.audio_duration}
+              "transcript": c.audio_transcript, "audio_duration": c.audio_duration,
+              "trusted": c.trusted_hits, "signals": c.signals(), "n_signals": f"{len(c.signals())}/{SIGNAL_KINDS}"}
              for c in cards])
 
         # artefakty: etykiety nie mogą być parametrem Cypher, więc jedna paczka na etykietę (z białej listy)
@@ -108,14 +110,15 @@ class Neo4jStore:
         # łańcuch przekierowań jako ścieżka domen
         starts, hops, lands, covers = [], [], [], []
         for c in cards:
-            ch = c.redirect_chain
+            # zaufane domeny (youtube.com...) wycinamy ze ścieżki — nie tworzą węzłów Domain
+            ch = [d for d in c.redirect_chain if d not in c.trusted_hits]
             if ch:
                 starts.append({"ad": c.id, "d": ch[0]})
                 hops += [{"a": ch[k], "b": ch[k + 1], "hop": k + 1} for k in range(len(ch) - 1)]
-            if c.final_domain:
+            if c.final_domain and c.final_domain not in c.trusted_hits:
                 lands.append({"ad": c.id, "d": c.final_domain})
             if c.cert_id:
-                covers += [{"cert": c.cert_id, "d": d} for d in c.cert_san]
+                covers += [{"cert": c.cert_id, "d": d} for d in c.cert_san if d not in c.trusted_hits]
         self.unwind("UNWIND $rows AS r MATCH (a:Ad {id: r.ad}) MERGE (d:Domain {value: r.d}) "
                     "MERGE (a)-[:STARTS_AT]->(d)", starts)
         self.unwind("UNWIND $rows AS r MERGE (x:Domain {value: r.a}) MERGE (y:Domain {value: r.b}) "
