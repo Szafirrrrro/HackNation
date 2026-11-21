@@ -1,0 +1,17 @@
+{
+  "interval_seconds": 1800,
+  "state_dir": ".private-discovery/live-api",
+  "sources": {
+    "meta": {
+      "name": "Meta Ad Library API",
+      "provider": "meta-ad-library",
+      "adapter": "scamgraph.discovery.meta_api:fetch",
+      "mode": "live",
+      "country": "PL",
+      "phrases": [
+        "oferta inwestycyjna"
+      ],
+      "limit": 10
+    }
+  }
+}

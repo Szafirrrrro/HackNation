@@ -1,0 +1,38 @@
+{
+  "interval_seconds": 1800,
+  "state_dir": ".private-discovery",
+  "sources": {
+    "meta": {
+      "name": "Biblioteka reklam Meta",
+      "provider": "meta-ad-library",
+      "adapter": "scamgraph.discovery.meta:fetch",
+      "mode": "replay",
+      "synthetic": true,
+      "manual_import": true,
+      "requires_web_permission": true,
+      "permission": "",
+      "headless": true,
+      "country": "PL",
+      "phrases": [
+        "Ciśnienie spada od razu"
+      ],
+      "limit": 10,
+      "imports": {
+        "Ciśnienie spada od razu": "examples/discovery/cards.html"
+      }
+    },
+    "nask": {
+      "name": "Lokalny korpus NASK",
+      "provider": "nask-hacknation-2026",
+      "adapter": "scamgraph.discovery.nask:fetch",
+      "mode": "import",
+      "country_filter": false,
+      "country": "PL",
+      "phrases": [
+        "Ciśnienie spada od razu"
+      ],
+      "limit": 10,
+      "path": "data/nask-hacknation-2026"
+    }
+  }
+}

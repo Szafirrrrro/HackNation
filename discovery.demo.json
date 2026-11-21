@@ -1,0 +1,21 @@
+{
+  "interval_seconds": 30,
+  "state_dir": ".private-discovery/demo",
+  "sources": {
+    "meta": {
+      "name": "Przykładowe karty Meta",
+      "provider": "meta-ad-library",
+      "adapter": "scamgraph.discovery.meta:fetch",
+      "mode": "replay",
+      "synthetic": true,
+      "country": "PL",
+      "phrases": [
+        "Ciśnienie spada od razu"
+      ],
+      "limit": 10,
+      "imports": {
+        "Ciśnienie spada od razu": "examples/discovery/cards.html"
+      }
+    }
+  }
+}
