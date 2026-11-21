@@ -50,6 +50,7 @@ class Card:
     phash: int | None = None
     faces: list[Face] = field(default_factory=list)
     artifacts: list[Artifact] = field(default_factory=list)  # posortowane, bez duplikatów
+    audio: dict[str, Any] = field(default_factory=dict)  # handoff only; scorer has no calibrated audio thresholds
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,7 +114,7 @@ def parse_card(j: dict) -> Card:
     c = Card(
         id=_s(j, "ad_id"), source=_s(prov, "source"), url=_s(prov, "url"),
         fetched_at=_s(prov, "fetched_at"), first_seen=_s(j, "first_seen"),
-        last_seen=_s(j, "last_seen"), status=_s(j, "status"), raw=j,
+        last_seen=_s(j, "last_seen"), status=_s(j, "status"), audio=_d(j, "audio"), raw=j,
     )
     arts: set[Artifact] = set()
 
@@ -132,7 +133,8 @@ def parse_card(j: dict) -> Card:
     add("registrar", c.registrar)
     for ns in _strs(rdap, "nameservers"):
         add("nameserver", normalize_domain(ns))
-    add("ip", _s(dns, "ip"))
+    if not any("HAR connection IP" in str(e.get("method", "")) for e in j.get("extraction", {}).get("evidence", {}).get("infra.dns.ip", [])):
+        add("ip", _s(dns, "ip"))
     add("asn", _s(dns, "asn"))
     c.cert_id = _s(cert, "id")
     add("cert", c.cert_id)
@@ -143,8 +145,10 @@ def parse_card(j: dict) -> Card:
     # --- strona ---
     add("tracking_id", _s(trk, "meta_pixel"))
     add("tracking_id", _s(trk, "ga"))
+    common_scripts = {s.get("sha256") for s in j.get("extensions", {}).get("scripts", []) if s.get("common_library")}
     for s in _strs(page, "script_hashes"):
-        add("script", s)
+        if s not in common_scripts:
+            add("script", s)
     add("form_endpoint", normalize_endpoint(_s(page, "form_endpoint")))
     for kind, key in (("phone", "phones"), ("telegram", "telegram"), ("crypto", "crypto")):
         for v in _strs(contacts, key):
@@ -176,10 +180,21 @@ def parse_card(j: dict) -> Card:
 
 def load_cards(path: str) -> Iterator[Card]:
     with open(path, encoding="utf-8") as fh:
-        for ln, line in enumerate(fh, 1):
+        content = fh.read()
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError:
+        for ln, line in enumerate(content.splitlines(), 1):
             if not line.strip():
                 continue
             try:
-                yield parse_card(json.loads(line))
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ValueError('card must be an object')
+                yield parse_card(value)
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"linia {ln}: pomijam ({e})")
+    else:
+        if not isinstance(value, dict):
+            raise ValueError('card must be an object')
+        yield parse_card(value)

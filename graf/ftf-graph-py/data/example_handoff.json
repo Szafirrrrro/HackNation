@@ -1,0 +1,961 @@
+{
+  "ad_id": "a",
+  "provenance": {
+    "source": "provided_snapshot",
+    "url": "https://front.example/start",
+    "fetched_at": "2026-10-09T08:24:11Z",
+    "snapshot": "own-synthetic-fixture"
+  },
+  "first_seen": null,
+  "last_seen": null,
+  "status": "unknown",
+  "infra": {
+    "redirect_chain": [
+      "https://front.example/start",
+      "https://evil.example/article"
+    ],
+    "final_domain": "evil.example",
+    "rdap": {
+      "registered": null,
+      "registrar": null,
+      "nameservers": []
+    },
+    "dns": {
+      "ip": "192.0.2.7",
+      "asn": null
+    },
+    "cert": {
+      "id": null,
+      "san": []
+    },
+    "favicon": {
+      "mmh3": null,
+      "phash": null
+    }
+  },
+  "page": {
+    "tracking_ids": {
+      "meta_pixel": "123456789",
+      "ga": "G-ABC123"
+    },
+    "script_hashes": [
+      "1563b27c17bfdf7886ad01cf42db81b8c63f1b33c481d6433638544da1cd7883",
+      "5c40b4380e60a86b06a05275d323fb0b976274902903f0f55feb57d381cd62f0",
+      "c7fb28ab5d8784ec980a1003e5736484aa81ca983b603fcf8e73aea54f6bbf04"
+    ],
+    "form_endpoint": null,
+    "contacts": {
+      "phones": [
+        "+48 123 456 789"
+      ],
+      "telegram": [
+        "https://t.me/demo_operator"
+      ],
+      "crypto": []
+    },
+    "dom_template_hash": "ce7233ecd98de736aaa99c53126260ea5f97e8a44a228ca6df547be4997dc8e0",
+    "hidden_text_hash": "0bf209b013ac1de6b47381bf1b1305bce809dab14a2f6a98fd9bc13d3822fa51"
+  },
+  "text": {
+    "ad_text": null,
+    "ocr_text": null,
+    "keywords": [
+      "inwestycja",
+      "bitcoin"
+    ],
+    "embedding": null
+  },
+  "visual": {
+    "phash": null,
+    "clip_embedding": null
+  },
+  "faces": [],
+  "extensions": {
+    "historical_http": {
+      "status": 200,
+      "observed_at": "2026-10-09T08:24:11Z"
+    },
+    "url_candidates": [
+      {
+        "url": "https://evil.example/article",
+        "source": {
+          "file": "zapis.har",
+          "har_entry": 1,
+          "json_path": "$.log.entries[1].response.content.text"
+        },
+        "kind": "saved_from_url"
+      },
+      {
+        "url": "https://evil.example/article",
+        "source": {
+          "file": "«Wiem» — strona.html"
+        },
+        "kind": "saved_from_url"
+      },
+      {
+        "url": "https://front.example/start",
+        "source": {
+          "file": "zapis.har",
+          "json_path": "$.log.pages[0]"
+        },
+        "kind": "log.pages.title"
+      }
+    ],
+    "landing_text": "Gazeta.pl Własny przykład Kontakt +48 123 456 789 Telegram",
+    "scripts": [
+      {
+        "sha256": "1563b27c17bfdf7886ad01cf42db81b8c63f1b33c481d6433638544da1cd7883",
+        "common_library": false,
+        "sources": [
+          {
+            "file": "«Wiem» — strona.html",
+            "html_script": 2
+          }
+        ],
+        "method": "sha256-decoded-bytes-v1"
+      },
+      {
+        "sha256": "5c40b4380e60a86b06a05275d323fb0b976274902903f0f55feb57d381cd62f0",
+        "common_library": true,
+        "sources": [
+          {
+            "file": "Zażółć pliki/fbevents.js.pobrane"
+          }
+        ],
+        "method": "sha256-decoded-bytes-v1"
+      },
+      {
+        "sha256": "c7fb28ab5d8784ec980a1003e5736484aa81ca983b603fcf8e73aea54f6bbf04",
+        "common_library": false,
+        "sources": [
+          {
+            "file": "Zażółć pliki/main.js.pobrane"
+          },
+          {
+            "file": "zapis.har",
+            "har_entry": 2,
+            "json_path": "$.log.entries[2].response.content.text"
+          }
+        ],
+        "method": "sha256-decoded-bytes-v1"
+      }
+    ],
+    "aio": {
+      "visit.fields.fb_ad_id": [
+        "44"
+      ],
+      "visit.fields.fb_campaign_id": [
+        "55"
+      ],
+      "visit.fields.fb_ad_set_id": [
+        "66"
+      ],
+      "visit.fields.fb_pixel": [
+        "99887766"
+      ],
+      "campaign.uuid": [
+        "internal"
+      ],
+      "campaign.owner_uuid": [
+        "owner"
+      ],
+      "landing.uuid": [
+        "land"
+      ],
+      "landing.lander_template_uuid": [
+        "tpl"
+      ],
+      "landing.lander_type_uuid": [
+        "type"
+      ]
+    },
+    "tracking_ids": {
+      "meta_pixel": [
+        "123456789",
+        "22334455",
+        "99887766"
+      ],
+      "ga": [
+        "G-ABC123"
+      ],
+      "gtm": [],
+      "google_ads": [
+        "AW-123"
+      ]
+    },
+    "declared_ad_ids": [
+      {
+        "type": "fb_ad_id",
+        "value": "44",
+        "source": "window.aio.visit.fields; page declaration, not Meta Ad Library mapping"
+      }
+    ],
+    "form_endpoints": [
+      {
+        "url": "https://evil.example/api/lead",
+        "kind": "code_candidate",
+        "source": {
+          "file": "«Wiem» — strona.html"
+        }
+      },
+      {
+        "url": "https://evil.example/api/lead",
+        "kind": "code_candidate",
+        "source": {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2
+        }
+      }
+    ],
+    "post_requests": [
+      {
+        "url": "https://www.facebook.com/tr/",
+        "kind": "telemetry",
+        "source": {
+          "file": "zapis.har",
+          "har_entry": 3,
+          "json_path": "$.log.entries[3]"
+        }
+      }
+    ],
+    "contact_candidates": [
+      {
+        "kind": "phones",
+        "value": "+48 123 456 789",
+        "context": "Gazeta.pl\nWłasny przykład\nKontakt +48 123 456 789\nTelegram\nhttps://t.me/demo_operator",
+        "source": {
+          "file": "«Wiem» — strona.html"
+        },
+        "method": "visible-text-and-links-pattern-v1; crypto checksum not verified"
+      },
+      {
+        "kind": "telegram",
+        "value": "https://t.me/demo_operator",
+        "context": "zykład\nKontakt +48 123 456 789\nTelegram\nhttps://t.me/demo_operator",
+        "source": {
+          "file": "«Wiem» — strona.html"
+        },
+        "method": "visible-text-and-links-pattern-v1; crypto checksum not verified"
+      }
+    ],
+    "images": [],
+    "model_unavailable": [],
+    "model_join": {
+      "feature_ad_id": "a",
+      "corpus_fingerprint": "fp",
+      "image_sha256": null,
+      "audio_source_field": "video_path",
+      "audio_origin": "a#video_path",
+      "method": "feature-join-v2"
+    },
+    "ad_page_link": {
+      "ad_id": "a",
+      "capture_id": "capture-1",
+      "origin_id": "export-1",
+      "observed_at": "2026-11-21T10:00:00Z",
+      "source_ref": {
+        "file": "sources/library-export.jsonl",
+        "field": "destination_url",
+        "value": "https://front.example/start"
+      }
+    },
+    "model_features": [
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "text",
+        "field": "asr.text",
+        "value": "Inwestycja bitcoin",
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 1,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      },
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "text",
+        "field": "asr.segments",
+        "value": [
+          {
+            "start": 0.0,
+            "end": 2.0,
+            "text": "Inwestycja bitcoin"
+          }
+        ],
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 2,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      },
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "text",
+        "field": "asr.duration_s",
+        "value": 2.5,
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 3,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      },
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "audio",
+        "field": "audio.duration_s",
+        "value": 2.4,
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 4,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true
+        }
+      },
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "audio",
+        "field": "audio.fingerprint",
+        "value": {
+          "array": [
+            -1,
+            42
+          ],
+          "key": "r0",
+          "shape": [
+            2
+          ],
+          "dtype": "int32",
+          "n_frames": 2
+        },
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 5,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true
+        }
+      },
+      {
+        "object_type": "ad",
+        "ad_id": "a",
+        "family": "audio",
+        "field": "audio.speaker_embedding",
+        "value": {
+          "vector": [
+            0.6000000238418579,
+            0.800000011920929
+          ],
+          "row": 0,
+          "dim": 2,
+          "norm": "l2"
+        },
+        "origin_id": "a#video_path",
+        "source_ref": {
+          "field": "video_path",
+          "value": "clip.mp4"
+        },
+        "method_version": "asr/audio-test@synthetic",
+        "status": "ok",
+        "reason": null,
+        "source_field": "video_path",
+        "extractor": "audio-test",
+        "use_case": "asr",
+        "evidence": {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 6,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true,
+          "vector_file": "vectors/asr_audio_test/audio.speaker_embedding.npy",
+          "vector_row": 0
+        }
+      }
+    ],
+    "example_notice": "Own synthetic HTML/HAR and artificial audio features; not model accuracy evidence."
+  },
+  "extraction": {
+    "schema_version": "1.0",
+    "evidence": {
+      "infra.redirect_chain": [
+        {
+          "file": "zapis.har",
+          "har_entry": 0,
+          "json_path": "$.log.entries[0]",
+          "method": "recorded-http-redirect-v1"
+        },
+        {
+          "file": "zapis.har",
+          "har_entry": 1,
+          "json_path": "$.log.entries[1]",
+          "method": "recorded-http-redirect-v1"
+        }
+      ],
+      "provenance.url": [
+        {
+          "file": "zapis.har",
+          "har_entry": 0,
+          "json_path": "$.log.entries[0].request.url",
+          "method": "snapshot-v1"
+        }
+      ],
+      "provenance.fetched_at": [
+        {
+          "file": "zapis.har",
+          "har_entry": 0,
+          "json_path": "$.log.entries[0].startedDateTime",
+          "method": "snapshot-v1"
+        }
+      ],
+      "infra.final_domain": [
+        {
+          "file": "zapis.har",
+          "har_entry": 1,
+          "json_path": "$.log.entries[1].request.url",
+          "method": "URL hostname"
+        }
+      ],
+      "infra.dns.ip": [
+        {
+          "file": "zapis.har",
+          "har_entry": 1,
+          "json_path": "$.log.entries[1].serverIPAddress",
+          "method": "HAR connection IP; not DNS or verified origin"
+        }
+      ],
+      "extensions.historical_http": [
+        {
+          "file": "zapis.har",
+          "har_entry": 1,
+          "json_path": "$.log.entries[1]",
+          "method": "snapshot-v1"
+        }
+      ],
+      "extensions.landing_text": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "HTML text excluding scripts/style and explicit hidden"
+        }
+      ],
+      "page.dom_template_hash": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "dom-structure-v1"
+        }
+      ],
+      "page.hidden_text_hash": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "explicit-hidden-text-v1"
+        }
+      ],
+      "page.script_hashes": [
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "sha256-decoded-bytes-v1"
+        },
+        {
+          "file": "Zażółć pliki/fbevents.js.pobrane",
+          "method": "sha256-decoded-bytes-v1"
+        },
+        {
+          "file": "Zażółć pliki/main.js.pobrane",
+          "method": "sha256-decoded-bytes-v1"
+        },
+        {
+          "file": "zapis.har",
+          "har_entry": 2,
+          "json_path": "$.log.entries[2].response.content.text",
+          "method": "sha256-decoded-bytes-v1"
+        }
+      ],
+      "extensions.tracking_ids.meta_pixel": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "zapis.har",
+          "har_entry": 3,
+          "json_path": "$.log.entries[3].request.url",
+          "method": "tracking-patterns-v1"
+        }
+      ],
+      "extensions.tracking_ids.ga": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "tracking-patterns-v1"
+        }
+      ],
+      "extensions.tracking_ids.google_ads": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "tracking-patterns-v1"
+        }
+      ],
+      "extensions.aio.visit.fields.fb_ad_id": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.visit.fields.fb_campaign_id": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.visit.fields.fb_ad_set_id": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.visit.fields.fb_pixel": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.campaign.uuid": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.campaign.owner_uuid": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.landing.uuid": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.landing.lander_template_uuid": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "extensions.aio.landing.lander_type_uuid": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        }
+      ],
+      "page.tracking_ids.meta_pixel": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "safe-literal-allowlist-v1; page declaration"
+        },
+        {
+          "file": "zapis.har",
+          "har_entry": 3,
+          "json_path": "$.log.entries[3].request.url",
+          "method": "tracking-patterns-v1"
+        }
+      ],
+      "page.tracking_ids.ga": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "tracking-patterns-v1"
+        },
+        {
+          "file": "«Wiem» — strona.html",
+          "html_script": 2,
+          "method": "tracking-patterns-v1"
+        }
+      ],
+      "page.contacts.phones": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "visible-text-and-links-pattern-v1"
+        }
+      ],
+      "page.contacts.telegram": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "visible-text-and-links-pattern-v1"
+        }
+      ],
+      "page.contacts.crypto": [
+        {
+          "file": "«Wiem» — strona.html",
+          "method": "visible-text-and-links-pattern-v1"
+        }
+      ],
+      "ad_id": [
+        {
+          "file": "ads.jsonl",
+          "method": "explicit local corpus mapping; not Meta library identity"
+        }
+      ],
+      "audio.transcript": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 1,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      ],
+      "audio.segments": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 2,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      ],
+      "audio.asr_duration_s": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 3,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "text",
+          "params": {},
+          "grouping": true
+        }
+      ],
+      "audio.duration_s": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 4,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true
+        }
+      ],
+      "audio.fingerprint": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 5,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true
+        }
+      ],
+      "audio.speaker_embedding": [
+        {
+          "file": "features/asr_audio_test.jsonl",
+          "line": 6,
+          "method": "asr/audio-test@synthetic",
+          "origin_id": "a#video_path",
+          "source_field": "video_path",
+          "feature_ad_id": "a",
+          "corpus_fingerprint": "fp",
+          "source_ref": {
+            "field": "video_path",
+            "value": "clip.mp4"
+          },
+          "family": "audio",
+          "params": {},
+          "grouping": true,
+          "vector_file": "vectors/asr_audio_test/audio.speaker_embedding.npy",
+          "vector_row": 0
+        }
+      ],
+      "text.keywords": [
+        {
+          "method": "observed-phrase-lexicon-v1",
+          "fields": [
+            "text.ad_text",
+            "text.ocr_text",
+            "audio.transcript"
+          ]
+        }
+      ]
+    },
+    "warnings": [
+      "invalid_har_body: zapis.har #4",
+      "visibility_partial: hidden/aria-hidden/inline display:none/visibility:hidden only",
+      "image_dependencies_unavailable: install requirements-snapshot.txt for pHash",
+      "offline_only: RDAP, ASN, certificate and current status not queried",
+      "single_snapshot: ad history and Meta library identity unknown; landing text is not ad text",
+      "model_fields_unavailable: ocr, text_embedding, clip, faces",
+      "feature_join: unknown history, live status, RDAP, certificate, face identity and deepfake scores remain unfilled"
+    ]
+  },
+  "audio": {
+    "transcript": "Inwestycja bitcoin",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 2.0,
+        "text": "Inwestycja bitcoin"
+      }
+    ],
+    "asr_duration_s": 2.5,
+    "duration_s": 2.4,
+    "fingerprint": {
+      "array": [
+        -1,
+        42
+      ],
+      "key": "r0",
+      "shape": [
+        2
+      ],
+      "dtype": "int32",
+      "n_frames": 2
+    },
+    "speaker_embedding": [
+      0.6000000238418579,
+      0.800000011920929
+    ],
+    "text_embedding": null
+  }
+}

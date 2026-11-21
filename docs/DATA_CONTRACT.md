@@ -89,3 +89,44 @@ Zapytanie nie zmienia słownika tekstu, składu kampanii ani cech referencji. Te
 ## Lokalny korpus NASK
 
 Adapter v0 może użyć obecnego katalogu od razu po implementacji. Inwentarz, przypadki do pokazu i źródła obserwacji zebrano w [przewodniku po danych](NASK_DATA.md). Sumy SHA-256 obrazów sprawdzisz zgodnie z [instrukcją repozytorium](../README.md).
+
+## JSON przekazywany Emilce (adapter `feature-join-v2`)
+
+Decyzja integracyjna zespołu 2026-11-21: wyjście Witka w `models/` pozostaje
+bez zmian (`ads.jsonl`, `corpus.json`, `features/`, `runs/`, `vectors/`, `arrays/`).
+Adapter `ftf_graph merge-features` materializuje cechy wybranej emisji i łączy je
+z obserwacją URL/HTML/HAR. Nie uruchamia modeli ani pobierania sieciowego.
+
+| Pole JSON-a | Źródło |
+| --- | --- |
+| `infra`, `page`, `provenance` | Obserwacje URL/HTML/HAR z `extract-snapshot`; brakujące RDAP/ASN/TLS pozostają puste. Włączenie do karty reklamy wymaga jawnego `--ad-page-link`. |
+| `text`, `visual`, `faces` | Dotychczasowy adapter modeli obrazu i tekstu. DINOv2 pozostaje w `extensions.image_embedding`, nie w polu CLIP. |
+| `audio.transcript`, `audio.segments`, `audio.asr_duration_s` | `asr.text`, `asr.segments`, `asr.duration_s` (Whisper). |
+| `audio.duration_s` | `audio.duration_s` (Chromaprint, potencjalnie inny zakres nagrania). |
+| `audio.fingerprint` | `audio.fingerprint`: obiekt z `array` jako listą int32, `key`, `shape`, `dtype`, `n_frames`. |
+| `audio.speaker_embedding` | `audio.speaker_embedding` (ECAPA); lista liczb, bez rozpoznania nazwiska mówcy. |
+| `audio.text_embedding` | `text.embedding` tylko dla `source_field=asr.text@<metoda>`; nie zastępuje embeddingu tekstu/OCR. |
+| `extensions.model_features[]` | Wszystkie poprawne cechy modeli, również QR, ORB, dHash i pozostałe pola. Referencje `vector`/`array` zawierają listy zamiast odnośników wymagających plików bocznych. Oryginalne metadane i ścieżki są w evidence. `grouping:false` pozostaje informacją, bez promocji do pól korelacyjnych. |
+| `extensions.model_unavailable[]`, `extraction.warnings` | Przyczyny braków oraz odrzuconych, nieaktualnych lub niejednoznacznych wyników. |
+| `extraction.evidence` | Źródło, wiersz cechy, metoda, parametry, rodzina, pochodzenie, ID emisji i fingerprint korpusu. |
+
+Audio i jego transkrypcja/embedding tekstowy dzielą `audio_origin` (domyślnie
+`<ad_id>#audio_path` lub `#video_path`). Brak audio daje puste pola, nigdy odcisk
+ciszy. Obraz nadal wymaga potwierdzenia SHA-256 jawnie wybranego zrzutu; wejście
+bez obrazu może zostać połączone po jawnym ID korpusu. Zachowujemy różne emisje
+nawet dla identycznych mediów. Konflikt ID, fingerprintu, pochodzenia lub metody
+nie jest rozstrzygany na podstawie kolejności plików.
+
+Bez `AdPageLink` strona trafia do `extensions.page_observation`, a `infra/page`
+reklamy pozostają puste. Podobieństwo tytułu, nazwa katalogu i wspólny screenshot
+nie potwierdzają przejścia z reklamy do strony. Link przekazany przez wywołującego
+musi mieć `ad_id`, `capture_id`, `origin_id`, `observed_at` i `source_ref` z plikiem,
+polem oraz URL odpowiadającym URL snapshotu. Wywołujący odpowiada za rzeczywistą
+weryfikację wskazanego dowodu; adapter sprawdza zgodność deklaracji.
+
+To kompletny **format przekazania cech**, nie zmiana reguły punktowania. Obecny
+`Scorer` nie porównuje jeszcze audio ani DINOv2; Emilka otrzymuje audio przez
+`Card.audio`, pozostałe cechy przez `Card.raw`. Progi podobieństwa audio i włączenie
+ich do decyzji kampanii wymagają odrębnej implementacji i pomiaru.
+
+Komendy i własny przykład syntetyczny: [instrukcja integracji](../graf/ftf-graph-py/HANDOFF.md).

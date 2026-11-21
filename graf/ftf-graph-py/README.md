@@ -152,3 +152,9 @@ Przy większej skali: kNN (FAISS) na wektorach i HDBSCAN na grafie rzadkim albo 
 
 numpy (BSD-3), scikit-learn (BSD-3), hdbscan (BSD-3), neo4j Python driver (Apache 2.0),
 Neo4j Community Edition (GPLv3, uruchamiany jako osobna usługa w Dockerze).
+
+## Integracja finalnych cech modeli i audio
+
+[Instrukcja przekazania jednego JSON-a Emilce](HANDOFF.md) opisuje
+`extract-snapshot` i `merge-features`, zachowanie finalnego formatu Witka oraz
+nowe pola audio. Nie zmienia wag ani algorytmu korelacji.

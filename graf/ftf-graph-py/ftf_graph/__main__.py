@@ -13,12 +13,49 @@ import os
 import sys
 
 from .card import load_cards
-from .cluster import cluster
-from .report import summarize, write_json
-from .scoring import Config, Scorer
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ('extract-snapshot', 'prepare-model-input', 'merge-features'):
+        from .enrichment import merge_features, prepare_model_input, read_json, write_json
+        from .snapshot import write_snapshot
+        command = argv.pop(0)
+        parser = argparse.ArgumentParser(prog='ftf_graph ' + command)
+        parser.add_argument('input')
+        parser.add_argument('--out', required=True)
+        if command in ('extract-snapshot', 'prepare-model-input'):
+            parser.add_argument('--screenshot', required=command == 'prepare-model-input')
+        else:
+            parser.add_argument('--features', required=True)
+            parser.add_argument('--feature-ad-id', required=True)
+            parser.add_argument('--method', action='append', default=[], metavar='DEST=METHOD')
+            parser.add_argument('--source', action='append', default=[], metavar='DEST=SOURCE')
+            parser.add_argument('--ad-page-link', help='JSON of documented AdPageLink (optional)')
+        args = parser.parse_args(argv)
+        try:
+            if command == 'extract-snapshot':
+                write_snapshot(args.input, args.out, screenshot=args.screenshot)
+            elif command == 'prepare-model-input':
+                print(prepare_model_input(args.input, args.screenshot, args.out))
+            else:
+                def assignments(values):
+                    result = {}
+                    for v in values:
+                        k, sep, val = v.partition('=')
+                        if not sep or not k or not val or k in result:
+                            raise ValueError('expected unique DEST=VALUE assignments')
+                        result[k] = val
+                    return result
+                write_json(args.out, merge_features(read_json(args.input), args.features,
+                    args.feature_ad_id, methods=assignments(args.method), sources=assignments(args.source),
+                    page_link=read_json(args.ad_page_link) if args.ad_page_link else None))
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+        return 0
+    from .report import summarize, write_json
+    from .cluster import cluster
+    from .scoring import Config, Scorer
     p = argparse.ArgumentParser(prog="ftf_graph", description="Łączenie reklam w kampanie")
     p.add_argument("cards", help="plik JSONL z kartami reklam")
     p.add_argument("--out", default="out", help="katalog na wyniki JSON (domyślnie: out)")
