@@ -1,5 +1,11 @@
 # Working agreements for agents
 
+## Project map
+
+- Start with the [README](README.md) for the project layout and [MVP plan](docs/MVP.md) for scope and acceptance criteria.
+- For changes to data or matching, read the [data contract](docs/DATA_CONTRACT.md) and [NASK data guide](docs/NASK_DATA.md). The guide covers provenance, duplicate records, evidence interpretation, and offline verification.
+- The static prototype and its scenarios live in `sites/scamgraph/dist/`. Run `node --test sites/scamgraph/tests/cases.test.mjs` from the repository root after changes to those scenarios.
+
 ## Scope and ownership
 
 - Treat the user's requested outcome and explicit constraints as the acceptance criteria. Read the repository instructions that apply to the paths you touch and inspect the relevant code, documentation, and tests before editing.

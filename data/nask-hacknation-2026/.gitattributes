@@ -1,0 +1,2 @@
+# Preserve the original catalog bytes used by the manifest's SHA-256.
+observations/scam-links.txt -text whitespace=trailing-space,space-before-tab,cr-at-eol

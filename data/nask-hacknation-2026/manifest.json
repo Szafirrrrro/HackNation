@@ -1,0 +1,20 @@
+{
+  "schema_version": "v0",
+  "dataset_id": "nask-hacknation-2026",
+  "collected_at": "2026-11-21T10:55:04+00:00",
+  "source_description": "Materiały organizatora zadania „Kolekcjoner Fejków”. Lokalny odczyt archiwum i katalogu URL, bez zapytań do biblioteki i bez filtrów wyszukiwania. Wszystkie zrzuty reklam z p1–p15 po deduplikacji SHA-256. Czas pozyskania oznacza utworzenie lokalnego korpusu. Regulamin zadania: ../../docs/NASK_REGULAMIN.md (§4). W materiałach nie wskazano odrębnej licencji obrazów.",
+  "sources": [
+    {
+      "file": "___BACKUP.zip",
+      "url": "https://science.nask.pl/hacknation/files/___BACKUP.zip",
+      "sha256": "cf9d97156b6b5ec76615e0486e4fda94795adb1b261699425a5fbea3ce3680e3"
+    },
+    {
+      "file": "scam_links.enc",
+      "url": "https://science.nask.pl/hacknation/files/scam_links.enc",
+      "sha256": "a4650dc4b8a78b8bd2818bdfc637c8d3a6ab14cb9c9738001a2f37a00873ebad",
+      "decoded_file": "observations/scam-links.txt",
+      "decoded_sha256": "8fca1e0d0da97e7f26029eed7e111ea5c4bddb7f8b6881ee2eace22af122ca00"
+    }
+  ]
+}
