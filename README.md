@@ -2,7 +2,7 @@
 
 ScamGraph ma pomóc analitykowi NASK odpowiedzieć na pytanie „Czy tę reklamę widzieliśmy już w innej odsłonie?”. Analityk wczyta zbiór postów, zobaczy proponowane kampanie na grafie, wybierze grupę i prześledzi jej historię na osi czasu. Po dodaniu nowego materiału będzie mógł otworzyć dwa porównywane źródła i ocenić podstawę przypisania.
 
-**Dziś w repozytorium** działa lokalny scheduler i panel znalezisk. Przeszukuje zapisy publicznej Biblioteki reklam Meta i lokalny korpus NASK. W panelu można uruchomić jedno lub oba źródła, zobaczyć postęp i otworzyć dowód kandydata. Zegar domyślnie sprawdza źródła co 30 minut. [Uruchomienie na Windows, konfiguracja i testy](docs/AD_DISCOVERY.md) · [Pakiety dowodowe](docs/PAKIET_DOWODOWY.md)
+**Dziś w repozytorium** działa lokalny scheduler i panel znalezisk. Przeszukuje zapisy publicznej Biblioteki reklam Meta i lokalny korpus NASK. W panelu można uruchomić jedno lub oba źródła, zobaczyć postęp i otworzyć dowód kandydata. Zegar domyślnie sprawdza źródła co 30 minut. [Instrukcja obsługi panelu i lokalizacja pobranych danych](docs/PANEL_REKLAM.md) · [Uruchomienie na Windows, konfiguracja i testy](docs/AD_DISCOVERY.md) · [Pakiety dowodowe](docs/PAKIET_DOWODOWY.md)
 
 ## Od pliku do wyniku
 
