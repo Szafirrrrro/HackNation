@@ -6,7 +6,7 @@ Pomiar:
     (wszystkie wątki: torch/onnx/tesseract-subprocess), niezależnie od psutil,
   * psutil (proces + dzieci) jako fallback, gdy cgroup niedostępny,
   * próbkowanie co 100 ms -> szczytowe wykorzystanie CPU (w rdzeniach) i RSS,
-  * memory.peak z cgroup (jeśli jest).
+  * szczyt pamięci w oknie inferencji według próbnika.
 
 Raport per model i per liczba wątków: czas ładowania, latencja p50/p95/mean,
 throughput, CPU-s na element, średnie i szczytowe wykorzystanie rdzeni, RAM.
@@ -48,13 +48,6 @@ def _cgroup_cpu_usec() -> int | None:
 def _cgroup_mem() -> int | None:
     try:
         return int((CGROUP / "memory.current").read_text())
-    except Exception:
-        return None
-
-
-def _cgroup_mem_peak() -> int | None:
-    try:
-        return int((CGROUP / "memory.peak").read_text())
     except Exception:
         return None
 
@@ -254,11 +247,23 @@ def run_suite(use_case: str, specs: list[ModelSpec]):
         "machine": platform.machine(),
         "python": sys.version.split()[0],
         "threads_tested": thread_counts(),
+        "model_filter": only,
         "warmup": warmup, "repeats": repeats, "max_items": max_items,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     print(f"== {use_case} :: {json.dumps(env)}", flush=True)
     results = []
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / f"{use_case}.json"
+    temporary = out.with_suffix(".json.tmp")
+
+    def checkpoint(state):
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump({"state": state, "env": env, "results": results}, stream,
+                      ensure_ascii=False, indent=2, default=str)
+        temporary.replace(out)
+
+    checkpoint("running")
     for spec in specs:
         if only and not any(o in spec.name for o in only):
             continue
@@ -273,11 +278,9 @@ def run_suite(use_case: str, specs: list[ModelSpec]):
             short = {k: v for k, v in r.items() if k != "sample_outputs"}
             print(json.dumps(short, ensure_ascii=False), flush=True)
             results.append(r)
+            checkpoint("running")
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    out = RESULTS / f"{use_case}.json"
-    out.write_text(json.dumps({"env": env, "results": results}, ensure_ascii=False,
-                              indent=2, default=str))
+    checkpoint("complete")
     print(f"zapisano {out}", flush=True)
 
 
@@ -289,20 +292,26 @@ AUDIO_EXT = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".mp4", ".webm"}
 def files(sub: str, exts: set[str]) -> list[str]:
     """Pliki z /data/<sub> (rekurencyjnie), posortowane."""
     root = DATA / sub
+    if sub == "images" and not root.exists() and (DATA / "ads.jsonl").is_file():
+        root = DATA / "media"
     if not root.exists():
         return []
     return sorted(str(p) for p in root.rglob("*") if p.suffix.lower() in exts)
 
 
-def texts() -> list[str]:
-    """Teksty z /data/texts/*.txt (jeden plik = jeden tekst)."""
+def texts() -> list[tuple[str, str]]:
+    """Stabilny identyfikator próbki i tekst, odczytane przed pomiarem."""
     root = DATA / "texts"
-    if not root.exists():
+    if root.is_dir():
+        rows = [(short_label(p), p.read_text(encoding="utf-8").strip())
+                for p in sorted(root.rglob("*.txt"))]
+    elif (DATA / "ads.jsonl").is_file():
+        records = (json.loads(line) for line in (DATA / "ads.jsonl").read_text(encoding="utf-8").splitlines() if line.strip())
+        rows = [(rec["ad_id"], (rec.get("text") or "").strip()) for rec in records]
+    else:
         return []
-    return [p.read_text(encoding="utf-8").strip()
-            for p in sorted(root.rglob("*.txt")) if p.read_text(encoding="utf-8").strip()]
+    return [(label, value) for label, value in rows if value]
 
 
 def short_label(x) -> str:
-    s = str(x)
-    return Path(s).name if s.startswith("/") else s[:60]
+    return Path(x).relative_to(DATA).as_posix()

@@ -1,42 +1,45 @@
-# Dane NASK w ScamGraph
+# Korpus NASK. Co można sprawdzić na materiałach organizatora
 
-Do pracy z korpusem użyj plików w repozytorium. Archiwa organizatora są potrzebne do sprawdzenia pochodzenia lub ponownego pozyskania materiałów. [Korpus NASK](../data/nask-hacknation-2026/) · [Kontrakt v0 i przykład odczytu](DATA_CONTRACT.md#lokalny-korpus-nask)
+Korpus pozwala powtórzyć analizę reklamy i zapisanej strony offline. Najlepsze rzeczywiste przypadki pokazują, jak ten sam przekaz pojawia się w różnych emisjach lub na różnych hostach. Rozstrzygnięcie, czy dwie emisje należą do jednej kampanii, wymaga dodatkowych udokumentowanych powiązań. [Manifest korpusu](../data/nask-hacknation-2026/manifest.json) · [Kontrakt danych i decyzji](DATA_CONTRACT.md)
 
-## Wybór materiału
+## Inwentarz
 
-| Zadanie | Plik | Co potwierdza materiał |
+| Materiał | Co jest dostępne | Jak go wykorzystać |
 | --- | --- | --- |
-| Porównanie reklam | [ads.jsonl](../data/nask-hacknation-2026/ads.jsonl) i obrazy z `image_path` | 13 różnych zrzutów. Tekst każdego rekordu przepisano z jego obrazu. Trzy karty Biblioteki reklam Meta mają odczytany identyfikator w `source.ad_ref`. |
-| Sprawdzenie emisji lub duplikatu | [screenshots.jsonl](../data/nask-hacknation-2026/observations/screenshots.jsonl) | Połączenie przez `ad_id` prowadzi do oryginalnych ścieżek i SHA-256. Zrzut z `p2` jest identyczny z kopią w `p1`. Karty z `p3` i `p4` mają tę samą treść i różne ID biblioteki. |
-| Analiza stron i infrastruktury | [pages.jsonl](../data/nask-hacknation-2026/observations/pages.jsonl) | 15 obserwacji, w tym 12 z danymi HAR. Przy zapisie są tytuł, nagłówki, adres dokumentu bez parametrów i dostępne ślady sieciowe. Grafiki produktu i zrzut błędu są w `observations/media/`. |
-| Test parsera parametrów URL | [scam-links.txt](../data/nask-hacknation-2026/observations/scam-links.txt) | Trzy adresy z osobnego katalogu NASK mają wspólne `gad_source` i różne `gad_campaignid`. Adresy przetwarzamy lokalnie jako tekst. |
+| Emisje i kreacje | 13 rekordów `Ad`, 13 różnych PNG i 13 ręcznych transkrypcji fragmentu zrzutu. Trzy karty mają `source.ad_ref` odczytane z Biblioteki reklam Meta. | Sprawdź SHA-256, porównaj kreacje i napisy. Transkrypcja dziedziczy pochodzenie zrzutu. [Rekordy emisji](../data/nask-hacknation-2026/ads.jsonl) · [Opisy zrzutów](../data/nask-hacknation-2026/observations/screenshots.jsonl) |
+| Obserwacje stron | 15 zapisów, w tym dwa pobrania tego samego URL w `p1`. Dostępne pola obejmują tytuł, nagłówki, fragment treści, adres dokumentu bez zapytania i nazwy parametrów. Dla części zapisów zachowano wybrane liczbowe identyfikatory parametrów. | Zaimportuj jako samodzielne `PageCapture`. Łącz źródła w obrębie pobrania przez `capture_id`. [Zapisy stron](../data/nask-hacknation-2026/observations/pages.jsonl) |
+| HAR i multimedia stron | 12 zapisów zawiera podsumowania HAR. Wskazują 13 ścieżek w archiwum, gdyż jeden HAR występuje w dwóch katalogach. Zarejestrowane listy przekierowań są puste. Osobno zachowano 5 grafik produktów i 1 zrzut błędu HTTP. | Sprawdź `document_status`, `document_started_at`, `meta_pixel_ids` oraz `assets[].kind`. Grafika opakowania produktu pochodzi ze strony. Plik kreacji wskazuje `Ad.image_path`. [Zasoby stron](../data/nask-hacknation-2026/observations/media/) |
+| Katalog adresów | Trzy adresy z osobnego źródła mają tę samą wartość `gad_source` i trzy różne `gad_campaignid`. | Użyj jako testu lokalnego parsera i przykładu popularnego parametru. Oryginalne adresy pozostają tekstem. [Katalog źródłowy](../data/nask-hacknation-2026/observations/scam-links.txt) |
 
-## Interpretacja dowodów
+**Pokrycie.** W rekordach emisji liczba potwierdzonych `landing_url`, udokumentowanych związków emisja–zapis strony, etykiet kampanii i dat publikacji wynosi po zero. Pole `source.collected_at` oznacza czas utworzenia lokalnej kopii. Czasy żądań zapisane w HAR dotyczą konkretnych pobrań strony. Przy obecnych źródłach 0 z 78 par emisji ma dwie niezależne rodziny wymagane do silnej hipotezy kampanii. To przewidywanie z kontraktu i pokrycia danych. Skuteczność modelu na kampaniach wymaga osobnego pomiaru.
 
-`p1`–`p15` identyfikują podkatalogi archiwum. Wspólny podkatalog pozwala odnaleźć materiały do porównania. Przypisanie adresu docelowego reklamie wymaga potwierdzenia związku. Dlatego rekordy `Ad` mają pominięte `landing_url`, a etykiety kampanii pozostają nieustalone. Obraz i tekst odczytany z niego należą do jednej `observation_group`.
+## Przypadki do odtworzenia
 
-- **Podobieństwo kreacji.** Na kartach z `p3` i `p4` widać „Exclusive Silver Group”, ten sam krajobraz i napis „Temat, o którym mówi cała Polska”. ID biblioteki to odpowiednio `2180909792525319` i `4100374890267408`. Karta z `p3` pokazuje `AMAZON.COM`, podczas gdy HTML i HAR w tym katalogu wskazują inny host.
-- **Wspólny piksel.** W HAR z `p1`, `p2`, `p3`, `p4` i `p7` powtarza się Meta Pixel `4567646436826205`. Ścieżka `/signals/config/4567646436826205` i parametr `id` żądania `/tr/` opisują tę samą integrację. Zapisy z `p1` i `p2` są duplikatami. Żaden z 13 źródłowych HAR nie zawiera niepustego `response.redirectURL` ani nagłówka odpowiedzi `Location`.
-- **Dwa pobrania tej samej strony.** W `p1-http-502` główny dokument zwrócił 502. Z tego pobrania pochodzą metadane DNS/TLS oraz zrzut błędu. Późniejszy `p1-saved-page` dokumentuje odpowiedź 200 i artykuł o Brzosce. Porównuj `har.document_started_at` i `har.document_status`.
-- **Zasoby strony.** W `p10` plik `Kardivix.html` odwołuje się do zdjęcia opakowania `Kardivix_files/product.png`. W tym samym katalogu reklamę pokazuje osobny plik `Zrzut ekranu 2026-10-08 131631.png`. Podobnie `p9/Cactus Recipe.html` dotyczy słuchu, a osadzony odtwarzacz należy do strony docelowej.
+| Pytanie analityka | Obserwacja i granica wniosku |
+| --- | --- |
+| Czy dwie kopie zwiększają liczbę źródeł? | Zrzuty w `p1` i `p2` mają ten sam SHA-256. Wiersz zrzutu zachowuje obie ścieżki archiwalne. Również zapis strony i HAR mają wspólną kopię w tych katalogach. W profilu licz tę obserwację raz. |
+| Czy różne emisje powtarzają kreację? | Karty `p3` i `p4` mają różne identyfikatory biblioteki, odpowiednio `2180909792525319` oraz `4100374890267408`. Widać ten sam krajobraz, profil „Exclusive Silver Group” i ten sam napis. Pełne zrzuty mają odległość pHash 16/64. Pokazuj podobieństwo kreacji i odrębne emisje. Przy przypisaniu do kampanii brakuje niezależnego źródła. |
+| Jak zawodzi ranking pojedynczej cechy? | Wśród wszystkich 78 par pełnych ekranów najniższa odległość pHash występuje dla `p5/p8` i wynosi 14/64. Przepisane napisy są różne. Z kolei `p1/p7/p15` mają ten sam przepisany tekst, a obrazy `p1/p15` różnią się o 28/64 bitów. To przypadki do porównania pHash pełnego zrzutu, kadru i tekstu. Pomiar kontrolny używa 64-bitowego pHash po zamianie na szarość, skalowaniu Lanczos do 32 × 32 i progowaniu medianą bloku DCT 8 × 8. |
+| Co naprawdę wspólnego mają dwa hosty? | Zapisy `p1-saved-page` i `p7-saved-page` mają zgodny tytuł, cztery zgodne nagłówki i ten sam identyfikator piksela Meta w HAR na różnych hostach. Zapis `p15-saved-page` powtarza ten tytuł i nagłówki, a jego HAR ma inny piksel. To porównanie szablonu i integracji trzech stron. Różne piksele pozostawiają otwarte pytanie o operatora i kampanię. |
+| Gdzie kończy się dowód infrastrukturalny? | Ten sam piksel pojawia się w czterech różnych zapisach stron `p1/p3/p4/p7`. Kopia z `p2` oraz dwa sposoby zarejestrowania jednego piksela w HAR nie zwiększają liczby integracji. Na karcie reklamowej `p3` widać `AMAZON.COM`, podczas gdy HTML i HAR obok tej karty wskazują inny host. Nazwa katalogu jest tropem do weryfikacji. `AdPageLink` wymaga zapisu, który pozwala potwierdzić przejście z emisji do celu. |
+| Co zostaje przy błędzie strony? | W `p1-http-502` pobranie zwróciło 502. Z tego zapisu pochodzą DNS/TLS oraz zrzut błędu. Późniejszy `p1-saved-page` odnotowuje 200 i artykuł. Pokazuj obie obserwacje z czasem i statusem. Dla `p10` rozdziel zrzut reklamy i `assets[].file` prowadzące do zdjęcia opakowania produktu na stronie. |
 
-## Weryfikacja źródeł
+**Pokaz dla jury.** Na korpusie NASK pokaż dwie emisje z podobną kreacją oraz dwie strony z powtarzającą się integracją. Do zmierzenia trafności przypisań potrzebne są materiały z dozwolonego źródła i niezależne etykiety kampanii. Można ocenić emisje z osobnymi źródłami tekstu i obrazu także przy braku adresu celu. Wykorzystanie cech strony jako dowodu dotyczącego reklamy wymaga udokumentowanego związku emisja–cel. Kontrolowana próbka z własnymi danymi pozwoli sprawdzić przejście od zgłoszenia do decyzji także przy braku rzeczywistych etykiet. Wyniki dla danych rzeczywistych i kontrolowanych opisujemy oddzielnie. [Sposób oceny NASK](NASK_ZADANIE.md)
 
-[Manifest](../data/nask-hacknation-2026/manifest.json) podaje oficjalne adresy obu plików i ich sumy SHA-256. Poniższe polecenia uruchom w katalogu z pobranymi oryginałami. Do sprawdzenia korpusu już w repozytorium wystarczy [przykład w Pythonie](DATA_CONTRACT.md#lokalny-korpus-nask).
+## Weryfikacja offline i pochodzenie
 
-**Archiwum ZIP.** Pełny `___BACKUP.zip` ma 73 279 150 bajtów i 436 plików WinZip AES-256. Hasło `WSTAWAJSAMURAJU` powstaje przez odbicie każdego znaku w pionie z zachowaniem kolejności wierszy. Położenie kropki w polu klucza wskazuje lewą lub prawą literę. [Lusterko NASK](https://science.nask.pl/hacknation/lusterko) · [Klucz](https://science.nask.pl/hacknation/media/czekoladka.png) · [Obraz hasła](https://science.nask.pl/hacknation/media/_haslo.png)
+Zacznij od 13 obrazów i ich sum SHA-256 według [instrukcji w README](../README.md). Do sprawdzenia przykładów tekstowych porównaj `Ad.text`, do sprawdzenia stron odczytaj `html.title`, `html.headings` oraz `har.meta_pixel_ids` dla wymienionych `capture_id`. Pełne ścieżki do oryginałów i ich sumy SHA-256 są w obserwacjach. [Zapisy stron](../data/nask-hacknation-2026/observations/pages.jsonl)
+
+W przypadku dostępu do pobranych wcześniej oryginałów porównaj ich sumy z manifestem. Z archiwum ZIP można wypisać wybrany zapis bez rozpakowywania całego pakietu. Dla pierwszego odczytu oczekiwany jest tytuł z `502: Bad gateway`, dla drugiego 26 wpisów HAR. Poniższe polecenia uruchamia się w PowerShell w katalogu z oryginalnymi plikami.
 
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath ___BACKUP.zip
+Get-FileHash -Algorithm SHA256 -LiteralPath scam_links.enc
 tar.exe --passphrase WSTAWAJSAMURAJU -xOf ___BACKUP.zip BACKUP/p1/archive_dorquesio.click_20261008_090940/archive_info.json
 $har = tar.exe --passphrase WSTAWAJSAMURAJU -xOf ___BACKUP.zip BACKUP/p10/move-fitlum.top.har | Out-String | ConvertFrom-Json
 $har.log.entries.Count
 ```
 
-Oczekiwany wynik pierwszego odczytu to JSON z tytułem zawierającym `502: Bad gateway`. Drugi odczyt daje 26 wpisów HAR. Ich pełne sumy SHA-256 zawierają odpowiednio pola `archive_info.sha256` obserwacji `p1-http-502` i `har.sha256` obserwacji `p10-saved-page`.
+Odszyfrowana kopia `observations/scam-links.txt` ma 731 bajtów. Manifest podaje jej `decoded_sha256`. Hasło do ZIP i kod do katalogu wynikają z zagadek organizatora. Sposób odtworzenia opisano w [notatce z zagadek](ZAGADKI_NASK.html). [Manifest i sumy oryginałów](../data/nask-hacknation-2026/manifest.json)
 
-**Katalog adresów.** Kod `93JNG` z filmu w stopce otwiera `scam_links.enc` po zapisaniu małymi literami. OpenSSL odtwarza 731-bajtowy plik tekstowy, którego sumę zawiera `sources[].decoded_sha256` w manifeście. [Strona zagadki NASK](https://science.nask.pl/hacknation)
-
-```sh
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 10000 -md sha256 -a -in scam_links.enc -out decoded-catalog.txt -pass pass:93jng
-```
+**Warunki użycia.** Punkt 8 zadania ogranicza użycie materiałów NASK do realizacji wyzwania i zabrania ich publicznego rozpowszechniania. Korpus i prywatny pokaz są przeznaczone dla uprawnionych uczestników i jury. Publiczne przykłady należy przygotować z własnych materiałów. [Zasady korzystania z danych](NASK_ZADANIE.md)

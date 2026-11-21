@@ -1,45 +1,91 @@
-"""Agreguje results/<RUN>/*.json do summary.md (tabela per use case)."""
+"""Podsumowanie pomiarów CPU. Zachowuje poprawne wyniki częściowego przebiegu."""
 import json
+import math
 import sys
 from pathlib import Path
 
-res = Path(sys.argv[1])
-COLS = [("model", "model"), ("threads", "wątki"), ("load_s", "ładowanie s"),
-        ("model_ram_mb", "RAM modelu MB"), ("peak_ram_mb", "szczyt RAM MB"),
-        ("lat_p50_ms", "p50 ms"), ("lat_p95_ms", "p95 ms"), ("throughput_per_s", "elem/s"),
-        ("cpu_s_per_item", "CPU-s/elem"), ("avg_cores_used", "śr. rdzenie"),
-        ("peak_cores_used", "szczyt rdzeni")]
 
-out = [f"# Benchmark CPU — {res.name}\n",
-       "CPU-s/elem = czas CPU (wszystkie wątki kontenera, cgroup) na jeden element; "
-       "to główna miara kosztu. śr. rdzenie = CPU-s / czas ścienny.\n"]
-for f in sorted(res.glob("*.json")):
-    d = json.loads(f.read_text())
-    env = d["env"]
-    out.append(f"\n## {env['use_case']}\n")
-    out.append(f"limit CPU: {env['cgroup_cpu_limit']} | elementy ≤ {env['max_items']} × "
-               f"{env['repeats']} powt. | pomiar cgroup: {env['cgroup_measurement']} | "
-               f"{env['machine']}\n")
-    out.append("| " + " | ".join(c[1] for c in COLS) + " |")
-    out.append("|" + "---|" * len(COLS))
-    for r in d["results"]:
-        if "error" in r or "skipped" in r:
-            out.append(f"| {r['model']} | {r.get('threads')} | "
-                       f"**{r.get('error') or r.get('skipped')}** |" + " |" * (len(COLS) - 3))
-            continue
-        out.append("| " + " | ".join(str(r.get(k, "")) for k, _ in COLS) + " |")
-    lic = {r["model"]: r.get("license", "") for r in d["results"] if r.get("license")}
-    out.append("\nLicencje: " + "; ".join(f"{k}: {v}" for k, v in lic.items()))
-    # przykładowe wyjścia (najwyżej 4 elementy na model, z pierwszego przebiegu)
-    seen = set()
-    for r in d["results"]:
-        if r["model"] in seen or "sample_outputs" not in r:
-            continue
-        seen.add(r["model"])
-        out.append(f"\n<details><summary>wyjścia: {r['model']}</summary>\n\n```")
-        for k, v in list(r["sample_outputs"].items())[:30]:
-            out.append(f"{k}: {json.dumps(v, ensure_ascii=False)[:240]}")
-        out.append("```\n</details>")
+METRICS = {
+    "n_items": "próbki", "n_runs": "pomiary", "load_s": "ładowanie s",
+    "model_ram_mb": "przyrost pamięci MB", "peak_ram_mb": "szczyt próbkowany MB",
+    "lat_p50_ms": "p50 ms", "lat_p95_ms": "p95 ms", "throughput_per_s": "elem/s",
+    "cpu_s_per_item": "CPU-s/elem", "avg_cores_used": "śr. rdzenie",
+    "peak_cores_used": "szczyt rdzeni",
+}
 
-(res / "summary.md").write_text("\n".join(out) + "\n", encoding="utf-8")
-print("\n".join(out))
+
+def summarize(folder):
+    tables, issues = [], []
+    successes = 0
+    files = sorted(folder.glob("*.json"))
+    manifest = folder / "expected-suites.txt"
+    failed = folder / "failed-containers.txt"
+    if failed.is_file():
+        for name in failed.read_text(encoding="utf-8").splitlines():
+            issues.append(f"{name} — błąd uruchomienia kontenera lub zapisu logu")
+    if manifest.is_file():
+        expected = set(manifest.read_text(encoding="utf-8").splitlines())
+        for missing in sorted(expected - {path.stem for path in files}):
+            issues.append(f"{missing} — brak pliku wynikowego")
+    for path in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            env = data["env"]
+            if env["use_case"] != path.stem or not isinstance(data["results"], list):
+                raise ValueError("niespójny format zestawu")
+            if data.get("state", "complete") != "complete":
+                issues.append(f"{path.name} — zestaw nieukończony, poniżej zapisane konfiguracje")
+            tables.extend(["", f"## {path.stem}", "",
+                           f"{env['machine']} · limit CPU {env['cgroup_cpu_limit']} · "
+                           f"pomiar cgroup {env['cgroup_measurement']}", ""])
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            issues.append(f"{path.name} — błąd odczytu zestawu ({exc})")
+            continue
+        rows = data["results"]
+        if not rows:
+            if env.get("model_filter"):
+                tables.append("Żaden model w tym zestawie nie odpowiada filtrowi.")
+            else:
+                issues.append(f"{path.name} — brak wyników modeli")
+            continue
+        headers = ["model", "wątki", *METRICS.values()]
+        tables.extend(["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)])
+        for i, row in enumerate(rows, start=1):
+            try:
+                name, threads = row["model"], row["threads"]
+                if "error" in row or "skipped" in row:
+                    issues.append(f"{path.stem} / {name} / {threads} — {row.get('error') or row.get('skipped')}")
+                    continue
+                values = [row[key] for key in METRICS]
+                for key, value in zip(METRICS, values):
+                    if key == "peak_cores_used" and value is None:
+                        continue  # próba mogła trwać krócej niż okres próbkowania
+                    if type(value) not in (int, float) or not math.isfinite(value):
+                        raise ValueError(f"brak pomiaru {key}")
+                if row["n_items"] <= 0 or row["n_runs"] <= 0:
+                    raise ValueError("brak próbek")
+            except (ValueError, KeyError, TypeError) as exc:
+                issues.append(f"{path.name}, wiersz {i} — uszkodzony wynik ({exc})")
+                continue
+            cells = [name, threads, *values]
+            tables.append("| " + " | ".join("—" if v is None else str(v) for v in cells) + " |")
+            successes += 1
+    if not successes:
+        issues.append("Brak udanych pomiarów kosztu.")
+    lines = [f"# Benchmark CPU — {folder.name}", "", f"Udane konfiguracje modelu i wątków: {successes}.",
+             "Koszt obejmuje inferencję i przygotowanie zwracanego wyniku. "
+             "Pełne wyjścia i licencje modeli zapisano w plikach JSON."]
+    if issues:
+        lines.extend(["", "## Braki i błędy", "", *[f"- {issue}" for issue in issues]])
+    lines.extend(tables)
+    return "\n".join(lines) + "\n", bool(issues)
+
+
+if __name__ == "__main__":
+    folder = Path(sys.argv[1])
+    if not folder.is_dir():
+        sys.exit(f"Brak katalogu wyników: {folder}")
+    report, failed = summarize(folder)
+    (folder / "summary.md").write_text(report, encoding="utf-8")
+    print(report)
+    sys.exit(int(failed))

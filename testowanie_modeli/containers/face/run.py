@@ -64,7 +64,7 @@ def infer_cv(m, path):
 
 run_suite("face", [
     ModelSpec("insightface/buffalo_l", "face",
-              "kod MIT; wagi modeli tylko do użytku niekomercyjnego/badawczego",
+              "kod MIT; wagi modeli wyłącznie do niekomercyjnych badań",
               load_insight, infer_insight, inputs,
               notes="RetinaFace + ArcFace(512d) + wiek/płeć", item_label=short_label),
     ModelSpec("opencv/yunet+sface", "face",

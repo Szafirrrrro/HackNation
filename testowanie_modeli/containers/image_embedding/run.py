@@ -30,7 +30,7 @@ def infer_clip(mm, path):
         f = m.get_image_features(**p(images=Image.open(path).convert("RGB"), return_tensors="pt"))
         f = torch.nn.functional.normalize(f, dim=-1)
         sims = (f @ tfeat.T)[0]
-    return {"dim": f.shape[-1], "top_tag": TAGS[int(sims.argmax())]}
+    return {"dim": f.shape[-1], "embedding": f[0].tolist(), "top_tag": TAGS[int(sims.argmax())]}
 
 
 def load_dino(threads):
@@ -43,7 +43,8 @@ def infer_dino(mm, path):
     m, p = mm
     with torch.inference_mode():
         out = m(**p(images=Image.open(path).convert("RGB"), return_tensors="pt"))
-    return {"dim": out.pooler_output.shape[-1]}
+    vector = torch.nn.functional.normalize(out.pooler_output, dim=-1)[0]
+    return {"dim": vector.shape[-1], "embedding": vector.tolist()}
 
 
 def load_hash(threads):

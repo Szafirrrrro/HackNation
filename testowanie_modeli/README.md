@@ -1,74 +1,66 @@
-# testowanie_modeli — benchmark CPU modeli dla „Follow the Fake” (NASK / HackNation)
+# Laboratorium modeli ScamGraph
 
-Kontenery z kandydującymi modelami do ekstrakcji cech z podejrzanych reklam
-(wg `NASK - Pełna Treść Zadania Konkursowego.pdf`) i benchmark zużycia CPU.
-Wszystko działa **na CPU, bez sieci** (`--network none`); wagi są wbudowane w obrazy.
+Siedem kontenerów uruchamia osiem rodzajów eksperymentów na CPU. Z każdego udanego przebiegu można odczytać wynik ekstrakcji i jego koszt. W sprawdzonym katalogu `results/` jest tylko `.gitkeep`. Skuteczność modeli na kampaniach NASK, zużycie pamięci i czas działania na docelowym komputerze czekają na pomiar. [Skrypt uruchomieniowy](bench.sh) · [Kod pomiaru](common/bench.py) · [Raport](scripts/report.py)
 
-## Use case'y i modele
+## Który eksperyment odpowiada na problem analityka?
 
-| use case (kontener) | po co w zadaniu | model A (lżejszy) | model B (mocniejszy) |
-|---|---|---|---|
-| `face` | wizerunki osób → baza referencyjna znanych osób | OpenCV YuNet + SFace (128d) | InsightFace buffalo_l (RetinaFace + ArcFace 512d + wiek/płeć) |
-| `ocr` | tekst/URL ze zrzutów ekranu | Tesseract 5 (pol+eng) | EasyOCR (CRAFT + CRNN, pl/en) |
-| `text` → `text_embedding` | podobieństwo narracji, klastrowanie | multilingual-e5-small | BAAI/bge-m3 |
-| `text` → `text_topic` | tematyka (krypto, zdrowie, dopłaty…) zero-shot | multilingual-MiniLMv2-L6 xnli | mDeBERTa-v3-base xnli |
-| `image_embedding` | podobieństwo kreacji / szablonu, duplikaty | DINOv2-small (+ pHash/dHash baseline) | CLIP ViT-B/32 LAION (+ zero-shot tagi) |
-| `object_detection` | logotypy, QR, osoby, banknoty, karty (open-vocab) | Grounding DINO tiny | OWLv2 base |
-| `asr` | transkrypcja reklam wideo | faster-whisper base int8 | faster-whisper small int8 |
-| `ai_generated` | czy kreacja z generatora AI / SynthID (Gemini) | reverse-SynthID v3 i v4 (spektralne, bez NN) | SigLIP „AI vs human” (Ateeqq) |
+| Rodzina i implementacje w repozytorium | Decyzja i sposób sprawdzenia |
+| --- | --- |
+| **OCR** · Tesseract 5 `pol+eng`, EasyOCR `pl/en` | Zaczynamy od Tesseract. B przygotowuje pełne transkrypcje wybranych *kadrów*. Porównuje oba silniki przez odsetek błędnych znaków (CER), poprawne odczytanie całej charakterystycznej frazy lub domeny i p95. Teksty w lokalnym korpusie to ręczne fragmenty. Wykorzystanie fragmentu jako pełnej referencji błędnie ukarałoby poprawnie odczytane dodatkowe słowa. |
+| **Obraz** · pHash/dHash, DINOv2-small, CLIP ViT-B/32 | Dla identycznego pliku wystarcza SHA-256. Dla podobnego kadru sprawdzamy pHash. Po przeoczeniu wykadrowanej kreacji porównujemy go z dopasowaniem lokalnych punktów ORB w OpenCV i DINOv2-small. Mierzymy dodatkowe poprawne wyniki top-3 oraz pomyłki przy wspólnej ramce platformy. CLIP odkładamy do zadania wyszukiwania obrazów o wspólnym znaczeniu. |
+| **Tekst** · multilingual-e5-small, BGE-M3 | Punktem odniesienia będzie znakowy TF-IDF `char_wb` 3–5. E5-small testujemy, gdy pominięta parafraza różni się słownictwem. Dla symetrycznego porównania E5 dodajemy `query: ` do obu tekstów. Porównujemy miejsce właściwej emisji w rankingu. BGE-M3 ma sens po wykazaniu powtarzalnego błędu mniejszego modelu. |
+| **Temat** · MiniLMv2-L6 XNLI, mDeBERTa-v3-base XNLI | Odłożyć. Zestaw zwraca jedną z zadanych kategorii także dla tekstu spoza listy. Dwie różne kampanie mogą reklamować leki. |
+| **Obiekty** · Grounding DINO tiny, OWLv2 base | Odłożyć. Kod zwraca rozpoznane kategorie. Dla kodu QR bardziej użyteczne jest porównanie lokalnie zdekodowanych wartości. Wspólne logo lub telefon wymaga dalszych dowodów. |
+| **Twarze** · YuNet + SFace, InsightFace buffalo_l | Odłożyć. Kontener zapisuje m.in. ramki i rozmiar wektora. Test powiązań wymagałby uprawnionej bazy referencyjnej, weryfikacji wag oraz różnych kampanii z tą samą osobą. |
+| **Mowa** · faster-whisper base/small int8 | Lokalny zbiór reklam składa się z obrazów. Przy otrzymaniu nagrań przygotować pełne transkrypcje i mierzyć błędy słów, odzyskane frazy oraz czas na minutę nagrania. Bieżący eksperyment zapisuje pierwsze 200 znaków transkrypcji. |
+| **Pochodzenie obrazu** · reverse-SynthID v3/v4, klasyfikator AI/human oparty na SigLIP | Pominąć w grupowaniu. Ten sam generator może służyć niezależnym kampaniom. Materiały walidacyjne producenta detektora i przykłady syntetyczne nadają się do próby uruchomienia. |
 
-### Uwaga o reverse-SynthID
-Używamy **wyłącznie ścieżek detekcji** z [aloshdenny/reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID)
-(przypięty commit `b110836`, bez bypassu). Autor deklaruje ~90% skuteczności, ale niezależna analiza
-([froggeric/…/synthid-detection-feasibility.md](https://github.com/froggeric/gemini-watermark-and-synthid-remover/blob/main/docs/research/synthid-detection-feasibility.md))
-raportuje brak mocy dyskryminacyjnej na obrazach z treścią (ROC AUC ≈ 0.20). Dlatego `./bench.sh samples`
-kopiuje etykietowany zestaw z repo (`ai_generated/gemini` = z watermarkiem, `cleaned` = po usunięciu,
-`non_ai` = nasze syntetyczne grafiki) — wyniki w `summary.md` pozwalają ocenić to na własnych danych.
-Sygnał SynthID traktujmy najwyżej jako cechę pomocniczą „ten sam generator/pipeline” w klastrowaniu.
-Codebook v3 to plik pickle z upstreamu — ładowany wyłącznie w kontenerze bez sieci.
+Porównanie całych 13 zrzutów dało 78 par. pHash o długości 64 bitów dał odległość 16 dla p3/p4 i 14 dla p5/p8, chociaż w tej drugiej parze transkrypcje są różne. Te same transkrypcje występują w czterech parach, jednej z p3/p4 i trzech z p1/p7/p15. To obserwacje podobieństwa cech. Trafność przypisania do kampanii wymaga niezależnych etykiet. [Dane i pochodzenie](../docs/NASK_DATA.md) · [Tesseract](https://tesseract-ocr.github.io/tessdoc/) · [Dopasowania OpenCV](https://docs.opencv.org/4.x/dc/dc3/tutorial_py_matcher.html) · [Karta E5](https://huggingface.co/intfloat/multilingual-e5-small) · [DINOv2](https://github.com/facebookresearch/dinov2)
 
-## Użycie
+## Uruchomienie dostępne dziś
+
+**Testy laboratorium.** Z katalogu głównego repozytorium wykonaj polecenie w PowerShell. Na Linuksie użyj `python3` w miejsce `py -3`. Wystarcza Python 3.10+ i zapisywalny katalog plików tymczasowych. Cztery testy sprawdzają odczyt danych, raport i zachowanie częściowych wyników.
+
+```powershell
+py -3 -B -m unittest discover -s testowanie_modeli/tests -v
+```
+
+**Pierwszy pomiar CPU.** Użyj Bash na Linuksie lub WSL2 z dostępnym z tej powłoki Dockerem w trybie kontenerów linuksowych i poleceniem `python3`. Budowanie wymaga sieci i miejsca na bazę PyTorch oraz pobierane wagi. Filtr `MODELS` działa podczas inferencji. Budowanie OCR pobiera również EasyOCR. Zacznij w katalogu głównym repozytorium z plikami Bash zakończonymi LF.
 
 ```bash
-./bench.sh build                 # tm-base + 7 obrazów (kilka-kilkanaście GB, raz)
-./bench.sh samples               # syntetyczne dane -> data/sample (teksty, grafiki, twarze, audio PL przez macOS `say`)
-./bench.sh run                   # wszystkie use case'y -> results/<timestamp>/summary.md
-./bench.sh run face ocr          # wybrane
-DATA=./data/user CPUS=2 THREADS=1,2 RUN=moje ./bench.sh run
-MODELS=bge-m3 ./bench.sh run text
-./bench.sh report results/<RUN>
+cd testowanie_modeli
+docker info
+bash bench.sh build ocr
+DATA=../data/nask-hacknation-2026 CPUS=4 MEM=6g THREADS=1 MODELS=tesseract bash bench.sh run ocr
 ```
 
-### Własne dane (`DATA=...`)
-```
-data/user/
-  texts/*.txt          # 1 plik = 1 tekst reklamy
-  images/*.png|jpg     # kreacje (embedding obrazów, detekcja obiektów; fallback dla faces/screenshots)
-  faces/*.jpg          # opcjonalnie, inaczej images/
-  screenshots/*.png    # opcjonalnie (OCR), inaczej images/
-  audio/*.wav|mp3|mp4  # ASR
-  ai_generated/**      # opcjonalnie (podkatalogi = etykiety), inaczej images/
+Skrypt nada nowemu przebiegowi nazwę z daty i czasu. Zapisze `results/<RUN>/ocr.json`, log oraz `summary.md`. Ponowne użycie istniejącej nazwy `RUN` powoduje błąd. Dane w kontenerze są zamontowane tylko do odczytu. Inferencja działa z `--network none`. W kopii Windows z końcami CRLF można w tej samej sesji Bash użyć funkcji poniżej i zastąpić w powyższych wywołaniach `bash bench.sh` nazwą `bench`. Funkcja normalizuje końce wierszy w pamięci. Polecenie `bench help` wyświetla opis.
+
+```bash
+bench() { bash -c "$(tr -d '\r' < bench.sh)" ./bench.sh "$@"; }
 ```
 
-## Co mierzymy
-Harness: `common/bench.py`. Dla każdego modelu i liczby wątków (`THREADS`, domyślnie `1,all`):
-- **CPU-s/elem** — czas CPU całego kontenera (cgroup v2 `cpu.stat`, łapie wszystkie wątki i podprocesy, np. tesseract) na element. Główna miara kosztu; przy 1 wątku ≈ koszt na rdzeń.
-- latencja p50/p95, throughput, średnie i szczytowe zużycie rdzeni (próbkowanie co 100 ms),
-- czas ładowania modelu, RAM modelu, szczytowy RAM kontenera.
-Limit CPU kontenera: `CPUS` (domyślnie 4), RAM: `MEM` (domyślnie 6g; Docker Desktop ma ~7.6 GB).
-Wyniki dotyczą maszyny, na której puszczono benchmark (tu: Apple M3, Linux arm64 w VM Docker Desktop).
+Do porównania użyj identycznego `DATA`, `CPUS`, `MEM`, `THREADS`, `WARMUP`, `REPEATS` i `MAX_ITEMS` w obu przebiegach. Warianty tekstowe buduje `bash bench.sh build text`, a wizualne `bash bench.sh build image_embedding`. Wykonaj wybrany eksperyment z katalogu laboratorium po zbudowaniu odpowiedniego obrazu.
 
-## Licencje (do dokumentacji projektu, wymóg pkt 4 zadania)
-| komponent | licencja / ograniczenia |
-|---|---|
-| InsightFace buffalo_l | kod MIT; **wagi tylko niekomercyjnie** |
-| OpenCV YuNet / SFace | MIT / Apache-2.0 |
-| Tesseract, EasyOCR | Apache-2.0 |
-| multilingual-e5-small, bge-m3, mDeBERTa/MiniLM xnli (MoritzLaurer) | MIT |
-| CLIP ViT-B/32 LAION | MIT; DINOv2 Apache-2.0; imagehash BSD-2 |
-| OWLv2, Grounding DINO | Apache-2.0 |
-| faster-whisper / Whisper | MIT |
-| reverse-SynthID | **Research License: niekomercyjnie, wymagana atrybucja** „reverse-SynthID by Alosh Denny — github.com/aloshdenny/reverse-SynthID” |
-| Ateeqq/ai-vs-human-image-detector | Apache-2.0 |
+```bash
+DATA=../data/nask-hacknation-2026 THREADS=1 MODELS=multilingual-e5-small bash bench.sh run text
+DATA=../data/nask-hacknation-2026 THREADS=1 MODELS=dinov2-small bash bench.sh run image_embedding
+```
 
-Dane w `data/sample` są syntetyczne (oprócz zdjęcia testowego z pakietu insightface i obrazów walidacyjnych z repo reverse-SynthID) — to smoke-test, nie ewaluacja jakości.
+Polecenie `bash bench.sh report results/NAZWA_PRZEBIEGU` odtwarza raport w podanym katalogu. Domyślnie laboratorium bierze maksymalnie 20 elementów, jedno wejście na rozgrzewkę, trzy powtórzenia oraz konfiguracje jednego i wszystkich przydzielonych wątków. Pominięcie zestawu przez filtr modeli jest dopuszczalne, gdy inny wybrany model dostarczył wynik. Błąd kontenera, niepełny zestaw lub brak wejść dla wybranego modelu wymaga sprawdzenia raportu i logu. Skrypt raportujący sygnalizuje taki przypadek niezerowym kodem wyjścia.
+
+**Własne dane.** Podaj `DATA` jako katalog z `texts/*.txt`, `images/` lub `audio/`. Można podać osobne `screenshots/`, `faces/` i `ai_generated/`. Na korpusie projektu laboratorium odczytuje `ads.jsonl` i `media/`. Opcjonalne `bash bench.sh samples` wymaga wcześniejszego zbudowania obrazów `face` i `ai_generated`. Odtwarza przykłady w `data/sample/`, w tym materiały testowe podmiotów trzecich. Generowanie ścieżek audio zależy od macOS z polskim głosem Zosia. Do ASR na Linux/Windows dostarcz własne pliki audio.
+
+## Pomiar jakości i decyzja o GPU
+
+Raport CPU podaje p50/p95 inferencji, czas ładowania, przepustowość, zużycie CPU na element i pamięć próbkowaną co 100 ms. Krótki pik pamięci może wypaść między próbkami. Cgroup v2 obejmuje cały kontener, procedura zastępcza wykorzystuje psutil. Uruchamiaj jeden model i jeden wariant wątków na przebieg. Zapisz procesor, limity, liczbę plików, odcisk danych, identyfikator obrazu i dokładne rewizje pobranych wag. Część źródeł korzysta z ruchomych wersji. [Implementacja pomiaru](common/bench.py)
+
+Na zbiorze rozwojowym porównaj sam tekst, pełną bazę klasyczną i tę samą bazę z **jednym** embeddingiem. B przypisuje każdy przeoczony przypadek do błędu odczytu, wyszukiwania lub reguły scalania. Najpierw poprawiamy właściwy etap. Embedding wolno włączyć, gdy odzyska dodatkowy zgodny wariant w top-3, utrzyma lub obniży liczbę fałszywych przypisań i zmieści się w budżecie. Cel projektowy to p95 do 5 s od przyjęcia obrazu do wyniku na gotowym indeksie. Czas OCR zapisujemy także osobno. Raport kosztów pojedynczego modelu nie mierzy tej ścieżki. Po zamrożeniu konfiguracji mierzymy raz na odłożonych rodzinach. Publikujemy liczniki i mianowniki dla znanych oraz nowych kampanii, liczbę wstrzymań i oddzielne wyniki na danych syntetycznych. [Plan ewaluacji](../docs/MVP.md)
+
+Dostępne stanowisko GPU ma RTX 3050 Laptop z 4 GiB VRAM. Obecny skrypt i obrazy wykonują obliczenia na CPU. Planowany eksperyment GPU ma własny obraz z PyTorch CUDA i lokalnymi wagami. Najpierw sprawdzamy zgodność sterownika i widoczność GPU w kontenerze. Ładujemy jeden wybrany model z partią 1 i mierzymy p95, VRAM oraz koszt odczytu OCR przy tych samych wejściach co na CPU. Po przekroczeniu pamięci lub budżetu demonstrator korzysta z pełnej ścieżki CPU. [Plan budowy](../docs/INSTRUKCJA_BUDOWY.md)
+
+## Dane, licencje i pakiet dla jury
+
+JSON z wynikami może zawierać prywatny tekst OCR, identyfikatory i wektory. Przechowuj katalogi przebiegów w dostępie zespołu i jury. Przed eksportem sprawdź również kontekst budowania Dockera, logi i historię Git. Do publicznego przykładu użyj własnych materiałów o ustalonych prawach. [Zasady NASK](../docs/NASK_ZADANIE.md) · [Regulamin](../docs/NASK_REGULAMIN.md)
+
+Ewidencja licencji powinna podawać dokładny pakiet, rewizję wag, źródło, warunki i wymagane noty. Tesseract i EasyOCR deklarują Apache-2.0, E5-small MIT, DINOv2 Apache-2.0. Oznaczenia pozostałych kandydatów znajdują się przy `ModelSpec` w [kontenerach](containers/). Sprawdź je u producenta przed dołączeniem wag. Wagi buffalo_l ograniczono do badań niekomercyjnych. Eksperymentalny reverse-SynthID ma warunki badawcze, niekomercyjne i wymaganą atrybucję „reverse-SynthID by Alosh Denny — github.com/aloshdenny/reverse-SynthID”. Retencja i udostępnienie wyniku wymagają uwzględnienia także warunków danych wejściowych. [InsightFace](https://github.com/deepinsight/insightface#license) · [reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID)

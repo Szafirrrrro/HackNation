@@ -1,50 +1,52 @@
 # ScamGraph
 
-**Od jednej podejrzanej reklamy do grupy materiałów, które warto sprawdzić razem.**
+ScamGraph ma pomóc analitykowi NASK odpowiedzieć na pytanie „Czy tę reklamę widzieliśmy już w innej odsłonie?”. Analityk wczyta zbiór postów, zobaczy proponowane kampanie na grafie, wybierze grupę i prześledzi jej historię na osi czasu. Po dodaniu nowego materiału będzie mógł otworzyć dwa porównywane źródła i ocenić podstawę przypisania.
 
-ScamGraph to planowany demonstrator na zadanie NASK „Kolekcjoner Fejków” podczas HackNation 2026. Analityk dodaje obraz lub zrzut reklamy. Aplikacja porównuje go z wcześniej zebranymi materiałami i pokazuje proponowane powiązania wraz z konkretnymi śladami. Zbieżność ogólnego tematu lub wizerunku może uzasadnić porównanie. Przypisanie do kampanii wymaga silniejszych przesłanek.
+**Dziś w repozytorium** można zweryfikować prywatny korpus, obejrzeć obserwacje reklam i stron oraz uruchomić testy laboratorium modeli. **Do zbudowania** są importer aplikacji, silnik grupowania, ekran analityka i kontener demonstratora. Laboratorium ma własne kontenery CPU. Wyniki trafności przypisania do rzeczywistych kampanii pozostają do zmierzenia.
 
-## Zakres pierwszej wersji
+## Od pliku do wyniku
 
-- Korpus startowy zawiera 13 reklam z publicznej zagadki NASK. Każdy rekord ma lokalny obraz, fragment tekstu widocznego na zrzucie i udokumentowane pochodzenie.
-- Jeden lokalny ekran Streamlit z wejściem PNG/JPEG, opcjonalnym tekstem i znanym adresem docelowym. Analiza korzysta z zapisanego korpusu.
-- Deterministyczne porównanie obrazów, tekstu i dostępnych metadanych. OCR odczytuje tekst z kreacji. Silnik pokazuje grupę, hipotezę do sprawdzenia albo brak podstaw do przypisania.
-- Pokaz jednego uzasadnionego dopasowania i jednego trudnego kontrprzykładu, z pomiarem względem prostego wariantu tekstowego.
+| Krok | Technologia i wynik planowanego systemu | Wymaganie NASK |
+| --- | --- | --- |
+| 1. Wczytaj materiały | Python przyjmuje manifest i rekordy JSONL, obraz PNG/JPEG/WebP, tekst, adres lub zapisany HTML/HAR. Raport podaje przyjęte rekordy, duplikaty i braki. SHA-256 rozpoznaje kopie pliku, a ID dostawcy pozwala zachować dwie emisje tej samej kreacji. | Import, deduplikacja, obsługa niepełnych danych |
+| 2. Znajdź podobne kreacje | Pillow i pHash porównują obraz, OpenCV ORB dopasowuje punkty kadru. Tesseract odczytuje polski i angielski tekst, a znakowy TF-IDF w scikit-learn porównuje jego fragmenty. Analityk zobaczy oba kadry lub wspólną frazę. | Automatyczna ekstrakcja cech i rozpoznawanie wariantów |
+| 3. Porównaj strony | Python odczytuje hosty i ścieżki z adresów, nagłówki z zapisanych stron oraz piksele śledzące z logów HAR. Udokumentowane połączenie reklama–strona pozwala wykorzystać znalezisko przy ocenie postu. | Różnorodne ślady i możliwość wskazania źródła |
+| 4. Zbuduj grupy | Silnik ocenia pary postów. Przy scalaniu dwóch grup każda para między grupami musi mieć mocne powiązanie (*complete-link*). Pojedynczy post może pozostać poza grupą. | Korelacja i klastrowanie materiałów |
+| 5. Sprawdź nową reklamę | Nowy post jest porównywany z zamrożonym zbiorem odniesienia. Wynik obejmuje proponowaną kampanię, sugestie do przeglądu, niewystarczające dane albo możliwy nowy wzorzec. | Rozpoznawanie wariantów znanych i odrębnych kampanii |
+| 6. Otwórz dowód | W Streamlit graf Cytoscape.js pokazuje posty i grupy, a vis-timeline zdarzenia wybranej kampanii. Kliknięcie połączenia otwiera oba źródła. Kliknięcie zdarzenia wskazuje post na grafie. | Proste GUI, czytelna prezentacja i interpretacja |
 
-Zgodnie z nowym opisem NASK po 30% oceny przypada na metodę korelacji i grupowania oraz na jakość cech i źródeł. Pozostałe kryteria to pełny demonstrator (15%), interpretowalność (15%) oraz potencjał wdrożeniowy, skalowalność i przenośność (10%). Podczas oceny NASK wykorzysta także wcześniej nieudostępniony zbiór. [Pełny opis zadania](docs/NASK_ZADANIE.md)
+Za korelację i grupowanie jury przyznaje 30% oceny, a za użyteczność cech i źródeł kolejne 30%. Graf i oś czasu to wybrane przez zespół sposoby prezentacji. [Pełna treść zadania NASK](docs/NASK_ZADANIE.md) · [Zakres i kryteria odbioru](docs/MVP.md)
 
-## Dane do pierwszego uruchomienia
+## Pierwszy kwadrans w projekcie
 
-Wskaż jako katalog korpusu [data/nask-hacknation-2026](data/nask-hacknation-2026/). Rekordy wejściowe są w [ads.jsonl](data/nask-hacknation-2026/ads.jsonl). Ich ścieżki `image_path` liczą się od katalogu z [manifestem](data/nask-hacknation-2026/manifest.json). Całość można odczytać offline.
+**1. Sprawdź lokalną kopię.** W prywatnej kopii repozytorium otwórz PowerShell w katalogu zawierającym ten README. Ćwiczenie korzysta z wbudowanych poleceń i działa offline.
 
-Materiały przekazane przez NASK służą wyłącznie realizacji wyzwania. Punkt 8 zadania zabrania ich publicznego rozpowszechniania. Korpus pracuje lokalnie, a publiczna strona zespołu ilustruje reguły na danych syntetycznych. Dostęp do repozytorium zawierającego korpus lub jego historię powinien być ograniczony.
-
-Pierwsze porównanie można wykonać na zrzutach [p3](data/nask-hacknation-2026/media/p3-123146.png) i [p4](data/nask-hacknation-2026/media/p4-123420.png). Na obu widać ten sam krajobraz i tekst „Temat, o którym mówi cała Polska”. Karty mają różne ID Biblioteki reklam Meta. To para do sprawdzenia podobieństwa kreacji. Etykieta kampanii pozostaje nieustalona.
-
-W podkatalogu `observations/` są też [zapisy 15 obserwacji stron](data/nask-hacknation-2026/observations/pages.jsonl) z nagłówkami i dostępnymi śladami sieciowymi oraz [trzy adresy z katalogu NASK](data/nask-hacknation-2026/observations/scam-links.txt) do testowania parsera. Adresy przetwarzamy lokalnie jako tekst. [Opis pól i przykład odczytu](docs/DATA_CONTRACT.md#lokalny-korpus-nask)
-
-## Start prac
-
-1. Zacznij od [pełnej treści zadania NASK](docs/NASK_ZADANIE.md) i [regulaminu zadania](docs/NASK_REGULAMIN.md).
-2. Przeczytaj [plan MVP](docs/MVP.md), [kontrakt danych](docs/DATA_CONTRACT.md) i [przewodnik po danych NASK](docs/NASK_DATA.md). Zasady pracy i przeglądu zmian są w [AGENTS.md](AGENTS.md).
-3. Wczytaj lokalny korpus NASK i wybierz przypadki do porównań i ewaluacji przed strojeniem.
-4. Para A odpowiada za obraz i OCR, para B za import, tekst i metadane, para C za korelację, interfejs i ewaluację. Pierwszy wspólny wynik to obliczony dowód widoczny z formularza. [Plan, podział ról i testy odbiorowe](docs/MVP.md)
-
-## Podręcznik dewelopera
-
-[Pierwszy dzień w projekcie](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/start.html) prowadzi od uruchomienia przykładu do pierwszego zadania w parze. [Interaktywna mapa systemu](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/#architektura), [kontrakty warstw](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/architektura.html) i [przykład jednej analizy](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/przyklad.html) opisują ten sam przepływ z trzech perspektyw.
-
-Strona dla programistów przedstawia architekturę, technologie, odpowiedzialność trzech par i testy integracji. Statyczny przykład pokazuje reguły dopasowania na danych syntetycznych. Jej pliki źródłowe znajdują się w [sites/scamgraph/dist/](sites/scamgraph/dist/), a scenariusze mają [testy w Node.js](sites/scamgraph/tests/cases.test.mjs). Poniższe polecenia uruchamiają statyczną stronę z katalogu głównego. W Windows możesz użyć `py -3` zamiast `python`.
-
-```sh
-node --test sites/scamgraph/tests/cases.test.mjs
-python -m http.server 8000 --bind 127.0.0.1 --directory sites/scamgraph/dist
+```powershell
+$korpus = 'data/nask-hacknation-2026'
+$reklamy = @(Get-Content -Encoding utf8 (Join-Path $korpus 'ads.jsonl') | ForEach-Object { ConvertFrom-Json $_ })
+$zrzuty = Get-Content -Encoding utf8 (Join-Path $korpus 'observations/screenshots.jsonl') | ForEach-Object { ConvertFrom-Json $_ }
+$sumy = @{}
+foreach ($zrzut in $zrzuty) { $sumy[$zrzut.ad_id] = $zrzut.sha256 }
+$zgodne = @($reklamy | Where-Object {
+    $plik = Join-Path $korpus $_.image_path
+    (Get-FileHash -LiteralPath $plik -Algorithm SHA256 -ErrorAction Stop).Hash -eq $sumy[$_.ad_id]
+})
+"SHA-256: $($zgodne.Count)/$($reklamy.Count)"
 ```
 
-Podgląd działa pod adresem `http://127.0.0.1:8000/`.
+Oczekiwany wynik dla tej wersji to **`SHA-256: 13/13`**. Inny wynik oznacza, że warto sprawdzić pliki mediów oraz zgodność rekordów z manifestem, zanim zacznie się porównywać metody. [Manifest korpusu](data/nask-hacknation-2026/manifest.json)
 
-## Materiały organizatorów
+**2. Rozróżnij plik, emisję i kampanię.** Otwórz karty p3 i p4. Mają różne ID Biblioteki reklam, ale pokazują ten sam krajobraz i napis. To dwie **emisje** podobnej **kreacji**. Identyczny plik w p1 i p2 można rozpoznać po sumie SHA-256. **Kampania** jest szerszą hipotezą o wspólnym działaniu, która wymaga dodatkowych przesłanek. [Karta p3](data/nask-hacknation-2026/media/p3-123146.png) · [Karta p4](data/nask-hacknation-2026/media/p4-123420.png)
 
-- [Pełna treść zadania NASK](docs/NASK_ZADANIE.md) i [regulamin zadania](docs/NASK_REGULAMIN.md). W regulaminie §2 dotyczy oceny, a §4 praw autorskich. Mapa wymagań jest w planie MVP.
-- [FakeCollector PRO™ — przykład NASK](https://science.nask.pl/hacknation). Parodia reklamy z inspiracjami technicznymi i wskazówką do katalogu materiałów.
-- [Przewodnik uczestnika HackNation](https://hacknation.pl/przewodnik-uczestnika) i [komunikat NASK o zadaniu oraz kierunku integracji z DROZD](https://www.nask.pl/aktualnosci/polska-rzuca-wyzwanie-hakerom-nask-na-hacknation).
+**3. Odszukaj drugi rodzaj dowodu.** W zapisach stron p1 i p7 powtarzają się tytuł, nagłówki i identyfikator Meta Pixel mimo różnych hostów. Strona p15 zachowuje tytuł, a ma inny piksel. To przykład podobnego szablonu i różnego śladu infrastrukturalnego. W 13 rekordach reklam brak potwierdzonych adresów celu. Przy obecnych danych można więc pokazać te zależności między stronami, a związek z konkretnym postem pozostaje otwarty. [Przewodnik z przykładami](docs/NASK_DATA.md)
+
+## Gdzie zacząć pracę
+
+| Twoja rola | Pierwsza lektura | Pierwszy wynik do przekazania |
+| --- | --- | --- |
+| A · dane i źródła | [Korpus NASK](docs/NASK_DATA.md) i [kontrakt danych](docs/DATA_CONTRACT.md) | Dwie emisje i zapis strony z identyfikatorami źródeł |
+| B · ekstrakcja i pomiar | [Laboratorium modeli i testy](testowanie_modeli/README.md) | Porównanie dwóch kadrów z miarą i informacją o pochodzeniu |
+| C · korelacja | [Kontrakt i reguła decyzji](docs/DATA_CONTRACT.md) | Ocena pary odtwarzalna z obu źródeł |
+| C · demonstrator | [Scenariusz grafu i osi czasu](docs/PLAN_GRAF_I_OS_CZASU.md) | Pierwszy wynik obliczony po przesłaniu materiału przez formularz |
+
+Kolejność integracji i testy każdej warstwy opisuje [instrukcja budowy](docs/INSTRUKCJA_BUDOWY.md). Przed zmianami przeczytaj [zasady pracy i przeglądu](AGENTS.md). Korpus i jego historię udostępniamy wyłącznie zespołowi i uprawnionym oceniającym. Na publiczny pokaz przygotowujemy własne dane syntetyczne. [Zasady danych w pkt 8 zadania](docs/NASK_ZADANIE.md) · [Regulamin NASK](docs/NASK_REGULAMIN.md)

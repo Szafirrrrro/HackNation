@@ -1,43 +1,41 @@
-# Working agreements for agents
+# Zasady pracy nad ScamGraph
 
-## Project map
+Pracę zacznij od [README](README.md). Sprawdź, które elementy są dostępne w repozytorium, co ma powstać oraz jak odtworzyć pierwsze ćwiczenie. Zakres zadania wyznacza oczekiwany wynik i ograniczenia podane przez użytkownika. W projekcie konkursowym odnoś decyzje do wymagań NASK i do kryteriów odbioru zespołu. [Plan MVP](docs/MVP.md) · [Zadanie](docs/NASK_ZADANIE.md) · [Regulamin](docs/NASK_REGULAMIN.md)
 
-- Start with the [README](README.md) for the project layout and [MVP plan](docs/MVP.md) for scope and acceptance criteria.
-- For changes to data or matching, read the [data contract](docs/DATA_CONTRACT.md) and [NASK data guide](docs/NASK_DATA.md). The guide covers provenance, duplicate records, evidence interpretation, and offline verification.
-- The static prototype and its scenarios live in `sites/scamgraph/dist/`. Run `node --test sites/scamgraph/tests/cases.test.mjs` from the repository root after changes to those scenarios.
+## Właściciele i źródła decyzji
 
-## Scope and ownership
+| Obszar | Właściciel | Co przeczytać przed zmianą |
+| --- | --- | --- |
+| Import, emisje, strony, pochodzenie | Para A | [Przewodnik po danych](docs/NASK_DATA.md) i [kontrakt](docs/DATA_CONTRACT.md). Tu sprawdzisz, które relacje potwierdzają źródła. |
+| Cechy obrazu i tekstu, doświadczenia z modelami, pomiar | Para B | [Laboratorium](testowanie_modeli/README.md) i [kontrakt](docs/DATA_CONTRACT.md). Każdy wynik musi dać się powiązać z materiałem i wersją metody. |
+| Pary, kampanie i zapytania | Para C | [Kontrakt](docs/DATA_CONTRACT.md). Tu utrzymujemy definicje niezależnego dowodu, grupowania i pierwszeństwa statusów. |
+| Ekran analityka i pakiet jury | Para C | [Graf i oś czasu](docs/PLAN_GRAF_I_OS_CZASU.md) oraz [instrukcja budowy](docs/INSTRUKCJA_BUDOWY.md). Interfejs prezentuje decyzję tego samego silnika, z którego korzysta ewaluacja. |
 
-- Treat the user's requested outcome and explicit constraints as the acceptance criteria. Read the repository instructions that apply to the paths you touch and inspect the relevant code, documentation, and tests before editing.
-- Check the worktree before making changes. Preserve existing user changes, and keep edits focused on the requested outcome. Use reasonable, reversible assumptions to keep moving and surface meaningful assumptions when reporting the result.
-- The primary agent owns the result through implementation, verification, review, and follow-up. Split independent work only where it helps, with clear ownership and a shared contract for changes that must integrate.
-- Ask for input when an unresolved decision materially changes the scope or when a step requires authorization. Continue independent work while waiting.
+Gdy zmienia się zachowanie na granicy modułów, zacznij od uzgodnienia kontraktu z odbiorcą. Uaktualnij przykłady, instrukcję integracji i testy, których dotyczy decyzja. Oryginalne wymagania konkursowe cytuj ze wskazaniem punktu. Własne progi, testy i założenia podpisuj jako decyzje zespołu.
 
-## Implementation and verification
+## Prowadzenie zadania
 
-- Prefer the simplest change that satisfies the acceptance criteria. Follow local conventions and reuse existing logic where it fits. Preserve behavior that existing callers depend on unless the task requires a change.
-- Work in coherent increments. Verify the normal user entry point and the failure or compatibility cases affected by the change. Use targeted tests first, then run broader checks when the change crosses boundaries or could cause wider regressions.
-- Add a regression test when it covers a concrete failure that existing tests miss, or when the user or repository requires one. Inspect the final diff for accidental changes and record what was actually checked.
-- Diagnose failed checks and retry or fix recoverable issues within scope. If a check stays unavailable, record the specific limitation and what remains unverified.
+1. Przed edycją sprawdź stan drzewa roboczego, instrukcje dla danego katalogu i aktualny kod, dokumentację oraz testy. Zachowaj zastane zmiany użytkownika. Ogranicz zakres diffu do zamówionego wyniku.
+2. Główny agent odpowiada za realizację, integrację, sprawdzenia, przegląd i poprawki. Przy podziale pracy przypisz właściciela każdemu fragmentowi i ustal, co ma przekazać następnej osobie. Wybieraj rozwiązania możliwe do zweryfikowania, utrzymuj zgodność z dotychczasowymi odbiorcami i wykorzystuj istniejącą logikę.
+3. Lokalne, odwracalne decyzje podejmuj na podstawie danych i odnotuj istotne założenia. Zwróć się do użytkownika, gdy wybór zmienia zakres albo wymaga osobnego upoważnienia. W tym czasie kontynuuj niezależne prace.
+4. Materiały organizatora i prywatne wyniki pochodne przechowuj w dostępie ograniczonym do wyzwania. Uwzględnij historię Git i zawartość eksportów. Do publicznych przykładów używaj własnych materiałów. Przy nowym źródle zapisz pochodzenie i warunki wykorzystania. [Zasady użycia danych, pkt 8](docs/NASK_ZADANIE.md)
+5. Dla zmian w dopasowaniu sprawdź deduplikację emisji, pochodzenie cech, brakujące pola i zachowanie na nowych ID. Obraz, jego kadr i OCR mają wspólne pochodzenie. Zbiory referencyjny, rozwojowy i końcowy muszą mieć opisany skład i zastosowanie. Etykiety końcowe służą ewaluacji.
 
-## Independent review at major checkpoints
+## Sprawdzenia i niezależny przegląd
 
-A major checkpoint closes a meaningful piece of work, such as an architectural or contract decision that constrains later work, a working end-to-end milestone, a risky migration or integration, or the final deliverable. Routine intermediate edits can be reviewed together at the next checkpoint.
+Weryfikuj małe, działające etapy. Zacznij od testu zmienionej reguły, następnie sprawdź wejście używane przez analityka i przypadki awarii lub zgodności. Gdy zmiana dotyka kilku modułów, uruchom szersze sprawdzenia. Dodaj test regresji dla konkretnego dotąd niepokrytego błędu lub gdy jest wymagany. Diagnozuj nieudane próby i ponawiaj je po usunięciu przyczyny.
 
-1. At each major checkpoint, have a separate agent that did not implement the work review the actual diff or artifact. Give the reviewer the task, acceptance criteria, relevant constraints, exact review scope, and checks already run. Ask for an independent assessment based on the evidence. The reviewer should inspect and report findings without editing the work under review.
-2. Ask the reviewer to report findings in severity order. Each finding should name the affected file, line, or artifact when possible, explain the concrete impact, and say how to verify it. Ask for an explicit verdict even when there are no findings or when part of the work could not be verified.
-3. Check each finding against the evidence. Fix blockers before advancing to dependent work. Resolve major findings within scope or get explicit user agreement to defer them. Address minor findings where the fix is useful and focused. Record the disposition of findings that remain open or are rejected, including the supporting evidence for each disputed blocker or major finding.
-4. After fixing a blocker or major finding, rerun the affected checks and have an independent reviewer verify the fix. Before reporting completion, confirm that the latest substantive changes were covered by independent review. A checkpoint review can serve as the final review if it covers the delivered state.
+**Punkt kontrolny** następuje po decyzji o architekturze lub kontrakcie, uzyskaniu działającego przebiegu, ryzykownej integracji i przed oddaniem wyniku. Drobne edycje można zebrać w jeden przegląd. Po każdym takim punkcie oddzielny agent, który nie wdrażał ocenianej zmiany, czyta rzeczywisty diff lub artefakt. Przekaż mu zadanie, kryteria odbioru, ograniczenia, dokładny zakres i wyniki wykonanych sprawdzeń. Recenzent przedstawia ocenę bez edycji recenzowanego materiału.
 
-| Severity | Meaning |
-| --- | --- |
-| **Blocker** | A required outcome is missing or unusable, a necessary check exposes a material failure, or proceeding would risk serious harm such as data loss, a security failure, or a critical regression. |
-| **Major** | A material correctness, reliability, compatibility, or verification gap that warrants a fix before delivery. |
-| **Minor** | A localized issue with limited impact that can be weighed against the scope of the task. |
-| **Suggestion** | An optional improvement with no material effect on acceptance. |
+| Waga uwagi | Kiedy jej użyć | Co robi właściciel |
+| --- | --- | --- |
+| Blokująca | Brak wymaganego wyniku, niedziałający odbiór lub poważne ryzyko, np. utraty danych | Rozwiązuje problem przed pracą zależną i przed oddaniem. |
+| Poważna | Istotna luka w poprawności, niezawodności, zgodności lub weryfikacji | Naprawia w zakresie zadania albo uzyskuje wyraźną zgodę użytkownika na odroczenie. |
+| Drobna | Problem lokalny o ograniczonym wpływie | Ocenia koszt i wprowadza celową poprawkę. |
+| Sugestia | Ulepszenie poza warunkiem odbioru | Rozważa je w kontekście zakresu. |
 
-## Completion
+Recenzent porządkuje uwagi według wagi, wskazuje miejsce, skutek i sposób odtworzenia oraz podaje jawny werdykt, także przy braku uwag lub częściowej weryfikacji. Właściciel porównuje każde zgłoszenie z dowodami. Dokumentuje los otwartych i odrzuconych uwag oraz podstawę odrzucenia uwagi poważnej lub blokującej. Po ich naprawie powtarza odpowiednie testy i kieruje poprawkę do niezależnej weryfikacji.
 
-- Report completion only when the requested outcome is delivered, the applicable verification and independent review are complete, and every blocker is resolved. The primary agent must keep working on unresolved blockers while authorized steps can still make progress.
-- If an external dependency, missing authorization, or unavailable independent reviewer makes further progress impossible, report the task as blocked or pending. State what is complete, what remains, the specific impediment, and what is needed to proceed.
-- In the final handoff, summarize the outcome, checks run, independent review result, and any material assumptions, agreed deferrals, or verification gaps.
+## Oddanie wyniku
+
+Przed zakończeniem przejrzyj ostateczny diff i potwierdź, że niezależny przegląd obejmuje ostatnie istotne zmiany. Zgłoś ukończenie po dostarczeniu wyniku, wykonaniu odpowiednich sprawdzeń oraz usunięciu wszystkich blokad. W podsumowaniu podaj rezultat, faktycznie wykonane testy, werdykt recenzenta, istotne założenia, uzgodnione odroczenia i pozostałe ograniczenia pomiaru. Jeśli dalszą pracę uniemożliwia zewnętrzna zależność, brak upoważnienia lub recenzenta, oznacz wynik jako oczekujący i wskaż, co konkretnie pozwoli kontynuować.

@@ -63,8 +63,16 @@ samples() {
 }
 
 run() {
-  local res="./results/$RUN"; mkdir -p "$res"
   local data_abs; data_abs=$(cd "$DATA" && pwd)
+  local res="./results/$RUN"
+  mkdir -p ./results
+  mkdir "$res" || { echo "Wybierz nową nazwę RUN, aby oddzielić przebiegi." >&2; return 1; }
+  for uc in $(uc_list "$@"); do
+    case "$uc" in
+      text) printf '%s\n' text_embedding text_topic ;;
+      *) printf '%s\n' "$uc" ;;
+    esac
+  done > "$res/expected-suites.txt"
   local cpu_flag=(); [ -n "$CPUS" ] && cpu_flag=(--cpus "$CPUS")
   for uc in $(uc_list "$@"); do
     echo "=== run tm-$uc (cpus=$CPUS threads=$THREADS data=$DATA)"
@@ -74,7 +82,7 @@ run() {
       -e BENCH_WARMUP="${WARMUP:-1}" -e BENCH_MAX_ITEMS="${MAX_ITEMS:-20}" \
       -e BENCH_MODELS="${MODELS:-}" \
       -v "$data_abs:/data:ro" -v "$PWD/$res:/results" \
-      "tm-$uc:latest" 2>&1 | tee "$res/$uc.log"
+      "tm-$uc:latest" 2>&1 | tee "$res/$uc.log" || echo "$uc" >> "$res/failed-containers.txt"
   done
   python3 scripts/report.py "$res"
 }

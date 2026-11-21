@@ -1,97 +1,91 @@
-# Kontrakt danych MVP
+# Kontrakt danych i decyzji ScamGraph
 
-Kontrakt v0 określa wspólny format importu, silnika i interfejsu. Przykład poniżej jest syntetyczny. Sekcja „Lokalny korpus NASK” opisuje zastosowanie tych samych pól do rzeczywistych zrzutów reklam.
+To specyfikacja planowanego demonstratora. Para A przekazuje korpus i pochodzenie obserwacji. Para B zwraca cechy i mierzy wpływ metod. Para C buduje referencję, porównuje nowe materiały i wyświetla dowody. Import, CLI i GUI mają korzystać z tego samego silnika. [Plan MVP](MVP.md)
 
-## Korpus wejściowy
+## Wejście i zgodność z v0
 
-Katalog korpusu zawiera `manifest.json`, `ads.jsonl` i opcjonalny podkatalog `media/`. Manifest zawiera `schema_version`, `dataset_id`, `source_description` i `collected_at`. W opisie źródła zapisz metodę pozyskania, zapytanie i filtry, jeśli występują, oraz warunki użycia lub wskazanie ich źródła. `ads.jsonl` zawiera jeden rekord `Ad` w każdym wierszu.
-
-| Pole `Ad` | Wymagalność i znaczenie |
+| Obiekt | Co przyjmuje importer |
 | --- | --- |
-| `ad_id` | Wymagane. Stabilny wewnętrzny identyfikator w obrębie korpusu. |
-| `source.kind`, `source.provider` | Wymagane. Rodzaj pochodzenia `library`, `organizer`, `synthetic` albo `upload` oraz nazwa źródła w ramach tego rodzaju. |
-| `source.ad_ref`, `source.record_url` | Opcjonalny identyfikator reklamy u dostawcy i URL wpisu w bibliotece. `ad_ref` ma zakres danego dostawcy. `record_url` wskazuje stronę źródłową, a `landing_url` cel reklamy. |
-| `source.collected_at` | Wymagane. Czas pozyskania z oznaczeniem strefy. Dla pliku od użytkownika zapisuje się moment dodania. |
-| `text`, `image_path`, `landing_url` | Co najmniej jedno użyteczne pole w imporcie. `text` oznacza tekst z rekordu lub podany przez użytkownika. `image_path` jest ścieżką pod `media/` w tym korpusie. `landing_url` jest wartością zaobserwowaną, bez pobierania strony przez analizator. |
-| `observed_redirect_urls`, `advertiser_ref` | Opcjonalne. Tylko wartości zapisane w źródle. Zakres `advertiser_ref` określa `source.provider`. |
+| Manifest | `manifest.json` zawiera `schema_version`, `dataset_id`, opis pochodzenia w `source_description` i `collected_at`. Identyfikatory lokalne mają zakres korpusu. Adapter obcego formatu zgłasza zastosowane mapowanie oraz pominięte pola. |
+| `Ad` — jedna emisja | Jeden wiersz `ads.jsonl` ma stabilne `ad_id`, `source.kind` (`library`, `organizer`, `synthetic` lub `upload`), `source.provider`, czas pozyskania ze strefą w `source.collected_at` oraz przynajmniej jedno użyteczne pole spośród `text`, `image_path`, `landing_url`. Opcjonalne `source.ad_ref` i `source.record_url` wskazują wpis u dostawcy, `advertiser_ref` identyfikuje reklamodawcę w jego systemie, a `observed_redirect_urls` przechowuje już zaobserwowane przekierowania. |
+| `PageCapture` — jeden zapis strony | Adapter `observations/pages.jsonl` rozpoznaje `capture_id` i dostępne sekcje `html`, `document`, `har`, `dns_tls`, `assets`. Można wczytać sam zapis strony i porównać go z innymi stronami. Zachowujemy czas, status odpowiedzi, pola źródłowe i ich lokalizację. `bundle_ids` służą do odnalezienia oryginału. |
+| `AdPageLink` — związek emisji z zapisem strony | Opcjonalny wiersz `observations/ad_page_links.jsonl` wskazuje `ad_id`, `capture_id`, `origin_id`, czas obserwacji powiązania w `observed_at` oraz `source_ref` z lokalizacją, polem źródłowym i jego wartością. Dopiero zweryfikowane powiązanie udostępnia cechy tego zapisu do porównań reklam. |
+| Zgłoszenie z GUI | Adapter nadaje ID i `source.kind=upload`, zachowuje zwalidowane bajty i źródło każdego dodatkowego pola. Przyjmuje dostępny materiał do analizy także wtedy, gdy brakuje obrazu lub celu. |
+
+Dotychczasowy korpus v0 można wczytać bez migracji. Brak opcjonalnego pliku relacji oznacza pusty zbiór powiązań. Sam adres celu wpisany przez użytkownika pozostaje porównywalnym polem z opisanym pochodzeniem. Wspólny host, katalog archiwum albo podobny tytuł mogą podpowiedzieć, które obserwacje sprawdzić. Przyjęcie `AdPageLink` wymaga wskazania dowodu pozwalającego prześledzić związek konkretnej emisji z konkretnym zapisem. Importer zgłasza niedostępny odnośnik, sprzeczność lub niejednoznaczny cel i zachowuje dostępne rekordy do oddzielnej analizy.
+
+**Klucze importu.** Powtórne wczytanie tego samego ID emisji jest idempotentne. Adapter uzgadnia `(source.provider, source.ad_ref)` z `(dataset_id, ad_id)`, gdy istnieją obie tożsamości. Odcisk stabilnych pól pomaga wykryć ponowny import obcego zapisu bez ID. Konflikt dwóch identyfikatorów trafia do raportu z wierszami źródłowymi. SHA-256 identyfikuje bajty i pozwala współdzielić ekstrakcję. Dwie znane emisje o różnych ID zachowują odrębne rekordy nawet przy tym samym obrazie. Dwa pobrania tego samego URL mogą mieć różny czas, status i treść.
+
+**Pochodzenie.** `image_origin`, `text_origin` i `url_origin` w rekordzie v0 oraz `observation_group` ze zrzutu wskazują źródło cechy. Obraz, jego kadr, pHash, OCR i ręczna transkrypcja mają wspólny `origin_id`. Domyślnie tekst do zdjęcia dziedziczy pochodzenie zdjęcia. Cel o nieudokumentowanym pochodzeniu można pokazać jako wskazówkę. Do niezależnych dowodów kwalifikują się tylko udokumentowane, rozłączne źródła po obu stronach porównania. Dwa wpisy HAR opisujące tę samą integrację dają jeden sygnał. Etykiety kampanii i uzasadnienia anotatorów należą do osobnego zbioru ewaluacyjnego.
+
+**Błędy i czas.** Importer ogranicza ścieżki mediów do zadeklarowanego katalogu, sprawdza format i rozmiar obrazu, zwraca numer wiersza, ID oraz przyczynę błędu. Gdy obraz jest uszkodzony, nadal analizuje poprawny tekst. Odrębnie zapisuje datę publikacji, pozyskania i obserwacji strony wraz z precyzją źródła. Przy braku daty publikacji pole pozostaje puste.
+
+### Przykład syntetyczny
+
+Manifest i emisja poniżej używają formatu v0. Lokalny wyciąg z fikcyjnej biblioteki dokumentuje pole, z którego importer odczytał cel reklamy. Wszystkie adresy są danymi testowymi.
+
+`manifest.json`
 
 ```json
-{
-  "ad_id": "sample-001",
-  "source": {
-    "kind": "synthetic",
-    "provider": "local-demo",
-    "ad_ref": "example-001",
-    "collected_at": "2026-11-21T11:30:00+01:00"
-  },
-  "text": "Przykładowa treść kreacji demonstracyjnej",
-  "image_path": "media/sample-001.png",
-  "landing_url": "https://one.example/preview"
-}
+{"schema_version":"v0","dataset_id":"demo","source_description":"Własny syntetyczny eksport jednej emisji i zapisu jej celu.","collected_at":"2026-11-21T10:05:00Z"}
 ```
 
-Plik przesłany z formularza jest wejściem do analizy jednej reklamy. Adapter wypełnia `source.kind=upload`, nadaje ID i przekazuje obraz jako zwalidowane dane w pamięci. `image_path` dotyczy zapisanego korpusu. OCR wytwarza osobne pole pochodne z odwołaniem do obrazu. Brakujące wartości są pomijane albo jawnie oznaczane jako niedostępne. Etykiety ewaluacyjne przechowujemy w osobnym pliku mapującym `ad_id` na grupę i poziom pewności, poza wejściem silnika.
+`ads.jsonl`
 
-## Kontrakt między parami implementacyjnymi
+```json
+{"ad_id":"ad-1","source":{"kind":"synthetic","provider":"demo-library","ad_ref":"lib-7","collected_at":"2026-11-21T10:00:00Z"},"text":"Oferta próbna","landing_url":"https://sklep.example/oferta","url_origin":"export-7"}
+```
 
-Poniższe obiekty opisują proponowany interfejs Pythona. Istniejące pliki wejściowe pozostają zgodne z v0. Pochodzenie pól może pochodzić z obserwacji dołączonej do rekordu.
+`sources/library-export.jsonl` — przykład zachowanego dowodu w formacie dostawcy.
 
-| Producent → odbiorca | Obiekt przekazywany | Reguła odbioru |
-| --- | --- | --- |
-| B1 → A i C | `Ad` i dostępne obserwacje źródłowe | Import zwraca stabilne ID, raport ponownych importów i błędów. Nieczytelny plik nie przerywa importu pozostałych rekordów. |
-| A1/A2 i B1/B2 → C1 | `Feature(ad_id, family, field, value, origin_id, method_version)` | Każda cecha prowadzi do oryginalnego pola i metody. OCR trafia też do B2. Dla brakującego pola ekstraktor podaje przyczynę niedostępności. |
-| C1 → C2 | `PairAssessment`, `Campaign`, `MatchResult` | Formularz przekazuje zapytanie i odczytuje wynik z niezmiennej wersji indeksu. Każda przesłanka prowadzi do lewej i prawej obserwacji. |
+```json
+{"id":"lib-7","destination_url":"https://sklep.example/oferta","observed_at":"2026-11-21T10:00:00Z"}
+```
 
-`origin_id` identyfikuje pierwotną obserwację w obrębie reklamy. Importer odczytuje istniejące `observation_group` lub przypisuje pochodzenie na podstawie udokumentowanego pola. Oryginał obrazu, jego kadr, pHash, tekst OCR i tekst przepisany z obrazu dziedziczą ten sam identyfikator. URL odczytany ze zrzutu też dziedziczy jego identyfikator. Adres celu w niezależnym polu z biblioteki może otrzymać odrębny identyfikator. Gdy pochodzenie jest niepewne, silnik wstrzymuje uznanie śladu za niezależny. Dowody użyte razem muszą mieć rozłączne obserwacje po obu stronach pary.
+Adapter `PageCapture` czyta istniejący format `observations/pages.jsonl`. Czas żądania dokumentu jest zapisany w `har.document_started_at`.
 
-Wejście z nowego zbioru może mieć inne identyfikatory, niepełne dane i inne formaty. Adapter dokumentuje mapowanie do `Ad`, zachowuje dostępną oryginalną wartość i raportuje pominięte elementy. Ponowny import tego samego ID u tego samego dostawcy jest idempotentny. Przy braku ID dostawcy importer wykorzystuje dokładny odcisk stabilnych pól. Osobne ID emisji mają pierwszeństwo przed identycznym odciskiem zasobu. Część z etykietami pozostaje poza adapterem i indeksem referencyjnym.
+```json
+{"capture_id":"page-1","document":{"url_without_query":"https://sklep.example/oferta"},"har":{"document_started_at":"2026-11-21T10:01:00Z","document_status":200},"html":{"title":"Oferta próbna"}}
+```
+
+Rozszerzeniem jest osobny, opcjonalny plik `observations/ad_page_links.jsonl`. W tym przykładzie źródłowy wpis wskazuje jedną emisję i dokładny adres celu, który zapisano minutę później.
+
+```json
+{"ad_id":"ad-1","capture_id":"page-1","origin_id":"export-7","observed_at":"2026-11-21T10:01:00Z","source_ref":{"file":"sources/library-export.jsonl","record_id":"lib-7","field":"destination_url","value":"https://sklep.example/oferta"}}
+```
+
+## Od obserwacji do grupy
+
+| Wynik | Co musi wyjaśniać |
+| --- | --- |
+| `Feature` i `Evidence` | Cecha wskazuje typ obiektu i jego ID, rodzinę, pole, wartość, `origin_id`, lokalizację źródła oraz wersję ekstraktora. Dowód wskazuje oba końce porównania, relację, metrykę, zmierzoną wartość, próg i siłę sygnału. Zachowujemy oryginalne wartości obok normalizacji. |
+| Podobieństwo kreacji i wzorzec stron | Identyczne bajty, powtórzona kreacja i podobieństwo dwóch zapisów stron mają osobne znaczenia w wyniku. Przy parze stron pokaż np. tekst nagłówków i ślad HAR wraz z ich źródłami. Można zwrócić te wyniki nawet wtedy, gdy brakuje danych do oceny kampanii. |
+| `PairAssessment` emisji | Zwraca oceny `strong`, `similar` lub `none`, dowody, kolejność w rankingu, powody oraz osobny stan pokrycia. `strong` wymaga zgodności co najmniej dwóch niezależnych rodzin po obu stronach i co najmniej jednego śladu specyficznego. `similar` oznacza dostępną sugestię poniżej tego warunku, `none` brak sugestii. Wystarczające pokrycie wymaga możliwości porównania co najmniej dwóch niezależnych rodzin, nawet przy rozbieżnych wartościach. |
+| `Campaign` | Hipoteza obejmuje przynajmniej dwie emisje. Profil zawiera wspólne ślady, ich źródła, liczbę wspierających emisji i ich ID. Podobieństwo dwóch odrębnych grup wskazuje cechę profilu oraz konkretne pary wspierające analogię. |
+| `MatchResult` | Zawiera ID zapytania, wersję korpusu, konfiguracji i metod, status, przyczyny, kandydatów, podobne pojedyncze emisje i pokrycie każdej grupy. GUI i eksport pokazują liczbę porównywalnych emisji spośród wszystkich oraz powody braków. |
+
+**Specyficzność i ranking.** Przed oceną utrwal w konfiguracji warunki uznania śladu za specyficzny. Oceń, jak często dokładna wartość występuje w odrębnych przypadkach rozwojowych i czy źródło wiąże ją z konkretnym materiałem. Wspólny popularny SDK lub nazwa parametru daje najwyżej wskazówkę pomocniczą. Dokładny identyfikator konkretnej integracji może być specyficzny, jeśli potwierdzają to pochodzenie i sprawdzony zakres jego użycia. Sama rzadkość w małym korpusie pozostawia ślad pomocniczym.
+
+`rank_score` to największa suma punktów z podzbioru zgodnych, udokumentowanych obserwacji. Przyznaj 2 punkty za obserwację specyficzną i 1 za pomocniczą. W wybranym podzbiorze lewy `origin_id` może wystąpić tylko raz i prawy `origin_id` również tylko raz. Gdy specyficzne podobieństwo obrazu i pomocnicze podobieństwo OCR pochodzą z tej samej pary zrzutów, ich łączny wkład wynosi 2 punkty. Zgodny ślad pomocniczy o odrębnym pochodzeniu po obu stronach zwiększa wynik do 3. Ocena `strong` nadal wymaga niezależnych rodzin i spełnienia warunku specyficzności.
+
+**Scalanie grup.** Rozpatruj krawędzie `strong` według malejącego `rank_score`. Przy remisie użyj uporządkowanych ID emisji. Połącz dwie grupy tylko wtedy, gdy wszystkie pary między nimi są mocne (complete-link). Dla mocnych A–B i B–C przy słabym A–C powstaje grupa dwóch emisji, a trzecia zachowuje relację do przeglądu. Ranking służy do kolejności, a próg i wersja metody do odtworzenia decyzji.
+
+## Decyzja dla nowej emisji
+
+Zapytanie porównujemy ze wszystkimi emisjami zamrożonej referencji, również z pojedynczymi. **Pełna grupa** ma `strong` wobec każdego członka. **Sugestia częściowa** ma co najmniej jedno trafienie `strong` lub `similar`, lecz nie spełnia warunku pełnej grupy. Pojedyncza podobna emisja także stanowi sugestię. **Silny rywal** to inna, częściowo pasująca grupa z co najmniej jedną parą `strong`. Pojedyncza emisja spoza grupy pozostaje widoczna jako sugestia, również przy mocnym związku. **Wykluczenie grupy** według complete-link wymaga co najmniej jednej pary `none` z wystarczającym pokryciem w tej grupie. **Pełne wykluczenie** wymaga niepustej referencji, braku sugestii, takiego wykluczenia każdej grupy oraz pary `none` z wystarczającym pokryciem dla każdej pojedynczej emisji poza grupami.
+
+Pierwszy pasujący wiersz określa wynik.
+
+| Kolejność | Warunek | Status | Komunikat dla analityka |
+| --- | --- | --- | --- |
+| 1 | Dwie lub więcej pełnych grup albo jedna pełna grupa i silny rywal | `review_needed` | Pokaż konkurujące grupy i mocne dowody dla każdej kandydatury. |
+| 2 | Dokładnie jedna pełna grupa bez silnego rywala | `probable_match` | Pokaż hipotezę przypisania, pokrycie wszystkich grup, podobne pojedyncze emisje, słabsze sugestie i nieporównywalne przypadki. |
+| 3 | Brak pełnej grupy i przynajmniej jedna sugestia częściowa lub podobna pojedyncza emisja | `review_needed` | Pokaż źródła sugestii i brakujący dowód. |
+| 4 | Brak sugestii oraz pusta referencja, niewykluczona grupa lub pojedyncza emisja z niedostatecznym pokryciem | `insufficient_evidence` | Wskaż, których hipotez nie udało się sprawdzić i z jakiego powodu. |
+| 5 | Brak sugestii przy pełnym wykluczeniu w referencji | `no_match` | Możliwy nowy wzorzec względem tej referencji. Jedna emisja może rozpocząć dochodzenie. |
+
+Zapytanie nie zmienia słownika tekstu, składu kampanii ani cech referencji. Test odbiorowy powtarza zgłoszenie A po odmiennym zgłoszeniu B i sprawdza identyczne dowody dla A. Osobny test porównuje nowy materiał z jedną dobrze opisaną emisją i drugą grupą bez wystarczających pól. Przy braku trafień oczekiwany jest wiersz 4.
 
 ## Lokalny korpus NASK
 
-Katalog [nask-hacknation-2026](../data/nask-hacknation-2026/) jest gotowym wejściem v0. Poniższy przykład w Pythonie działa z katalogu głównego projektu. Wczytuje rekordy i sprawdza ich obrazy względem sum SHA-256 zapisanych dla oryginalnych plików organizatora.
-
-```python
-import hashlib
-import json
-from pathlib import Path
-
-root = Path("data/nask-hacknation-2026")
-def records(name):
-    return [json.loads(line) for line in (root / name).read_text(encoding="utf-8").splitlines()]
-
-ads = records("ads.jsonl")
-origins = {row["ad_id"]: row for row in records("observations/screenshots.jsonl")}
-for ad in ads:
-    image = (root / ad["image_path"]).read_bytes()
-    assert hashlib.sha256(image).hexdigest() == origins[ad["ad_id"]]["sha256"]
-print(len(ads))  # 13
-```
-
-| Plik | Zawartość i sposób użycia |
-| --- | --- |
-| [manifest.json](../data/nask-hacknation-2026/manifest.json) | Wersja, identyfikator zbioru, czas zebrania lokalnej kopii do korpusu w UTC, źródła, ich sumy SHA-256 i wskazanie regulaminu. Ten sam czas jest w `source.collected_at` rekordów reklam. Czasy archiwizacji stron w październiku są zapisane przy obserwacjach. |
-| [ads.jsonl](../data/nask-hacknation-2026/ads.jsonl) i [media/](../data/nask-hacknation-2026/media/) | 13 rekordów i 13 oryginalnych PNG. `ad_id` zawiera pierwsze 16 znaków SHA-256 obrazu, `source.kind` ma wartość `organizer`. W trzech rekordach `source.ad_ref` przechowuje ID odczytane z karty Meta. `text` to ręcznie przepisany fragment kreacji. |
-| [observations/screenshots.jsonl](../data/nask-hacknation-2026/observations/screenshots.jsonl) | Połącz z reklamami przez `ad_id`. Każdy wiersz zawiera ścieżki w archiwum, pełny SHA-256, wymiary, rodzaj zrzutu i wyświetlaną nazwę profilu. `observation_group` obejmuje obraz i przepisany z niego tekst. Identyczna kopia z `p2` jest drugą ścieżką źródłową zrzutu z `p1`. |
-| [observations/pages.jsonl](../data/nask-hacknation-2026/observations/pages.jsonl) | 14 różnych zapisanych stron i dodatkowa obserwacja błędu HTTP 502 w `p1`. `capture_id` identyfikuje zapis, `bundle_ids` jego podkatalogi w ZIP-ie. `html` zawiera tytuł, do czterech różnych nagłówków i fragment treści. `document` przechowuje adres bez zapytania i fragmentu, nazwy parametrów oraz wybrane liczbowe identyfikatory śledzące. Pełny źródłowy adres można odtworzyć z pliku pod `archive_paths`. |
-| `har`, `dns_tls` i `assets` w zapisie strony | Dla 12 obserwacji `har` podaje m.in. status i czas żądania dokumentu, liczbę wpisów, liczbę żądań do poszczególnych hostów oraz zaobserwowane ID pikseli Meta. Dla błędu 502 zachowano też dane DNS/TLS. `assets[].file` prowadzi do pięciu grafik produktów i jednego zrzutu błędu w [observations/media/](../data/nask-hacknation-2026/observations/media/). Wszystkie ścieżki lokalne są względne wobec katalogu korpusu. |
-| [observations/scam-links.txt](../data/nask-hacknation-2026/observations/scam-links.txt) | Wierna kopia odczytanego `scam_links.enc`. Do testu parsera wybierz trzy wiersze zaczynające się od `https://`. Sprawdź wspólne `gad_source` i różne `gad_campaignid`. |
-
-Powiązanie reklamy z konkretną stroną docelową pozostaje do weryfikacji. Dlatego w `ads.jsonl` pominięto `landing_url` i `observed_redirect_urls`. Przykładowo `p1-http-502` i `p1-saved-page` opisują dwa pobrania tego samego adresu, z innym statusem i czasem. Identyfikatory z parametrów URL pozostają obserwacjami infrastruktury. Punkt 8 zadania ogranicza użycie materiałów przekazanych przez NASK do realizacji wyzwania i zabrania ich publicznego rozpowszechniania. Udostępniany publicznie przykład używa fikcyjnych rekordów. [Interpretacja dowodów z materiałów NASK](NASK_DATA.md#interpretacja-dowodów)
-
-## Wyniki analizy
-
-| Obiekt | Pola i znaczenie |
-| --- | --- |
-| `Evidence` | `family` (`text`, `visual`, `infrastructure`), `signal`, `strength` (`supporting`, `specific`), `left` i `right` z `ad_id`, `field`, `value` i `origin_id`, opcjonalne `metric` i `metric_value`. Pole `observation_group` pomaga odtworzyć wspólną obserwację cech pochodnych. |
-| `PairAssessment` | `left_ad_id`, `right_ad_id`, `tier` (`strong`, `similar`, `none`), `rank_score`, `evidence`, `unavailable_families`, `has_sufficient_coverage` i `reason_codes`. `rank_score` służy do sortowania. Pokrycie jest wystarczające, gdy można porównać co najmniej dwie rodziny oparte na różnych obserwacjach. Zgodność tych obserwacji ocenia `tier`. |
-| `Campaign` | `campaign_id`, `member_ad_ids`, `profile` i referencje do `PairAssessment`. Kampania jest hipotezą analityczną obejmującą co najmniej dwie reklamy. Profil przechowuje nazwy śladów, wspierające rekordy i liczbę różnych reklam potwierdzających daną cechę. |
-| `MatchResult` | `query_ad_id`, `dataset_id`, `config_version`, `status`, `reason_codes`, `candidates` i `similar_ads`. Każdy kandydat wskazuje `campaign_id` i odpowiadające porównania par. `similar_ads` zawiera porównania z pojedynczymi reklamami spoza kampanii o statusie `strong` albo `similar`. |
-
-Status `MatchResult` ustala się według poniższej kolejności. Obowiązuje pierwsza pasująca reguła.
-
-- `probable_match` — dokładnie jedna grupa spełnia regułę dopasowania, również gdy są inne, częściowe sugestie.
-- `review_needed` — kilka grup spełnia regułę albo jest co najmniej jedna częściowa sugestia z grupy lub z `similar_ads`.
-- `insufficient_evidence` — brak kandydatów i żadna porównana para nie miała wystarczającego pokrycia.
-- `no_match` — brak kandydatów i co najmniej jedna para miała wystarczające pokrycie. UI opisuje nowy materiał jako możliwy nowy wzorzec do weryfikacji. Tworzenie grupy wymaga co najmniej dwóch powiązanych emisji.
-
-Każdy wyświetlony dowód musi wskazywać pola obu reklam. Kartę pełnego dopasowania pokazujemy przed częściowymi sugestiami. W ramach tej samej kategorii kolejność wyznacza najwyższa ocena pary w danej grupie, z rozstrzyganiem remisów według `campaign_id`. Reguła przypisania nadal uwzględnia wszystkich członków grupy.
+Adapter v0 może użyć obecnego katalogu od razu po implementacji. Inwentarz, przypadki do pokazu i źródła obserwacji zebrano w [przewodniku po danych](NASK_DATA.md). Sumy SHA-256 obrazów sprawdzisz zgodnie z [instrukcją repozytorium](../README.md).

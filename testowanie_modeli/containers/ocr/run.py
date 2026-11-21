@@ -16,7 +16,7 @@ def load_tess(threads):
 
 def infer_tess(pt, path):
     txt = pt.image_to_string(path, lang="pol+eng")
-    return " ".join(txt.split())[:300]
+    return " ".join(txt.split())
 
 
 def load_easy(threads):
@@ -29,7 +29,7 @@ def load_easy(threads):
 
 def infer_easy(r, path):
     res = r.readtext(path, detail=0, paragraph=True)
-    return " ".join(res)[:300]
+    return " ".join(res)
 
 
 run_suite("ocr", [
