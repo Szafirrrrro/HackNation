@@ -8,6 +8,7 @@
     X, meta = fs.vectors(method_version, "face.embedding")
     ids, S, best = fs.ad_similarity(method_version, "image.embedding")   # cosine ad x ad
     hamming_hex(a, b)                              # odległość pHash/dHash
+    fingerprint_match(fs, ad_a, ad_b)              # Chromaprint: (similarity, offset, overlap)
 """
 from __future__ import annotations
 
@@ -146,3 +147,54 @@ def orb_good_matches(fs: "FeatureStore", ad_a: str, ad_b: str, ratio: float = OR
         des.append(np.load(fs.root / v["array"])[v["key"]])
     m = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(des[0], des[1], k=2)
     return sum(1 for p in m if len(p) == 2 and p[0].distance < ratio * p[1].distance)
+
+
+# ok. 8 subodcisków/s: min_overlap 40 ~ 5 s. Wspólny fragment musi też obejmować min_fraction
+# krótszego nagrania - inaczej maksimum po przesunięciach wygrywają krótkie fragmenty na brzegach.
+CHROMAPRINT_MATCH = {"min_overlap": 40, "min_fraction": 0.5}
+
+
+def _as_uint32(x) -> np.ndarray:
+    """Odcisk jako uint32: przyjmuje int32 z arrays/ albo liczby bez znaku z JSON fpcalc."""
+    return (np.asarray(x, dtype=np.int64).reshape(-1) & 0xFFFFFFFF).astype(np.uint32)
+
+
+def chromaprint_similarity(a, b, min_overlap: int = CHROMAPRINT_MATCH["min_overlap"],
+                           min_fraction: float = CHROMAPRINT_MATCH["min_fraction"]):
+    """Zgodność dwóch odcisków Chromaprint (audio.fingerprint).
+
+    Szuka przesunięcia czasowego o największym odsetku zgodnych bitów (wykrywa też fragment
+    zawarty w dłuższym nagraniu). Wspólny fragment musi mieć co najmniej
+    max(min_overlap, min_fraction * krótszy) subodcisków (nie więcej niż krótszy odcisk).
+    Zwraca (similarity 0..1, offset w subodciskach, overlap) albo None, gdy któryś odcisk jest
+    pusty. Losowe bity dają ~0,5; niepowiązane prawdziwe nagrania mają zwykle wyższe tło
+    (syntetyczna kontrola: 0,6-0,72). Progi decyzji ustala silnik grafu, nie ta funkcja.
+    """
+    a, b = _as_uint32(a), _as_uint32(b)
+    if a.size == 0 or b.size == 0:
+        return None
+    short = min(a.size, b.size)
+    need = min(short, max(min_overlap, int(np.ceil(min_fraction * short))))
+    best = (-1.0, 0, 0)
+    for off in range(-(b.size - need), a.size - need + 1):   # a[i] ~ b[i - off]
+        i0, i1 = max(0, off), min(a.size, b.size + off)
+        x = np.bitwise_xor(a[i0:i1], b[i0 - off:i1 - off])
+        sim = 1.0 - np.unpackbits(x.view(np.uint8)).sum() / (32.0 * x.size)
+        if sim > best[0]:
+            best = (float(sim), off, int(x.size))
+    return best
+
+
+def fingerprint_match(fs: "FeatureStore", ad_a: str, ad_b: str, method: str | None = None):
+    """chromaprint_similarity między reklamami (pole audio.fingerprint). None, gdy brak odcisku."""
+    fps = audio_fingerprints(fs, method, ads=(ad_a, ad_b))
+    if len(fps) < 2:
+        return None
+    return chromaprint_similarity(fps[ad_a], fps[ad_b])
+
+
+def audio_fingerprints(fs: "FeatureStore", method: str | None = None, ads=None) -> dict:
+    """{ad_id: odcisk int32} dla wierszy audio.fingerprint (jedno otwarcie każdego pliku npz)."""
+    rows = [r for r in fs.rows(field="audio.fingerprint", method=method) if ads is None or r["ad_id"] in ads]
+    files = {p: np.load(fs.root / p) for p in {r["value"]["array"] for r in rows}}
+    return {r["ad_id"]: files[r["value"]["array"]][r["value"]["key"]] for r in rows}

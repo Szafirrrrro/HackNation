@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 sys.path.insert(0, "/app/common")
-from features_lib import FeatureStore, hamming_hex  # noqa: E402
+from features_lib import FeatureStore, audio_fingerprints, chromaprint_similarity, hamming_hex  # noqa: E402
 
 
 def ad_label(fs, a):
@@ -78,6 +78,26 @@ def main():
             d, other = min(cands)
             out[field][r["ad_id"]] = {"neighbor": other, "hamming": d}
             md.append(f"| {ad_label(fs, r['ad_id'])} | {ad_label(fs, other)} | {d} |")
+
+    for mv in sorted({r["method_version"] for r in fs.rows(field="audio.fingerprint")}):
+        fps = audio_fingerprints(fs, mv)
+        ids = sorted(fps)
+        if len(ids) < 2:
+            continue
+        key = f"{mv} :: audio.fingerprint"
+        md.append(f"\n## {key} (zgodność bitów Chromaprint; losowe bity 0,5, tło prawdziwych nagrań wyższe)\n")
+        md.append("| reklama | najbliższa | zgodność | przesunięcie | wspólne subodciski |\n|---|---|---|---|---|")
+        out[key] = {}
+        sims = {}
+        for i, a in enumerate(ids):   # macierz symetryczna: każda para liczona raz
+            for o in ids[i + 1:]:
+                sim, off, overlap = sims[(a, o)] = chromaprint_similarity(fps[a], fps[o])
+                sims[(o, a)] = (sim, -off, overlap)   # przesunięcie z perspektywy drugiej reklamy
+        for a in ids:
+            cands = [(sims[(a, o)], o) for o in ids if o != a]
+            (sim, off, overlap), other = max(cands, key=lambda c: c[0][0])
+            out[key][a] = {"neighbor": other, "similarity": round(sim, 4), "offset": off, "overlap": overlap}
+            md.append(f"| {ad_label(fs, a)} | {ad_label(fs, other)} | {sim:.3f} | {off} | {overlap} |")
 
     dst = fs.root / "analysis"
     dst.mkdir(exist_ok=True)

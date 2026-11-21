@@ -4,3 +4,7 @@ out/
 results/
 __pycache__/
 *.tmp
+# wagi modeli (np. Effort .pth ~1 GB, licencja CC BY-NC 4.0) - nie do repozytorium
+weights/
+# lokalne etykiety z ID reklam NASK
+eval/

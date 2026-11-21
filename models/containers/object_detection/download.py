@@ -1,0 +1,4 @@
+from dl import fetch as snapshot_download
+
+for m in ["google/owlv2-base-patch16-ensemble", "IDEA-Research/grounding-dino-tiny"]:
+    snapshot_download(m, allow_patterns=["*.json", "*.txt", "model.safetensors"])

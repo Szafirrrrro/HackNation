@@ -61,7 +61,7 @@ def params_hash(params: dict) -> str:
 class Extractor:
     name = ""            # czytelna nazwa modelu
     use_case = ""
-    family = "visual"    # text | visual | infrastructure (kontrakt)
+    family = "visual"    # text | visual | infrastructure | audio (kontrakt)
     modality = "image"   # image | text | audio
     primary_field = ""   # pole raportowane jako "unavailable", gdy brak wejścia / błąd całego wejścia
     version = ""         # wersja modelu/pakietu (część method_version)
@@ -112,6 +112,8 @@ class Extractor:
                 v = f"<vec {v.shape[-1]}>"
             elif isinstance(v, dict) and isinstance(v.get("vector"), np.ndarray):
                 v = {k: x for k, x in v.items() if k != "vector"} | {"vector": f"<{v['vector'].shape[-1]}d>"}
+            elif isinstance(v, dict) and isinstance(v.get("array"), np.ndarray):
+                v = {k: x for k, x in v.items() if k != "array"} | {"array": f"<{list(v['array'].shape)}>"}
             if o.field in res:
                 res[o.field] = res[o.field] if isinstance(res[o.field], list) else [res[o.field]]
                 res[o.field].append(v)

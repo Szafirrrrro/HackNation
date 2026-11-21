@@ -3,3 +3,5 @@ out
 results
 *.pdf
 .git
+weights
+eval
