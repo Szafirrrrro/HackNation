@@ -1,0 +1,5 @@
+-r requirements.txt
+streamlit>=1.50
+pyvis>=0.3.2
+plotly>=5.20
+pandas>=2.0

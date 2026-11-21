@@ -1,0 +1,182 @@
+{
+  "ad_id": "NEW-KRYPTO",
+  "provenance": {
+    "source": "upload",
+    "url": "https://krypto-bot-nowy.test/?ref=fb",
+    "fetched_at": "2026-11-21T10:00:00Z",
+    "snapshot": "snapshots/C03/"
+  },
+  "first_seen": "2026-11-20T08:00:00Z",
+  "last_seen": "2026-11-21T10:00:00Z",
+  "status": "alive",
+  "infra": {
+    "redirect_chain": [
+      "krypto-bot-nowy.test"
+    ],
+    "final_domain": "krypto-bot-nowy.test",
+    "rdap": {
+      "registered": "2026-11-19T22:00:00Z",
+      "registrar": "Registrar-Omega",
+      "nameservers": [
+        "ns1.omega.test",
+        "ns2.omega.test"
+      ]
+    },
+    "dns": {
+      "ip": "91.200.9.9",
+      "asn": "AS48666"
+    },
+    "cert": {
+      "id": "crtC-nowy",
+      "san": [
+        "krypto-bot-nowy.test"
+      ]
+    },
+    "favicon": {
+      "mmh3": 1337421337,
+      "phash": null
+    }
+  },
+  "page": {
+    "tracking_ids": {
+      "meta_pixel": null,
+      "ga": "G-CRYPTO9"
+    },
+    "script_hashes": [
+      "sha:bot-widget-C"
+    ],
+    "form_endpoint": "krypto-bot-nowy.test/api/lead",
+    "contacts": {
+      "phones": [],
+      "telegram": [
+        "@krypto_wsparcie"
+      ],
+      "crypto": []
+    },
+    "dom_template_hash": "dom:template-C",
+    "hidden_text_hash": "hid:seo-C"
+  },
+  "text": {
+    "ad_text": "Nowy bot AI: 1200 zł dziennie bez wychodzenia z domu",
+    "ocr_text": "",
+    "keywords": [
+      "inwestycja",
+      "bitcoin",
+      "bot ai"
+    ],
+    "embedding": [
+      -0.1945,
+      -0.2466,
+      0.2252,
+      0.4171,
+      -0.0901,
+      -0.1387,
+      -0.2214,
+      -0.2944,
+      -0.0952,
+      -0.0237,
+      -0.0734,
+      -0.1672,
+      -0.1963,
+      -0.0834,
+      -0.229,
+      -0.0522,
+      -0.0105,
+      0.0493,
+      0.0635,
+      0.2256,
+      0.2951,
+      0.2321,
+      -0.0128,
+      -0.0346,
+      -0.1626,
+      -0.1192,
+      0.3497,
+      -0.0805,
+      -0.0071,
+      0.0117,
+      -0.0095,
+      0.0229
+    ]
+  },
+  "visual": {
+    "phash": "487e676705dc7bc8",
+    "clip_embedding": [
+      0.0135,
+      -0.1569,
+      -0.2538,
+      -0.1763,
+      0.3617,
+      -0.2718,
+      0.2032,
+      -0.2217,
+      -0.1511,
+      -0.0526,
+      -0.0097,
+      -0.1876,
+      0.0961,
+      0.0158,
+      0.2666,
+      -0.0825,
+      -0.0152,
+      0.1715,
+      -0.0628,
+      0.0951,
+      0.0484,
+      0.1417,
+      0.1638,
+      -0.3615,
+      0.0202,
+      -0.0746,
+      0.0044,
+      0.1358,
+      0.1371,
+      -0.0943,
+      -0.3166,
+      -0.2479
+    ]
+  },
+  "faces": [
+    {
+      "person": "prezenter_A",
+      "similarity": 0.912,
+      "quality": 0.79,
+      "deepfake_score": 0.57,
+      "embedding": [
+        0.0556,
+        0.1616,
+        0.058,
+        0.0395,
+        -0.0522,
+        -0.0352,
+        0.1971,
+        0.128,
+        0.1724,
+        0.1297,
+        -0.0759,
+        0.0266,
+        -0.2765,
+        0.2137,
+        0.1648,
+        0.0558,
+        -0.4045,
+        -0.3873,
+        -0.1944,
+        -0.0821,
+        0.1525,
+        -0.0798,
+        0.1565,
+        0.0078,
+        0.1574,
+        0.1057,
+        -0.0622,
+        0.3742,
+        0.2141,
+        0.2046,
+        -0.0598,
+        -0.1331
+      ]
+    }
+  ],
+  "audio": null
+}
