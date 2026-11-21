@@ -1,7 +1,6 @@
 """Karta reklamy: wczytanie z JSON i wyciągnięcie artefaktów (przyszłych węzłów grafu).
 
-Artefakt = dyskretna wartość, która MOŻE się powtórzyć w innej reklamie (piksel, domena,
-favicon...). W grafie staje się węzłem współdzielonym przez reklamy (ślad twardy).
+Artefakt = dyskretna wartość, która MOŻE się powtórzyć w innej reklamie (piksel, domena, favicon...). W grafie staje się węzłem współdzielonym przez reklamy (ślad twardy).
 Wektory (tekst, CLIP, twarze) nie są węzłami — porównujemy je podobieństwem (ślad miękki).
 """
 from __future__ import annotations
@@ -14,22 +13,21 @@ from typing import Any, Iterator
 
 @dataclass(frozen=True, order=True)
 class Artifact:
-    kind: str   # np. "tracking_id", "domain_hop", "favicon"
-    value: str  # np. "PX-771001"
+    kind: str   
+    value: str 
 
     @property
     def key(self) -> str:
-        return f"{self.kind}|{self.value}"
+        return f"{self.kind}|{self.value}" 
 
 
 @dataclass
 class Face:
-    person: str            # etykieta z bazy referencyjnej ("" gdy nierozpoznana)
+    person: str      
     similarity: float
-    quality: float         # 0..1 (MagFace albo proxy: det_score, rozmiar, ostrość)
+    quality: float     
     deepfake: float
     embedding: list[float]
-
 
 @dataclass
 class Card:
@@ -55,26 +53,23 @@ class Card:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
-# ---------- pomocnicze ----------
-def _d(obj: Any, key: str) -> dict:
+def _d(obj: Any, key: str) -> dict: 
     v = obj.get(key) if isinstance(obj, dict) else None
     return v if isinstance(v, dict) else {}
 
 
-def _s(obj: dict, key: str) -> str:
+def _s(obj: dict, key: str) -> str: 
     v = obj.get(key)
     return v if isinstance(v, str) else ""
 
 
-def _strs(obj: dict, key: str) -> list[str]:
+def _strs(obj: dict, key: str) -> list[str]: 
     v = obj.get(key)
     return [x for x in v if isinstance(x, str) and x] if isinstance(v, list) else []
-
 
 def _vec(obj: dict, key: str) -> list[float]:
     v = obj.get(key)
     return [float(x) for x in v if isinstance(x, (int, float))] if isinstance(v, list) else []
-
 
 def _num(obj: dict, key: str, default: float = 0.0) -> float:
     v = obj.get(key)
@@ -88,7 +83,6 @@ def parse_iso(s: str) -> datetime | None:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except ValueError:
         return None
-
 
 def normalize_domain(s: str) -> str:
     """Węzłem jest domena, nie pełny URL — pełne linki mają unikalne parametry śledzące
@@ -127,12 +121,11 @@ def parse_card(j: dict) -> Card:
         if value not in (None, ""):
             arts.add(Artifact(kind, str(value)))
 
-    # --- infrastruktura ---
     c.redirect_chain = [normalize_domain(d) for d in _strs(infra, "redirect_chain")]
     c.final_domain = normalize_domain(_s(infra, "final_domain")) or (c.redirect_chain[-1] if c.redirect_chain else "")
     for d in c.redirect_chain:
         if d != c.final_domain:
-            add("domain_hop", d)          # domeny frontowe i pośrednicy
+            add("domain_hop", d)         
     add("domain_final", c.final_domain)
     c.registrar = _s(rdap, "registrar")
     c.registered = parse_iso(_s(rdap, "registered"))
