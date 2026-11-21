@@ -20,7 +20,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pyvis.network import Network
 
-from ftf_graph.card import parse_card
+from ftf_graph.card import SIGNAL_KINDS, parse_card
 from ftf_graph.cluster import cluster
 from ftf_graph.report import summarize
 from ftf_graph.scoring import Config, Scorer
@@ -81,7 +81,8 @@ def analyze(raw: list[dict], min_cluster: int, min_samples: int, min_edge: float
 
 
 # ---------------------------------------------------------------- graf
-def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar, show_noise, height) -> str:
+def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar, show_noise, height,
+                     hidden: set[str] = frozenset()) -> str:
     net = Network(height=f"{height}px", width="100%", bgcolor="#FFFFFF", cdn_resources="in_line")
     net.barnes_hut(gravity=-6000, central_gravity=0.3, spring_length=110, spring_strength=0.03)
     present: set[str] = set()
@@ -96,7 +97,7 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
 
     for i, card in enumerate(cards):
         cid, is_new = camp_of[i], card.id in new_ids
-        if cid is None and not show_noise and not is_new:
+        if card.id in hidden or (cid is None and not show_noise and not is_new):
             continue
         color = colors.get(cid, NOISE_COLOR)
         net.add_node(card.id, label=("★ " if is_new else "") + card.id,
@@ -106,7 +107,9 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
                      font={"color": NEW_COLOR if is_new else "#333333", "size": 16 if is_new else 12},
                      title=(f"{card.id} — {cid or NOISE_LABEL}\n{card.ad_text}\ndomena: {card.final_domain}\n"
                             f"status: {card.status or '?'}   od {card.first_seen[:10] or '?'}"
-                            + (f"\nlektor: {card.audio_transcript[:120]}" if card.audio_transcript else "")))
+                            + (f"\nlektor: {card.audio_transcript[:120]}" if card.audio_transcript else "")
+                            + f"\nsygnały: {len(card.signals())}/{SIGNAL_KINDS} ({', '.join(card.signals()) or 'brak'})"
+                            + (f"\npominięte zaufane domeny: {', '.join(card.trusted_hits)}" if card.trusted_hits else "")))
         present.add(card.id)
         if cid:
             net.add_edge(card.id, f"camp:{cid}", color=color, width=1.5, title="IN_CAMPAIGN")
@@ -126,11 +129,11 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
 
 
 # ---------------------------------------------------------------- oś czasu
-def timeline_figure(cards, camps, camp_of, colors, new_ids, show_noise):
+def timeline_figure(cards, camps, camp_of, colors, new_ids, show_noise, hidden: set[str] = frozenset()):
     rows = []
     for i, card in enumerate(cards):
         cid = camp_of[i] or NOISE_LABEL
-        if cid == NOISE_LABEL and not show_noise and card.id not in new_ids:
+        if card.id in hidden or (cid == NOISE_LABEL and not show_noise and card.id not in new_ids):
             continue
         start = pd.to_datetime(card.first_seen, utc=True, errors="coerce")
         if pd.isna(start):
@@ -174,7 +177,13 @@ with st.sidebar:
     min_edge = st.slider("min. score krawędzi w grafie", 0.05, 0.9, 0.25, 0.05)
     st.header("Widok")
     show_similar = st.checkbox("pokaż krawędzie SIMILAR", True)
-    show_noise = st.checkbox("pokaż reklamy bez kampanii", True)
+    show_noise = st.checkbox("pokaż reklamy bez kampanii (szum HDBSCAN)", True,
+                             help="Reklamy, których nie dało się przypisać do żadnej kampanii. To NIE znaczy, "
+                                  "że są bezpieczne — mogą być pojedynczym oszustwem albo mieć za mało danych.")
+    hide_trusted = st.checkbox("ukryj reklamy prowadzące na zaufane strony", True,
+                               help="Reklama, której strona docelowa jest na liście zaufanych (np. youtube.com) "
+                                    "i która NIE należy do żadnej kampanii, nie jest rysowana. Reklama na zaufanej "
+                                    "stronie, ale powiązana z kampanią (np. tą samą twarzą lub głosem), zostaje.")
     graph_height = st.slider("wysokość grafu", 400, 1000, 650, 50)
 
 if not Path(corpus_path).exists():
@@ -208,11 +217,16 @@ except ValueError as exc:  # np. embeddingi o innym wymiarze niż w korpusie
     st.error(f"Błąd analizy: {exc}")
     st.stop()
 
-m1, m2, m3, m4 = st.columns(4)
+lands_trusted = {c.id for c in cards if c.final_domain and c.final_domain in c.trusted_hits}
+hidden = ({c.id for i, c in enumerate(cards) if c.id in lands_trusted and camp_of[i] is None and c.id not in new_ids}
+          if hide_trusted else set())
+
+m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("reklamy", len(cards))
 m2.metric("kampanie", len(camps))
 m3.metric("krawędzie SIMILAR", len(edges))
 m4.metric("bez kampanii", int(sum(c is None for c in camp_of)))
+m5.metric("ukryte (zaufane strony)", len(hidden))
 
 # --- gdzie trafiła nowa reklama ---
 idx = {c.id: i for i, c in enumerate(cards)}
@@ -228,6 +242,17 @@ for nid in sorted(new_ids):
         near = max(((c.id, float(scores[i, c.members].mean())) for c in camps), key=lambda t: t[1], default=None)
         hint = f" Najbliżej jej do {near[0]} (śr. podobieństwo {near[1]:.2f})." if near and near[1] > 0.05 else ""
         st.warning(f"**{nid}** nie pasuje do żadnej kampanii.{hint}")
+    n_sig = len(cards[i].signals())
+    if n_sig <= 3:
+        st.info(f"Karta {nid} ma tylko {n_sig} z {SIGNAL_KINDS} rodzajów sygnałów "
+                f"({', '.join(cards[i].signals()) or 'żadnego'}). Brak powiązań może wynikać z braku danych, "
+                f"a nie z tego, że reklama jest unikalna.")
+    if nid in lands_trusted:
+        st.info(f"Strona docelowa {nid} ({cards[i].final_domain}) jest na liście zaufanych. "
+                + ("Reklama jest jednak powiązana z kampanią, więc zostaje na grafie." if cid else
+                   "Nowa reklama i tak jest pokazana, żebyś widziała wynik analizy."))
+    if cards[i].trusted_hits:
+        st.caption(f"Pominięte zaufane domeny (nie są śladem): {', '.join(cards[i].trusted_hits)}")
     with st.expander(f"Dlaczego? Najsilniejsze powiązania {nid}", expanded=bool(cid)):
         if not mine:
             st.write("Brak krawędzi powyżej progu.")
@@ -248,12 +273,12 @@ st.caption("◆ kampania · ● reklama (kolor = kampania, szary = bez kampanii)
            "linia ciągła = jest ślad twardy, przerywana = tylko miękkie · grubość = score · "
            "najedź na węzeł/krawędź, żeby zobaczyć szczegóły i uzasadnienie")
 components.html(build_graph_html(cards, edges, camps, camp_of, colors, new_ids,
-                                 show_similar, show_noise, graph_height),
+                                 show_similar, show_noise, graph_height, hidden),
                 height=graph_height + 20, scrolling=False)
 
 # --- oś czasu ---
 st.subheader("Oś czasu kampanii")
-fig = timeline_figure(cards, camps, camp_of, colors, new_ids, show_noise)
+fig = timeline_figure(cards, camps, camp_of, colors, new_ids, show_noise, hidden)
 if fig is None:
     st.info("Brak dat first_seen w kartach.")
 else:

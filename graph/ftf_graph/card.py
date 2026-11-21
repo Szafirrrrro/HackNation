@@ -4,6 +4,13 @@ Artefakt = dyskretna wartość, która MOŻE się powtórzyć w innej reklamie (
 favicon...). W grafie staje się węzłem współdzielonym przez reklamy (ślad twardy).
 Wektory (tekst, CLIP, twarze, głos) nie są węzłami — porównujemy je podobieństwem (ślad miękki).
 
+Puste pola (null, "", brak klucza) NIGDY nie tworzą śladu: brak artefaktu = brak węzła, brak wektora
+= brak porównania. Dwie reklamy bez twarzy nie są przez to ani podobne, ani "różne" — po prostu
+nic o sobie nie mówią.
+
+Zaufane domeny (data/trusted_domains.txt, np. youtube.com) nie tworzą artefaktów: wspólne przejście
+przez YouTube niczego nie dowodzi. Lista trafionych zaufanych domen zostaje w karcie (trusted_hits).
+
 Audio (opcjonalne pole "audio"): odcisk audio i transkrypcja to artefakty (węzły :AudioFingerprint,
 :Transcript); embedding głosu, embedding transkrypcji i sam odcisk (porównanie przybliżone) to ślady miękkie.
 """
@@ -11,7 +18,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+from functools import lru_cache
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterator
@@ -62,8 +72,47 @@ class Card:
     speaker_emb: list[float] = field(default_factory=list)
     audio_fp: list[int] = field(default_factory=list)  # odcisk audio (np. Chromaprint), wartości jako uint32
     audio_duration: float | None = None
+    trusted_hits: list[str] = field(default_factory=list)  # zaufane domeny pominięte jako ślady
     artifacts: list[Artifact] = field(default_factory=list)  # posortowane, bez duplikatów
     raw: dict[str, Any] = field(default_factory=dict)
+
+    def signals(self) -> list[str]:
+        """Które rodzaje sygnałów karta w ogóle ma. Mało sygnałów = brak kampanii może wynikać
+        z braku danych, a nie z tego, że reklama jest unikalna."""
+        kinds = {a.kind for a in self.artifacts}
+        checks = {
+            "domeny": bool(kinds & {"domain_hop", "domain_final"}),
+            "infrastruktura": bool(kinds & {"ip", "cert", "nameserver", "favicon"}),
+            "śledzenie/skrypty": bool(kinds & {"tracking_id", "script", "form_endpoint", "template", "hidden_text"}),
+            "kontakty": bool(kinds & {"phone", "telegram", "crypto"}),
+            "tekst": bool(self.text_emb),
+            "wygląd": bool(self.clip_emb) or self.phash is not None,
+            "twarze": any(f.embedding for f in self.faces),
+            "audio": bool(self.audio_fp or self.speaker_emb or self.audio_text_emb or self.audio_transcript),
+        }
+        return [k for k, ok in checks.items() if ok]
+
+
+SIGNAL_KINDS = 8  # liczba rodzajów w Card.signals()
+
+DEFAULT_TRUSTED_PATH = Path(__file__).resolve().parent.parent / "data" / "trusted_domains.txt"
+
+
+@lru_cache(maxsize=8)
+def load_trusted(path: str | None = None) -> frozenset[str]:
+    """Wczytuje listę zaufanych domen (jedna na linię, # = komentarz). Ścieżkę można podać
+    zmienną środowiskową FTF_TRUSTED_DOMAINS. Brak pliku = pusta lista."""
+    p = Path(path or os.getenv("FTF_TRUSTED_DOMAINS") or DEFAULT_TRUSTED_PATH)
+    if not p.exists():
+        return frozenset()
+    lines = (ln.split("#", 1)[0].strip().lower() for ln in p.read_text(encoding="utf-8").splitlines())
+    return frozenset(ln for ln in lines if ln)
+
+
+def is_trusted(host: str, trusted: frozenset[str]) -> bool:
+    """host = domena z listy albo jej subdomena (m.youtube.com -> youtube.com)."""
+    parts = host.split(".")
+    return any(".".join(parts[k:]) in trusted for k in range(len(parts) - 1))
 
 
 # ---------- pomocnicze ----------
@@ -143,7 +192,7 @@ def fingerprint_id(fp: list[int]) -> str:
     return "sha1:" + hashlib.sha1(",".join(map(str, fp)).encode()).hexdigest()[:16]
 
 
-def parse_card(j: dict) -> Card:
+def parse_card(j: dict, trusted: frozenset[str] | None = None) -> Card:
     prov, infra, page = _d(j, "provenance"), _d(j, "infra"), _d(j, "page")
     rdap, dns, cert, fav = _d(infra, "rdap"), _d(infra, "dns"), _d(infra, "cert"), _d(infra, "favicon")
     trk, contacts = _d(page, "tracking_ids"), _d(page, "contacts")
@@ -155,6 +204,14 @@ def parse_card(j: dict) -> Card:
         last_seen=_s(j, "last_seen"), status=_s(j, "status"), raw=j,
     )
     arts: set[Artifact] = set()
+    trusted = load_trusted() if trusted is None else trusted
+    hits: set[str] = set()
+
+    def untrusted(host: str) -> bool:
+        if host and is_trusted(host, trusted):
+            hits.add(host)
+            return False
+        return bool(host)
 
     def add(kind: str, value: Any) -> None:
         if value not in (None, ""):
@@ -164,19 +221,23 @@ def parse_card(j: dict) -> Card:
     c.redirect_chain = [normalize_domain(d) for d in _strs(infra, "redirect_chain")]
     c.final_domain = normalize_domain(_s(infra, "final_domain")) or (c.redirect_chain[-1] if c.redirect_chain else "")
     for d in c.redirect_chain:
-        if d != c.final_domain:
+        if d != c.final_domain and untrusted(d):
             add("domain_hop", d)          # domeny frontowe i pośrednicy
-    add("domain_final", c.final_domain)
+    if untrusted(c.final_domain):
+        add("domain_final", c.final_domain)
     c.registrar = _s(rdap, "registrar")
     c.registered = parse_iso(_s(rdap, "registered"))
     add("registrar", c.registrar)
     for ns in _strs(rdap, "nameservers"):
-        add("nameserver", normalize_domain(ns))
+        if untrusted(ns_host := normalize_domain(ns)):
+            add("nameserver", ns_host)
     add("ip", _s(dns, "ip"))
     add("asn", _s(dns, "asn"))
     c.cert_id = _s(cert, "id")
     add("cert", c.cert_id)
     c.cert_san = [normalize_domain(d) for d in _strs(cert, "san")]
+    for d in c.cert_san:
+        untrusted(d)  # rejestruje zaufane domeny z certyfikatu w trusted_hits
     if isinstance(fav.get("mmh3"), int):
         add("favicon", fav["mmh3"])
 
@@ -208,7 +269,8 @@ def parse_card(j: dict) -> Card:
     for f in j.get("faces") or []:
         if not isinstance(f, dict):
             continue
-        face = Face(_s(f, "person"), _num(f, "similarity"), _num(f, "quality"),
+        # brak jakości (null) = 0.5 "nie wiadomo"; inaczej twarz byłaby całkowicie ignorowana (waga × 0)
+        face = Face(_s(f, "person"), _num(f, "similarity"), _num(f, "quality", 0.5),
                     _num(f, "deepfake_score"), _vec(f, "embedding"))
         c.faces.append(face)
         add("person", face.person)
@@ -226,16 +288,17 @@ def parse_card(j: dict) -> Card:
         c.audio_fp = [x & 0xFFFFFFFF for x in arr]  # int32 ze znakiem -> uint32 (do porównań bitowych)
         add("audio_fp", fingerprint_id(c.audio_fp))
 
+    c.trusted_hits = sorted(hits)
     c.artifacts = sorted(arts)
     return c
 
 
-def load_cards(path: str) -> Iterator[Card]:
+def load_cards(path: str, trusted: frozenset[str] | None = None) -> Iterator[Card]:
     with open(path, encoding="utf-8") as fh:
         for ln, line in enumerate(fh, 1):
             if not line.strip():
                 continue
             try:
-                yield parse_card(json.loads(line))
+                yield parse_card(json.loads(line), trusted)
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"linia {ln}: pomijam ({e})")

@@ -173,4 +173,5 @@ Przy większej skali: kNN (FAISS) na wektorach i HDBSCAN na grafie rzadkim albo 
 ## Licencje komponentów
 
 numpy (BSD-3), scikit-learn (BSD-3), hdbscan (BSD-3), neo4j Python driver (Apache 2.0),
+publicsuffixlist (MPL 2.0, dane Public Suffix List na MPL 2.0), ranking Tranco (do celów badawczych, cytowanie: Le Pochat i in., NDSS 2019),
 Neo4j Community Edition (GPLv3, uruchamiany jako osobna usługa w Dockerze).
