@@ -1,5 +1,9 @@
 FROM tm-base:latest
 RUN pip install imagehash==4.3.1
-COPY containers/image_embedding /app/uc
+COPY common/dl.py /app/common/dl.py
+COPY containers/image_embedding/download.py /app/uc/download.py
 RUN python /app/uc/download.py
-CMD ["python", "/app/uc/run.py"]
+# kod po pobraniu modeli -> zmiany kodu nie unieważniają warstwy z wagami
+COPY common /app/common
+COPY containers/image_embedding /app/uc
+CMD ["python", "/app/common/main.py", "extract"]

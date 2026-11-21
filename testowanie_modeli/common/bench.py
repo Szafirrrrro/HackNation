@@ -1,6 +1,7 @@
 """Wspólny harness benchmarku CPU dla wszystkich kontenerów.
 
-Każdy kontener definiuje listę modeli (obiekty ModelSpec) i woła `run_suite`.
+Uruchamiane przez `main.py bench`. Mierzy te same ekstraktory (models.py), których używa
+`main.py extract`, ale NIE zapisuje cech - tylko koszt. Wyniki -> /results/<use_case>.json.
 Pomiar:
   * cgroup v2 cpu.stat (usage_usec) -> CPU-sekundy zużyte przez CAŁY kontener
     (wszystkie wątki: torch/onnx/tesseract-subprocess), niezależnie od psutil,
@@ -29,8 +30,6 @@ from typing import Any, Callable
 import psutil
 
 CGROUP = Path("/sys/fs/cgroup")
-DATA = Path(os.environ.get("DATA_DIR", "/data"))
-RESULTS = Path(os.environ.get("RESULTS_DIR", "/results"))
 
 
 # ---------------------------------------------------------------- CPU / RAM --
@@ -155,19 +154,7 @@ def thread_counts() -> list[int]:
     return out
 
 
-# -------------------------------------------------------------------- spec --
-@dataclass
-class ModelSpec:
-    name: str                       # np. "insightface/buffalo_l"
-    use_case: str                   # np. "face"
-    license: str
-    load: Callable[[int], Any]      # load(threads) -> model
-    infer: Callable[[Any, Any], Any]  # infer(model, item) -> wynik (JSON-able)
-    inputs: Callable[[], list]      # lista elementów (ścieżki / teksty)
-    notes: str = ""
-    item_label: Callable[[Any], str] = field(default=lambda x: str(x))
-
-
+# ---------------------------------------------------------------- benchmark --
 def _pct(vals, q):
     if not vals:
         return None
@@ -176,50 +163,44 @@ def _pct(vals, q):
     return s[k]
 
 
-def _bench_one(spec: ModelSpec, threads: int, warmup: int, repeats: int,
-               max_items: int) -> dict:
+def _bench_one(ext, items, threads: int, warmup: int, repeats: int) -> dict:
     set_threads(threads)
-    items = spec.inputs()[:max_items]
     if not items:
-        return {"model": spec.name, "threads": threads, "skipped": "brak danych wejściowych"}
-
+        return {"model": ext.name, "use_case": ext.use_case, "threads": threads,
+                "skipped": f"brak wejść typu {ext.modality}"}
     gc.collect()
     mem0 = rss_bytes()
     c0, t0 = cpu_seconds(), time.perf_counter()
-    model = spec.load(threads)
+    ext.load(threads)
     load_s = time.perf_counter() - t0
     load_cpu = cpu_seconds() - c0
     mem_loaded = rss_bytes()
 
-    for it in items[:warmup]:
-        spec.infer(model, it)
+    def call(it):
+        try:
+            return ext.summarize(ext.extract(it))
+        except Exception as e:  # noqa: BLE001 - np. Unavailable dla uszkodzonego pliku
+            return {"unavailable": f"{type(e).__name__}: {e}"}
 
-    lat = []
-    outputs = {}
+    for it in items[:warmup]:
+        call(it)
+    lat, outputs = [], {}
     with Sampler() as smp:
         c1, t1 = cpu_seconds(), time.perf_counter()
         for _ in range(repeats):
             for it in items:
                 s = time.perf_counter()
-                out = spec.infer(model, it)
+                out = call(it)
                 lat.append(time.perf_counter() - s)
-                outputs.setdefault(spec.item_label(it), out)
+                outputs.setdefault(it.label, out)
         wall = time.perf_counter() - t1
         cpu = cpu_seconds() - c1
-
     n = len(lat)
-    del model
-    gc.collect()
     return {
-        "model": spec.name,
-        "use_case": spec.use_case,
-        "license": spec.license,
-        "notes": spec.notes,
-        "threads": threads,
-        "n_items": len(items),
-        "n_runs": n,
-        "load_s": round(load_s, 3),
-        "load_cpu_s": round(load_cpu, 3),
+        "model": ext.name, "use_case": ext.use_case, "method_version": ext.method_version,
+        "license": ext.license, "notes": ext.notes, "threads": threads,
+        "n_items": len(items), "n_runs": n,
+        "load_s": round(load_s, 3), "load_cpu_s": round(load_cpu, 3),
         "model_ram_mb": round((mem_loaded - mem0) / 2**20, 1),
         "peak_ram_mb": round(smp.peak_rss / 2**20, 1),
         "lat_mean_ms": round(1000 * statistics.mean(lat), 1),
@@ -233,17 +214,44 @@ def _bench_one(spec: ModelSpec, threads: int, warmup: int, repeats: int,
     }
 
 
-def run_suite(use_case: str, specs: list[ModelSpec]):
+def _child_env(threads: int, model: str, out: str) -> dict:
+    env = dict(os.environ)
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                "OMP_THREAD_LIMIT", "NUMEXPR_NUM_THREADS"):
+        env[var] = str(threads)
+    env.update(BENCH_CHILD_MODEL=model, BENCH_CHILD_THREADS=str(threads), BENCH_CHILD_OUT=out)
+    return env
+
+
+def run_benchmark(exts, corpus, results: Path):
+    """Rodzic: dla każdej pary (ekstraktor, wątki) świeży podproces tego samego polecenia
+    (czyste pule wątków, czysty pomiar RAM). Dziecko: mierzy tylko swoją parę."""
+    import subprocess
+    import tempfile
+
     warmup = int(os.environ.get("BENCH_WARMUP", "1"))
     repeats = int(os.environ.get("BENCH_REPEATS", "3"))
     max_items = int(os.environ.get("BENCH_MAX_ITEMS", "20"))
-    only = [s for s in os.environ.get("BENCH_MODELS", "").split(",") if s]
+
+    child = os.environ.get("BENCH_CHILD_MODEL")
+    if child is not None:
+        ext = next(e for e in exts if e.name == child)
+        th = int(os.environ["BENCH_CHILD_THREADS"])
+        items = corpus.items(ext.modality)[:max_items]
+        try:
+            r = _bench_one(ext, items, th, warmup, repeats)
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            r = {"model": ext.name, "use_case": ext.use_case, "threads": th,
+                 "error": f"{type(e).__name__}: {e}"}
+        Path(os.environ["BENCH_CHILD_OUT"]).write_text(json.dumps(r, ensure_ascii=False, default=str))
+        return
 
     env = {
-        "use_case": use_case,
-        "host_cpu_count": os.cpu_count(),
-        "cgroup_cpu_limit": _cgroup_cpu_limit(),
+        "dataset_id": corpus.dataset_id, "corpus_mode": corpus.mode, "n_ads": len(corpus.ads),
+        "host_cpu_count": os.cpu_count(), "cgroup_cpu_limit": _cgroup_cpu_limit(),
         "cgroup_measurement": _cgroup_cpu_usec() is not None,
+<<<<<<< HEAD
         "machine": platform.machine(),
         "python": sys.version.split()[0],
         "threads_tested": thread_counts(),
@@ -267,9 +275,22 @@ def run_suite(use_case: str, specs: list[ModelSpec]):
     for spec in specs:
         if only and not any(o in spec.name for o in only):
             continue
+=======
+        "machine": platform.machine(), "python": sys.version.split()[0],
+        "threads_tested": thread_counts(), "warmup": warmup, "repeats": repeats,
+        "max_items": max_items, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    print(f"== benchmark :: {json.dumps(env)}", flush=True)
+    by_uc: dict[str, list] = {}
+    for ext in exts:
+>>>>>>> 2226231 (dalsza czesc benchmarka)
         for th in thread_counts():
-            print(f"-- {spec.name} threads={th}", flush=True)
+            print(f"-- {ext.name} threads={th}", flush=True)
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+                out = tf.name
+            proc = subprocess.run([sys.executable] + sys.argv, env=_child_env(th, ext.name, out))
             try:
+<<<<<<< HEAD
                 r = _bench_one(spec, th, warmup, repeats, max_items)
             except Exception as e:
                 traceback.print_exc()
@@ -315,3 +336,21 @@ def texts() -> list[tuple[str, str]]:
 
 def short_label(x) -> str:
     return Path(x).relative_to(DATA).as_posix()
+=======
+                r = json.loads(Path(out).read_text())
+            except Exception:  # noqa: BLE001
+                r = {"model": ext.name, "use_case": ext.use_case, "threads": th,
+                     "error": f"podproces zakończony kodem {proc.returncode} (OOM?)"}
+            finally:
+                Path(out).unlink(missing_ok=True)
+            print(json.dumps({k: v for k, v in r.items() if k != "sample_outputs"},
+                             ensure_ascii=False), flush=True)
+            by_uc.setdefault(ext.use_case, []).append(r)
+
+    results.mkdir(parents=True, exist_ok=True)
+    for uc, rs in by_uc.items():
+        p = results / f"{uc}.json"
+        p.write_text(json.dumps({"env": {"use_case": uc, **env}, "results": rs},
+                                ensure_ascii=False, indent=2, default=str))
+        print(f"zapisano {p}", flush=True)
+>>>>>>> 2226231 (dalsza czesc benchmarka)

@@ -1,30 +1,31 @@
 #!/usr/bin/env bash
-# Benchmark zużycia CPU modeli w kontenerach.
+# BENCHMARK (tylko pomiar CPU/RAM/latencji, żadnych cech do dalszego użycia).
+# Wynik: out/benchmark/<RUN>/summary.md + <use_case>.json + logi.
 #
-#   ./bench.sh build   [use_case...]   # buduje tm-base + obrazy (modele wbudowane w obraz)
-#   ./bench.sh samples                 # generuje syntetyczne dane do data/sample
-#   ./bench.sh run     [use_case...]   # uruchamia benchmark (bez sieci), wyniki -> results/<RUN>
-#   ./bench.sh report  [results/<RUN>] # tabela markdown z wyników
-#   ./bench.sh all                     # build + samples + run + report
+#   ./bench.sh                       # wszystkie kontenery na data/sample
+#   ./bench.sh face ocr              # wybrane
+#   DATA=../data/nask-hacknation-2026 CPUS=2 THREADS=1,2 RUN=nask ./bench.sh
+#   ./bench.sh report [out/benchmark/<RUN>]
 #
-# Zmienne:
-#   DATA=./data/sample     katalog z danymi (texts/ images/ faces/ screenshots/ audio/ ai_generated/)
-#   CPUS=4                 limit rdzeni dla kontenera (docker --cpus), puste = bez limitu
-#   MEM=6g                 limit RAM
-#   THREADS=1,all          liczby wątków do przetestowania ("all" = CPUS)
-#   REPEATS=3 WARMUP=1 MAX_ITEMS=20
-#   MODELS=substr1,substr2 filtr nazw modeli
-#   RUN=nazwa              podkatalog results/ (domyślnie timestamp)
+# Zmienne: DATA (domyślnie ./data/sample), CPUS=4 (limit docker --cpus, puste = brak),
+#          MEM=6g, THREADS=1,all, REPEATS=3, WARMUP=1, MAX_ITEMS=20, MODELS, RUN.
 set -euo pipefail
-cd "$(dirname "$0")"
+source "$(dirname "$0")/scripts/common.sh"
+cd "$ROOT"
 
-ALL_UC=(face ocr text image_embedding object_detection asr ai_generated)
+if [ "${1:-}" = report ]; then
+  python3 scripts/report.py "${2:-$(ls -d out/benchmark/*/ | tail -1)}"; exit
+fi
+
 DATA=${DATA:-./data/sample}
 CPUS=${CPUS:-4}
 MEM=${MEM:-6g}
-THREADS=${THREADS:-1,all}
 RUN=${RUN:-$(date +%Y%m%d_%H%M%S)}
+res="./out/benchmark/$RUN"; mkdir -p "$res"
+data_abs=$(abs_dir "$DATA"); res_abs=$(abs_dir "$res")
+cpu_flag=(); [ -n "$CPUS" ] && cpu_flag=(--cpus "$CPUS")
 
+<<<<<<< HEAD
 uc_list() { if [ $# -gt 0 ]; then echo "$@"; else echo "${ALL_UC[@]}"; fi; }
 
 build() {
@@ -98,3 +99,16 @@ case "$cmd" in
   all) build "$@"; samples; run "$@" ;;
   *) sed -n '2,20p' "$0" ;;
 esac
+=======
+for uc in $(uc_list "$@"); do
+  echo "=== bench tm-$uc (cpus=$CPUS threads=${THREADS:-1,all} data=$DATA)"
+  # shellcheck disable=SC2046
+  docker run $(docker_flags "$uc") "${cpu_flag[@]}" --memory "$MEM" \
+    -e BENCH_THREADS="${THREADS:-1,all}" -e BENCH_REPEATS="${REPEATS:-3}" \
+    -e BENCH_WARMUP="${WARMUP:-1}" -e BENCH_MAX_ITEMS="${MAX_ITEMS:-20}" \
+    -e MODELS="${MODELS:-}" \
+    -v "$data_abs:/data:ro" -v "$res_abs:/results" \
+    "tm-$uc:latest" python /app/common/main.py bench 2>&1 | tee "$res/$uc.log"
+done
+python3 scripts/report.py "$res"
+>>>>>>> 2226231 (dalsza czesc benchmarka)

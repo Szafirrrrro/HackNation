@@ -7,6 +7,10 @@ RUN pip install scipy PyWavelets scikit-learn \
     && git remote add origin https://github.com/aloshdenny/reverse-SynthID.git \
     && git fetch --depth 1 origin ${RSID_COMMIT} && git checkout FETCH_HEAD \
     && rm -rf .git watermark_investigation assets artifacts/visualizations runs gui
-COPY containers/ai_generated /app/uc
+COPY common/dl.py /app/common/dl.py
+COPY containers/ai_generated/download.py /app/uc/download.py
 RUN python /app/uc/download.py
-CMD ["python", "/app/uc/run.py"]
+# kod po pobraniu modeli -> zmiany kodu nie unieważniają warstwy z wagami
+COPY common /app/common
+COPY containers/ai_generated /app/uc
+CMD ["python", "/app/common/main.py", "extract"]
