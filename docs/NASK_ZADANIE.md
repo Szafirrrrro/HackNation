@@ -1,8 +1,134 @@
-# The Kolekcjoner Fejków
+# Kolekcjoner fejków
 
-Źródłem transkrypcji jest dokument NASK „Pełna treść zadania konkursowego” przygotowany na HackNation 2026.
+**FOLLOW THE FAKE**
 
-## Follow the Fake
+Opis wyzwania HackNation
+
+> Źródło transkrypcji: NASK, „NASK - Pełna Treść Zadania Konkursowego (1).pdf”, 7 stron. SHA-256: `fdfb1f30660408c4b9d281cddb845a56137560e9b7d5d81fc23c044785affe96`. Opis wyzwania zajmuje strony 1–5, a „The Kolekcjoner Fejków” strony 6–7. Oryginał numeruje dwie ostatnie sekcje jako 10.
+
+## Krótki opis wyzwania
+
+Zbuduj narzędzie, które z chaosu pojedynczych podejrzanych reklam wydobędzie wspólne ślady i połączy je w większe kampanie oszustw. Rozwiązanie ma automatycznie analizować treść, warstwę wizualną i publicznie dostępne metadane infrastruktury, a następnie pokazywać podobieństwa i zależności między incydentami w czytelnej formie.
+
+## 1. Wprowadzenie - opis organizacji, sytuacji i stanu aktualnego
+
+Fałszywe reklamy wykorzystujące wizerunki znanych osób są publikowane masowo, często prowadzą do spreparowanych stron internetowych i funkcjonują na krótko żyjących domenach. Pojedyncze zgłoszenie takiej reklamy ma ograniczoną wartość analityczną: istotne informacje ujawniają się dopiero po zestawieniu wielu przypadków i porównaniu ich cech, narracji, materiałów wizualnych oraz śladów infrastrukturalnych.
+
+Obecnie brakuje ustrukturyzowanego sposobu, który pozwoliłby automatycznie wyciągać z takich materiałów cechy, porządkować je w jednolitym formacie, usuwać duplikaty i łączyć pozornie niezależne reklamy w spójne kampanie. Reklamy mogą wykorzystywać podobną narrację, te same osoby, zbliżony szablon produkcyjny, wspólne domeny, mechanizmy przekierowań lub inne drobne sygnały, które dopiero w połączeniu wskazują na wspólne źródło albo sposób działania.
+
+Wyzwaniem jest więc nie tylko wykrycie, że pojedynczy materiał jest podejrzany, lecz przede wszystkim zbudowanie metody analitycznej pozwalającej odkrywać relacje między wieloma materiałami. Taka wiedza może pomóc w szybszym rozpoznawaniu kolejnych odsłon tych samych kampanii, charakteryzowaniu ich wzorców oraz budowaniu lepszych mechanizmów ich wykrywania.
+
+Wyzwanie zostało zgłoszone przez Ośrodek Badań nad Bezpieczeństwem Sztucznej Inteligencji, działający w strukturach NASK PIB. NASK (Naukowa i Akademicka Sieć Komputerowa) to wiodąca polska instytucja technologiczna, odpowiedzialna za cyberbezpieczeństwo kraju, rozwój nowoczesnych rozwiązań teleinformatycznych oraz prowadzenie rejestru domeny narodowej .pl.
+
+## 2. Wyzwanie
+
+Zaproponuj narzędzie, które na podstawie materiałów pochodzących z podejrzanych reklam internetowych i powiązanych z nimi stron automatycznie pozyskuje informacje, identyfikuje wspólne cechy oraz wykrywa zależności między incydentami.
+
+Głównym celem wyzwania jest opracowanie metody korelacji i grupowania materiałów na podstawie różnorodnych śladów, m.in. tekstowych, wizualnych, semantycznych i infrastrukturalnych. Rozwiązanie powinno umożliwiać identyfikowanie duplikatów, rozpoznawanie wariantów tej samej kampanii oraz odkrywanie podobieństw między odrębnymi kampaniami. Jednym z kluczowych elementów zadania jest również analiza nowych materiałów i określanie, czy można je powiązać z wcześniej zidentyfikowaną kampanią, czy też reprezentują nowy wzorzec działania.
+
+Nie oczekujemy stworzenia idealnego detektora pojedynczej fałszywej reklamy. Najważniejsze jest opracowanie skutecznej, możliwej do wyjaśnienia metody łączenia niezależnych materiałów w większe struktury, z uwzględnieniem dostępnych danych i wiarygodności wykrytych powiązań.
+
+## 3. Oczekiwany rezultat
+
+Oczekiwanym rezultatem jest działający demonstrator wraz z opisaną metodyką analizy i grupowania materiałów. Rozwiązanie powinno w szczególności:
+
+- przyjmować materiały do analizy, np. adres URL reklamy lub strony, zrzut ekranu, log komunikacji, plik multimedialny, dane pochodzące z udostępnionego zbioru albo inną wskazówkę pozwalającą rozpocząć analizę;
+- automatycznie zbierać/pozyskiwać i porządkować dostępne informacje o materiale, np. tekst, słowa kluczowe, tematykę, wykorzystane wizerunki osób, logotypy, cechy wizualne, domeny, przekierowania, linki, strukturę stron oraz publicznie dostępne metadane domen i infrastruktury;
+- zamieniać zebrane dane na zestaw cech umożliwiających porównywanie materiałów;
+- identyfikować duplikaty i materiały będące wariantami tego samego przekazu;
+- zaproponować metodę określania podobieństwa i grupowania materiałów w kampanie lub grupy podobnych kampanii;
+- umożliwiać analizę nowego materiału względem wcześniej przetworzonego zbioru oraz wskazać potencjalne nowe kampanie;
+- prezentować znalezione zależności i powiązania w czytelnej formie, np. jako klastry, graf zależności lub listę podobnych incydentów;
+- wskazywać cechy i przesłanki, które wpłynęły na powiązanie konkretnych materiałów
+- umożliwić przeprowadzenie procesu analizy za pomocą prostego interfejsu graficznego;
+- udokumentować zastosowaną metodykę, w szczególności sposób pozyskiwania cech, obliczania podobieństwa i grupowania materiałów.
+
+Rozwiązanie powinno uwzględniać możliwość występowania niekompletnych danych, w tym niedostępnych stron internetowych lub brakujących materiałów źródłowych.
+
+Dodatkowo punktowane mogą być funkcjonalności wykraczające poza podstawowy zakres, np. atutem będzie mechanizm automatycznego wyszukiwania podejrzanych reklam w publicznie dostępnych źródłach, takich jak biblioteki reklam, (według słów kluczowych, daty wystąpienia albo innych reguł), okresowe aktualizowanie informacji lub identyfikowanie nowych materiałów powiązanych z wcześniej wykrytymi kampaniami. Wypracowane rozwiązania i metodyki mogą stanowić podstawę dalszego rozwoju systemu służącego do detekcji i analizy oszukańczych treści.
+
+## 4. Wymagania formalne
+
+Projekt powinien zawierać:
+
+- działający demonstrator z prostym interfejsem graficznym umożliwiającym przeprowadzenie i zaprezentowanie procesu analizy;
+- opis zastosowanej metodyki, w tym sposobu pozyskiwania cech, określania podobieństwa i grupowania materiałów;
+- instrukcję instalacji, konfiguracji i uruchomienia rozwiązania wraz z informacją o wymaganych zależnościach;
+- kod źródłowy udostępniony w repozytorium Git (np. GitHub, GitLab) lub w innej formie umożliwiającej organizatorowi pobranie i weryfikację rozwiązania, np. Google Drive
+- pomocnym będzie skonteneryzowane środowisko ułatwiające przenoszenie i uruchomienie projektu.
+
+Nie narzuca się konkretnych technologii, języków programowania ani bibliotek. W przypadku wykorzystania zewnętrznych usług, modeli lub API wymagających autoryzacji należy opisać sposób uzyskania dostępu oraz zapewnić możliwość weryfikacji działania rozwiązania podczas oceny. Nie wymaga się przekazywania prywatnych kluczy API ani certyfikatów.
+
+Uczestnicy powinni wskazać wykorzystane biblioteki, modele i zewnętrzne usługi wraz z informacją o ich licencjach oraz ewentualnych ograniczeniach wykorzystania
+
+## 5. Wymagania techniczne
+
+Technologia implementacji jest dowolna. Demonstrator może być przygotowany np. w Streamlit, Gradio lub innym prostym środowisku webowym. Estetyka interfejsu nie jest przedmiotem oceny - interfejs ma przede wszystkim umożliwiać uruchomienie i zaprezentowanie pełnego procesu analizy.
+
+Zakres analizy oraz sposób określania podobieństwa i grupowania pozostają otwarte. Zespół może wykorzystać metody regułowe, podobieństwo ważone, modele uczenia maszynowego, embeddingi, silniki klastrujące, grafy zależności lub inne podejścia. Sposób reprezentacji i wizualizacji relacji również jest dowolny, jednym z możliwych kierunków jest grafowa baza danych, np. Neo4j.
+
+Rozwiązanie powinno umożliwiać porównywanie nowych materiałów z wcześniej przeanalizowanymi przypadkami, uwzględniając możliwość występowania niekompletnych danych, np. brakujących metadanych, niedostępnych stron internetowych lub części materiałów źródłowych.
+
+W przypadku identyfikacji osób widocznych w materiałach dopuszczalne jest przygotowanie niewielkiej bazy referencyjnej obejmującej najczęściej występujące osoby. Jej rozmiar nie jest kluczowy - ma jedynie pomóc wykazać użyteczność proponowanego rozwiązania. Dobór metod, modeli i analizowanych cech pozostaje w gestii zespołu. Istotna jest ich przydatność do identyfikowania powiązań między materiałami oraz możliwość uzasadnienia uzyskanych wyników. Rozwiązanie powinno być możliwie łatwe do przenoszenia i uruchomienia - preferowane jest przygotowanie wersji skonteneryzowanej wraz z instrukcją.
+
+## 6. Sposób testowania i/lub walidacji
+
+Rozwiązania będą oceniane na podstawie demonstracji działania oraz testów przeprowadzonych z wykorzystaniem materiałów przygotowanych przez organizatora.
+
+Uczestnikom zostanie udostępniony przykładowy zbiór danych umożliwiający zapoznanie się z charakterystyką incydentów, przygotowanie i rozwijanie rozwiązania oraz przeprowadzenie wstępnych testów. Podczas oceny organizator wykorzysta również dodatkowy, wcześniej nieudostępniony zbiór testowy zawierający nowe warianty znanych kampanii, jak i materiały reprezentujące inne kampanie.
+
+Walidacja będzie obejmować w szczególności:
+
+- skuteczność identyfikowania podobnych materiałów i wariantów tych samych kampanii
+- poprawność przypisywania nowych materiałów do istniejących grup
+- zdolność identyfikowania materiałów, które nie powinny zostać połączone z wcześniej rozpoznanymi kampaniami
+- przydatność i różnorodność wykorzystywanych cech
+- odporność na duplikaty, niekompletne dane i różnice w formacie materiałów
+- interpretowalność wyników, w tym możliwość wskazania przesłanek wykrytych powiązań
+- kompletność działania rozwiązania, od wczytania danych do prezentacji wyników
+
+Podczas demonstracji zespół powinien zaprezentować pełny proces analizy, w tym przetwarzanie materiału wejściowego, wyodrębnienie cech, porównanie z innymi przypadkami, grupowanie oraz prezentację uzyskanych wyników.
+
+Ocena jakości korelacji i grupowania będzie uwzględniała wyniki testów oraz uzasadnienie przyjętej metodyki. Organizator nie narzuca konkretnego algorytmu ani sposobu reprezentacji danych.
+
+Istotna będzie nie tylko końcowa jakość grupowania, lecz również sensowność zastosowanej metodyki: dobór źródeł danych i cech, sposób obliczania podobieństwa, odporność na duplikaty oraz możliwość wyjaśnienia, dlaczego konkretne materiały zostały ze sobą połączone.
+
+## 7. Dostępne zasoby
+
+- Przykładowe reklamy typu scam
+- inne materiały udostępnione na kanale Discord
+
+## 8. Zasady korzystania z danych
+
+Uczestnicy otrzymają zbiór przykładowych materiałów służących do opracowania i weryfikacji rozwiązania. Organizator zastrzega sobie możliwość przeprowadzenia dodatkowych testów na materiałach nieuwzględnionych w udostępnionym zbiorze.
+
+Dopuszczalne jest wykorzystanie dodatkowych, pozyskanych danych i publicznie dostępnych źródeł informacji, pod warunkiem wskazania ich pochodzenia.
+
+Materiały udostępnione przez organizatora mogą być wykorzystywane wyłącznie na potrzeby realizacji wyzwania. Niedozwolone jest ich publiczne rozpowszechnianie.
+
+## 9. Kryteria oceny
+
+- Jakość metody korelacji i grupowania materiałów - 30%
+- Użyteczność i trafność pozyskiwanych cech oraz źródeł danych - 30%
+- Kompletność demonstratora i działanie procesu end-to-end - 15%
+- Czytelność i interpretowalność prezentowanych powiązań - 15%
+- Potencjał wdrożeniowy, skalowalność i przenośność rozwiązania - 10%
+
+## 10. Dodatkowe uwagi / kontekst wdrożeniowy
+
+Z perspektywy organizatora ważnym rezultatem wyzwania, poza działającym demonstratorem, jest wiedza uzyskana podczas realizacji zadania, w szczególności: wzbogacony i uporządkowany zbiór danych, opis zidentyfikowanych wzorców kampanii oszukańczych, metodyka łączenia cech oraz wskazanie użytecznych źródeł metadanych.
+
+Wypracowane rozwiązania i metodyki mogą bezpośrednio wspierać dalszy rozwój narzędzi Instytutu, w kierunku identyfikowania i analizy całych kampanii oszustw internetowych. Szczególnie istotna jest możliwość wykorzystania proponowanych metod do rozpoznawania nowych wariantów znanych kampanii oraz odkrywania powiązań między pozornie niezależnymi incydentami. Wiedza zdobyta dzięki temu wyzwaniu zostanie wykorzystana w dalszym rozwoju narzędzi do skutecznej ochrony w sieci.
+
+## 10. Kontakt
+
+Podczas wydarzenia dostępni będą mentorzy zarówno techniczni jak i merytoryczni w specjalnie oznaczonym punkcie konsultacyjnym. Pytania dotyczące wyzwania można również kierować za pośrednictwem kanału na Discord.
+
+---
+
+## The Kolekcjoner Fejków
+
+**FOLLOW THE FAKE**
 
 > “Matrix jest wszędzie, otacza nas ze wszystkich stron. Nawet tu i teraz. Widzisz go wyglądając przez okno i włączając telewizor. Czujesz, gdy idziesz do pracy, czy do kościoła, gdy płacisz podatki. To świat, który postawiono ci przed oczami, by przesłonić prawdę.”
 >
@@ -22,8 +148,6 @@ Dysponując m.in takimi informacjami możemy stworzyć system grupowania kampani
 >
 > — Neo, Matrix (fragment dialogu)
 
-## Kwestie techniczne
-
 Przejdźmy do kwestii technicznych. Bo po to tu jesteśmy.
 
 - Rozwiązanie powinno zawierać prosty demonstrator (prosta stronka, np. z wykorzystaniem Streamlit, Gradio, lub innych; jej estetyka nie podlega ocenie. Jest oceniana 0/1 - jest, albo jej nie ma. Chodzi tylko o to, aby mieć graficzne środowisko uruchomieniowe). Strona może przyjąć bezpośredni adres URL, zrzut ekranu zawierający link, lub inną wskazówkę jak nazwa produktu, albo plik zawierający podejrzaną reklamę, aby uruchomić proces analizy. Dodatkowym, pozytywnym akcentem może być zaszyty scheduler, który samodzielnie wykonuje skan zidentyfikowanych bibliotek reklam, znajduje te podejrzane i wykonuje ich analizy.
@@ -36,4 +160,4 @@ Nie chodzi o stworzenie idealnego detektora pojedynczej fałszywej reklamy. Zbud
 
 PS. Widział_ś stronę z zajawką? <https://science.nask.pl/hacknation>
 
-Adres z kodu QR obok napisu „Zeskanuj mnie”: <https://loyalty.nuvio.group/enroll/6586110843755849>
+Zeskanuj mnie (adres z kodu QR): <https://loyalty.nuvio.group/enroll/6586110843755849>

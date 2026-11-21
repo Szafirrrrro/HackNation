@@ -2,7 +2,7 @@
 
 w ramach hackathonu HackNation 2026
 
-Źródłem transkrypcji jest podpisany elektronicznie dokument NASK „Regulamin zadania konkursowego” przygotowany na HackNation 2026.
+> Źródło transkrypcji: NASK, „NASK - Regulamin zadania konkursowego (1).pdf”, 4 strony. SHA-256: `0e4fed9769140ffd90b51cfe040cc60912633a2b02f85c2336dfccebf5f437cf`. Oryginał zawiera podpis elektroniczny.
 
 ## §1. Postanowienia ogólne
 

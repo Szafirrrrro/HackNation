@@ -1,108 +1,357 @@
 <!doctype html>
 <html lang="pl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#132520">
-  <meta name="description" content="Projekt ScamGraph dla zespołu HackNation 2026. Sprawdź, jakie dowody łączą reklamy, poznaj architekturę i plan pracy na 24 godziny.">
-  <title>ScamGraph — projekt systemu</title>
-  <link rel="icon" href="data:,">
-  <link rel="preload" href="./type/Barlow-SemiBold.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="stylesheet" href="./style.css">
-  <script type="module" src="./ui.js"></script>
-</head>
-<body>
-<a class="skip" href="#tresc">Przejdź do treści</a>
-<header class="top">
-  <div class="wrap mast">
-    <a class="brand" href="#tresc" aria-label="ScamGraph, początek"><span aria-hidden="true" class="mark"><i></i><i></i><i></i></span>ScamGraph</a>
-    <nav aria-label="Sekcje projektu"><a href="#dowody">Dowody</a><a href="#architektura">Architektura</a><a href="#plan">Plan 24 h</a><a href="#zrodla">Źródła</a></nav>
-    <a class="file-link" href="./projekt-systemu.md" download><span class="download-icon" aria-hidden="true">↓</span> Pobierz projekt</a>
-  </div>
-</header>
-<main id="tresc">
-  <section class="hero wrap" aria-labelledby="hero-title">
-    <div class="hero-copy">
-      <p class="kicker"><span class="signal" aria-hidden="true"></span> HackNation 2026 <span class="slash">/</span> Projekt systemu</p>
-      <h1 id="hero-title">Od reklamy<br>do <em>kampanii.</em></h1>
-      <p class="intro">ScamGraph pomaga analitykowi znaleźć reklamy, które warto sprawdzić razem. Każde powiązanie prowadzi do konkretnych śladów w obu materiałach.</p>
-      <a class="button primary" href="#dowody">Prześledź przykład</a>
-    </div>
-    <figure class="network">
-      <div class="figure-top"><span><i class="view-icon" aria-hidden="true"></i> Mapa powiązań</span><span>Przykład syntetyczny</span></div>
-      <div class="plot" role="img" aria-label="Grupa referencyjna SG-014 i SG-022 oraz nowa reklama SG-031. W pierwszym wariancie każde połączenie jest mocne.">
-        <canvas id="graph" aria-hidden="true"></canvas>
-        <span class="graph-label sg14">SG-014</span><span class="graph-label sg22">SG-022</span>
-        <span class="graph-label sg31">SG-031<small>Nowa reklama</small></span>
-      </div>
-      <figcaption><span><i class="solid"></i>Mocne połączenie</span><span><i class="dashed"></i>Poszlaka</span></figcaption>
-    </figure>
-  </section>
-  <section class="facts" aria-label="Zakres projektu"><div class="wrap facts-inner">
-    <div><strong>13</strong><span>różnych zrzutów<br>z pakietu NASK</span></div>
-    <div><strong>3</strong><span>rodziny śladów<br>tekst, obraz i infrastruktura</span></div>
-    <div><strong>24 <small>h</small></strong><span>na lokalny<br>demonstrator</span></div>
-  </div></section>
-  <section class="section wrap" id="dowody" aria-labelledby="dowody-title">
-    <div class="sect-head"><div><p class="kicker"><span class="rule"></span> Laboratorium dowodów</p><h2 id="dowody-title">Kiedy połączyć reklamy?</h2></div><p>Wybierz wariant reklamy SG-031 i sprawdź, jak zmiana jednego źródła wpływa na przypisanie do tej samej grupy referencyjnej.</p></div>
-    <div class="lab">
-      <div class="case-controls" role="group" aria-label="Wariant syntetycznej reklamy">
-        <button type="button" data-case="match" aria-pressed="true">Dwa ślady</button>
-        <button type="button" data-case="review" aria-pressed="false">Podobny obraz</button>
-        <button type="button" data-case="missing" aria-pressed="false">Za mało danych</button>
-        <button type="button" data-case="none" aria-pressed="false">Różne materiały</button>
-      </div>
-      <noscript>Interaktywny przykład wymaga JavaScript. Wszystkie reguły i przykłady znajdziesz w pełnym projekcie do pobrania.</noscript>
-      <div class="case-body" id="case-body" hidden>
-        <div class="verdict"><p class="kicker">Decyzja dla SG-031</p><h3 id="verdict-title"></h3><code id="verdict-code"></code><p id="verdict-summary"></p><p class="case-note">Dane syntetyczne. Przykład porównuje zapisane cechy dwóch reklam referencyjnych.</p></div>
-        <div class="evidence"><div class="pair-head"><p class="kicker">Pola dowodowe</p><label>Porównaj z <select id="pair"><option>SG-014</option><option>SG-022</option></select></label></div>
-          <div id="rows"></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101316" />
+    <meta
+      name="description"
+      content="Dokumentacja techniczna ScamGraph. Warstwy systemu, kontrakty danych, trzy zespoły i kryteria odbioru MVP na HackNation 2026."
+    />
+    <title>ScamGraph / Przewodnik dewelopera</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./ui.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#tresc">Przejdź do treści</a>
+    <header class="topbar">
+      <a class="brand" href="./index.html"
+        ><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span
+        >ScamGraph</a
+      >
+      <span class="header-division" aria-hidden="true">/</span
+      ><span class="edition">Dokumentacja techniczna</span>
+      <a class="download" href="./projekt-systemu.md" download
+        >Pobierz specyfikację <span>MD</span></a
+      >
+    </header>
+    <div class="shell">
+      <aside>
+        <nav aria-label="Spis dokumentacji">
+          <p class="nav-label">Podręcznik</p>
+          <a href="./index.html" aria-current="page">Przegląd projektu</a>
+          <a href="./start.html">Pierwszy dzień</a>
+          <a href="./architektura.html">Warstwy i kontrakty</a>
+          <a href="./przyklad.html">Przykład analizy</a>
+          <p class="nav-label">Na tej stronie</p>
+          <a href="#architektura"
+            ><span class="nav-glyph" aria-hidden="true">⌘</span>Architektura</a
+          >
+          <a href="#zespoly"
+            ><span class="nav-glyph" aria-hidden="true">⊞</span>Mini-zespoły</a
+          >
+          <a href="#plan"
+            ><span class="nav-glyph" aria-hidden="true">≡</span>Plan
+            integracji</a
+          >
+          <p class="nav-label">Weryfikacja</p>
+          <a href="#kryteria"
+            ><span class="nav-glyph" aria-hidden="true">%</span>Kryteria NASK</a
+          >
+          <a href="#dowody"
+            ><span class="nav-glyph" aria-hidden="true">›_</span>Testy
+            decyzji</a
+          >
+          <a href="#material"
+            ><span class="nav-glyph" aria-hidden="true">▤</span>Dane i źródła</a
+          >
+        </nav>
+        <div class="side-foot">
+          <span class="small-mark" aria-hidden="true"></span>
+          <div>HackNation 2026<small>Kolekcjoner fejków / NASK</small></div>
         </div>
-      </div>
-      <span id="live" class="sr-only" role="status"></span>
+      </aside>
+      <main id="tresc">
+        <section class="first handbook-intro" aria-labelledby="handbook-title">
+          <p class="breadcrumb">HackNation 2026 <span>/</span> Kolekcjoner fejków</p>
+          <h1 id="handbook-title">Jak działa ScamGraph</h1>
+          <p class="lede">Analityk dostaje zrzut podejrzanej reklamy. Czy to kolejna emisja znanej kampanii? Projektujemy narzędzie, które porówna ją z lokalną kolekcją i pokaże konkretne dowody za każdym proponowanym powiązaniem.</p>
+          <div class="reading-paths">
+            <a href="./start.html"><strong>Pierwszy dzień</strong><span>Uruchom przykład w repozytorium, wybierz zadanie i sprawdź kryterium odbioru.</span></a>
+            <a href="./przyklad.html"><strong>Od reklamy do decyzji</strong><span>Prześledź jedną emisję, policz różnicę obrazów i sprawdź, co zmieni utrata adresu.</span></a>
+            <a href="./architektura.html"><strong>Warstwy i kontrakty</strong><span>Sprawdź format wejścia, oczekiwany wynik, przypadki brzegowe i test każdej warstwy.</span></a>
+          </div>
+          <p class="current-state"><strong>Co możesz uruchomić dziś</strong> &nbsp;Stronę, cztery syntetyczne scenariusze i ich testy w Node.js. W repozytorium zespołu jest też korpus do lokalnej analizy. Ekstraktory Pythona, indeks kampanii i interfejs Streamlit to zakres implementacji opisany poniżej.</p>
+        </section>
+        <section id="architektura" class="atlas" aria-labelledby="architecture-title">
+          <div class="section-head"><h2 id="architecture-title">Mapa systemu</h2></div>
+          <p class="section-intro">Najpierw budujemy zbiór odniesienia z wcześniejszych emisji. Potem możemy sprawdzić każde nowe zgłoszenie bez przebudowy grup. Trzeci widok pokazuje, jak zmierzyć jakość obu etapów. Strzałki prowadzą od źródła do odbiorcy danych.</p>
+          <div class="flow-book">
+            <div id="flow-tabs" class="flow-tabs" role="group" aria-label="Przebieg do wyświetlenia"></div>
+            <p id="flow-summary" class="flow-summary"></p>
+            <div class="flow-layout">
+              <div class="map-pane">
+                <div class="map-toolbar"><p>Wybierz węzeł, aby wyróżnić jego połączenia.</p><a id="node-shortcut" href="#map-detail">Opis wybranego węzła</a></div>
+                <div id="map-board" class="map-board" role="group" aria-label="Węzły wybranego przebiegu">
+                  <svg class="map-wires" aria-hidden="true"><defs>
+                    <marker id="arrow-base" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8" fill="#76869a"/></marker>
+                    <marker id="arrow-on" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L8 4 L0 8" fill="#78dec5"/></marker>
+                  </defs><g id="map-lines"></g></svg>
+                  <div id="map-rows"></div>
+                </div>
+              </div>
+              <article id="map-detail" class="map-detail" aria-labelledby="node-title">
+                <div class="map-detail-summary">
+                  <p id="node-meta" class="micro"></p><h3 id="node-title"></h3>
+                  <p id="node-action"></p>
+                  <a id="node-chapter" href="./architektura.html">Przeczytaj opis warstwy</a>
+                  <a id="node-link" href="#architektura">Odnośnik do tego węzła</a>
+                  <button id="back-to-node" type="button">Wróć do węzła na mapie</button>
+                </div>
+                <dl id="node-fields"></dl>
+              </article>
+            </div>
+            <span id="map-status" class="sr-only" role="status"></span>
+            <noscript><p>Pełny opis przebiegów, połączeń i kontraktów znajdziesz w <a href="./architektura.html">przewodniku po warstwach</a>.</p></noscript>
+          </div>
+        </section>
+        <section id="zespoly">
+          <div class="section-head">
+            <h2>Mini-zespoły</h2>
+            <span class="meta">3 pary / 6 osób</span>
+          </div>
+          <p class="section-intro">Każda para rozwija część wspólnego przepływu. <a href="./start.html#zespoly">Otwórz sześć pierwszych zadań z kryteriami odbioru.</a></p>
+          <div class="team-grid">
+            <article class="team a">
+              <div class="team-key">A</div>
+              <h3>Obraz i OCR</h3>
+              <p>
+                <b>A1</b> Walidacja obrazu, SHA-256, pHash i porównanie kadrów.
+              </p>
+              <p>
+                <b>A2</b> OCR PL/EN, pochodzenie tekstu i próby z brakującym
+                modelem.
+              </p>
+              <footer>
+                Przekazuje <code>Feature[]</code> do C i odczyt OCR do B.
+              </footer>
+            </article>
+            <article class="team b">
+              <div class="team-key">B</div>
+              <h3>Tekst i dane</h3>
+              <p>
+                <b>B1</b> Import korpusu, deduplikacja emisji i powiązanie
+                adresów ze źródłem i parsowanie metadanych celu.
+              </p>
+              <p>
+                <b>B2</b> TF-IDF, wspólne fragmenty tekstu i
+                kontrprzykłady.
+              </p>
+              <footer>
+                Przekazuje <code>Ad</code> do A oraz cechy z pochodzeniem do C.
+              </footer>
+            </article>
+            <article class="team c">
+              <div class="team-key">C</div>
+              <h3>Silnik i integracja</h3>
+              <p>
+                <b>C1</b> Ocena par, grupy, progi i pomiar na odłożonych
+                przypadkach.
+              </p>
+              <p>
+                <b>C2</b> Streamlit, widok dowodów, pakowanie i próba
+                instalacji.
+              </p>
+              <footer>
+                Odbiera <code>Feature[]</code> i dostarcza wynik oraz raport
+                testów.
+              </footer>
+            </article>
+          </div>
+        </section>
+        <section id="plan">
+          <div class="section-head">
+            <h2>Plan integracji</h2>
+            <span class="meta">24 godziny</span>
+          </div>
+          <ol class="milestones">
+            <li>
+              <code>0–1 h</code>
+              <div>
+                <h3>Kontrakt i próbka</h3>
+                <p>
+                  B1 sprawdza import, A1 weryfikuje obrazy. A2 i B2 odkładają
+                  przypadki testowe i ich etykiety. C1 dostaje zbiór rozwojowy i
+                  uzgadnia format wyniku z C2.
+                </p>
+              </div>
+            </li>
+            <li>
+              <code>1–4 h</code>
+              <div>
+                <h3>Pierwszy dowód w UI</h3>
+                <p>
+                  Jedna reklama przechodzi przez ekstraktor i silnik. W
+                  Streamlit widać porównane wartości oraz pochodzenie po obu
+                  stronach.
+                </p>
+              </div>
+            </li>
+            <li>
+              <code>4–10 h</code>
+              <div>
+                <h3>Pełny przepływ</h3>
+                <p>
+                  Połącz ekstraktory A i B. Sprawdź duplikat, wariant, brak
+                  metadanych, niedostępną stronę i słabe połączenie w łańcuchu
+                  A–B–C.
+                </p>
+              </div>
+            </li>
+            <li>
+              <code>10–17 h</code>
+              <div>
+                <h3>Strojenie i zamrożenie</h3>
+                <p>
+                  Porównaj pełną metodę z samym tekstem. Ustal progi na części
+                  rozwojowej i zamroź wersję przed próbą na odłożonych
+                  materiałach.
+                </p>
+              </div>
+            </li>
+            <li>
+              <code>17–24 h</code>
+              <div>
+                <h3>Próba oceny</h3>
+                <p>
+                  Nowy wariant znanej grupy i materiał spoza grup przechodzą ten
+                  sam proces. Uruchom demo z instrukcji na czystym środowisku i
+                  powtórz offline.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </section>
+        <section id="kryteria">
+          <div class="section-head">
+            <h2>Kryteria NASK</h2>
+            <span class="meta">Punkt 9 opisu zadania</span>
+          </div>
+          <p class="section-intro">
+            Poza materiałem przykładowym jury użyje nieudostępnionego wcześniej
+            zbioru z nowymi wariantami znanych kampanii i reklamami innych
+            kampanii.
+          </p>
+          <table class="rubric">
+            <thead>
+              <tr>
+                <th>Waga</th>
+                <th>Kryterium</th>
+                <th>Co zespół przedstawia do oceny</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>30%</td>
+                <th scope="row">Korelacja i grupowanie</th>
+                <td>
+                  Przypisanie nowego wariantu, odrzucenie obcej kampanii i
+                  porównanie z samym tekstem.
+                </td>
+              </tr>
+              <tr>
+                <td>30%</td>
+                <th scope="row">Trafność cech i źródeł</th>
+                <td>
+                  Źródło każdej cechy, jej dostępność i przykład zależnych
+                  obserwacji.
+                </td>
+              </tr>
+              <tr>
+                <td>15%</td>
+                <th scope="row">Kompletny demonstrator</th>
+                <td>
+                  Od wczytania nieznanego materiału do wyniku w graficznym
+                  interfejsie.
+                </td>
+              </tr>
+              <tr>
+                <td>15%</td>
+                <th scope="row">Interpretowalność</th>
+                <td>
+                  Oba pola, dowody za połączeniem i przyczyna wstrzymania
+                  decyzji.
+                </td>
+              </tr>
+              <tr>
+                <td>10%</td>
+                <th scope="row">Wdrożenie, skala i przenośność</th>
+                <td>
+                  Kod, instrukcja instalacji, konfiguracji i startu, zależności
+                  i licencje. Preferowany kontener.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <section id="dowody">
+          <div class="section-head">
+            <h2>Testy decyzji</h2>
+            <span class="meta">Dane syntetyczne</span>
+          </div>
+          <p class="section-intro">
+            Zmień dane SG-031 i sprawdź wynik porównania z dwiema reklamami
+            grupy. To próbki do testowania kontraktu <code>MatchResult</code>.
+          </p>
+          <div class="lab">
+            <div
+              class="case-controls"
+              role="group"
+              aria-label="Wariant testowy"
+            >
+              <button type="button" data-case="match" aria-pressed="true">
+                Dwa ślady</button
+              ><button type="button" data-case="review" aria-pressed="false">
+                Podobny obraz</button
+              ><button type="button" data-case="missing" aria-pressed="false">
+                Za mało danych</button
+              ><button type="button" data-case="none" aria-pressed="false">
+                Różne materiały
+              </button>
+            </div>
+            <noscript
+              >Scenariusze wymagają JavaScript. Reguły decyzji opisuje
+              specyfikacja do pobrania.</noscript
+            >
+            <div id="case-body" class="case-body" hidden>
+              <div class="verdict">
+                <code id="verdict-code"></code>
+                <h3 id="verdict-title"></h3>
+                <p id="verdict-summary"></p>
+              </div>
+              <div class="evidence">
+                <label
+                  >Porównaj SG-031 z
+                  <select id="pair">
+                    <option>SG-014</option>
+                    <option>SG-022</option>
+                  </select></label
+                >
+                <div id="rows"></div>
+              </div>
+            </div>
+            <span id="live" class="sr-only" role="status"></span>
+          </div>
+        </section>
+        <section id="material">
+          <div class="section-head"><h2>Dane i źródła</h2></div>
+          <p class="section-intro">
+            Materiały organizatora służą wyłącznie realizacji wyzwania. Korpus
+            jest wejściem lokalnym. Publiczna dokumentacja używa syntetycznych
+            przykładów.
+          </p>
+          <div id="zrodla" class="resources">
+            <a href="./projekt-systemu.md" download
+              >Specyfikacja implementacyjna <code>.md</code></a
+            ><a href="https://hacknation.pl/zadania"
+              >Oficjalne zadania HackNation</a
+            ><a href="https://science.nask.pl/hacknation/"
+              >Wskazówki techniczne NASK</a
+            >
+          </div>
+        </section>
+      </main>
     </div>
-    <div class="editor-note"><strong>Reguła całej grupy</strong><p>Nowa reklama musi mieć mocne połączenie z każdym członkiem dokładnie jednej grupy. Gdy A pasuje do B, a B do C, słabe A–C wstrzymuje scalenie całej trójki.</p></div>
-  </section>
-  <section class="system" id="architektura" aria-labelledby="arch-title"><div class="wrap section">
-    <div class="sect-head"><div><p class="kicker"><span class="rule"></span> Architektura MVP</p><h2 id="arch-title">Od pliku do decyzji</h2></div><p>Jeden proces Pythona na laptopie. Import i obliczanie cech korpusu następują przed pokazem. Każda nowa reklama przechodzi przez ten sam ekstraktor.</p></div>
-    <ol class="flow">
-      <li><p class="code-name">ingest</p><h3>Import</h3><p>Manifest, rekordy JSONL i obrazy. Stabilne ID oddziela emisję od pliku użytego w wielu reklamach.</p><code>Ad</code></li>
-      <li><p class="code-name">features</p><h3>Ekstrakcja</h3><p>OCR, odcisk obrazu i zapisany cel. Każda cecha dziedziczy identyfikator pierwotnej obserwacji.</p><code>pHash · OCR · URL</code></li>
-      <li><p class="code-name">matching</p><h3>Grupowanie</h3><p>Silnik porównuje wszystkie pary i scala grupy, gdy każdy nowy związek jest wystarczająco mocny.</p><code>PairAssessment · Campaign</code></li>
-      <li><p class="code-name">streamlit</p><h3>Wynik</h3><p>Formularz przyjmuje PNG lub JPEG. Panel pokazuje status, członków grupy i oba pola każdego dowodu.</p><code>MatchResult</code></li>
-    </ol>
-    <div class="stack"><div><p class="kicker">Decyzje techniczne</p><h3>Stos na pierwszą dobę</h3><p>Rozwiń warstwę, żeby zobaczyć jej rolę, ograniczenia i warunek rozbudowy.</p></div>
-    <div class="accordion">
-      <details open><summary><span>Obraz i OCR</span><small>Pillow · ImageHash · Tesseract</small></summary><p>SHA-256 wykrywa identyczny zasób, pHash pozwala porównać wygląd. Tesseract z lokalnymi modelami <code>pol</code> i <code>eng</code> odczytuje napis. Obraz i tekst pochodzący z jego pikseli liczą się jako jedna obserwacja.</p></details>
-      <details><summary><span>Tekst i infrastruktura</span><small>scikit-learn · urllib.parse</small></summary><p>Znakowy TF-IDF (3–5 znaków) porównuje teksty. Analityk dostaje wspólny fragment i źródło. Parser porównuje zapisane adresy i pozostawia oryginały do wglądu. Wspólny popularny parametr ma niewielką siłę. Demonstrator pracuje offline.</p></details>
-      <details><summary><span>Silnik i przechowywanie</span><small>Python · JSONL · pamięć RAM</small></summary><p>Dla 6–10 rekordów to 15–45 par. Mocna para wymaga trafień w dwóch niezależnych rodzinach, w tym jednego specyficznego śladu. Ranking przyznaje 2 punkty za specyficzną obserwację i 1 za pomocniczą. Reguły i progi zamrażamy przed pomiarem.</p></details>
-      <details><summary><span>Opcje po pierwszym pomiarze</span><small>Pomysły z zajawki NASK</small></summary><p>Przy przeoczonych parafrazach sprawdzimy sentence-transformers, przy zmienionych kadrach CLIP lub SigLIP. Warunek włączenia to lepszy recall na zbiorze rozwojowym bez wzrostu liczby fałszywych powiązań. MinHash/LSH, HDBSCAN i Neo4j odłożono do oceny skali. Zakres analizy wizerunku potwierdzimy z mentorem. NASK wymienia m.in. InsightFace, MagFace i facetorch.</p></details>
-    </div></div>
-  </div></section>
-  <section id="material" class="section wrap source-layout" aria-labelledby="data-title">
-    <div><p class="kicker"><span class="rule"></span> Materiał wejściowy</p><h2 id="data-title">Co już mamy?</h2><p class="aside">Pakiet NASK daje materiał do importu i porównań. Etykiety kampanii wymagają osobnej weryfikacji.</p></div>
-    <div class="source-cards">
-      <article><span class="tag">Korpus startowy</span><h3>13 różnych zrzutów reklam</h3><p>W repozytorium wczytaj <code>data/nask-hacknation-2026/</code>. Plik <code>ads.jsonl</code> zawiera 13 emisji. Osobno zapisano 15 obserwacji stron. Każdy rekord ma obraz i tekst przepisany ze zrzutu. Wszystkie adresy docelowe reklam pozostają do potwierdzenia.</p></article>
-      <article><span class="tag">Pomiar na materiale NASK</span><h3>Dwie emisje, jeden ślad</h3><p>Karty p3 i p4 mają różne ID Meta i identyczny przepisany tekst. Na pełnych zrzutach pHash różni się w <strong>16 z 64 bitów</strong>. Próg 6 bitów z przykładu syntetycznego pominąłby podobieństwo obrazu. Obraz i napis mają wspólne pochodzenie, a cel reklamy nadal wymaga potwierdzenia.</p></article>
-      <article><span class="tag">Kontrprzykład</span><h3>Trzy URL-e z katalogu NASK</h3><p>Każdy zawiera ten sam parametr <code>gad_source</code>, ale inne <code>gad_campaignid</code>. Użyj tej trójki, by sprawdzić, czy słaba poszlaka potrafi błędnie połączyć kampanie.</p></article>
-    </div>
-  </section>
-  <section class="plan" id="plan" aria-labelledby="plan-title"><div class="section wrap">
-    <div class="sect-head"><div><p class="kicker"><span class="rule"></span> Plan zespołu</p><h2 id="plan-title">24 godziny do pokazu</h2></div><p>Sześć ról pracuje na wspólnym kontrakcie danych. Pierwszy punkt integracji to jeden rzeczywiście obliczony dowód widoczny w formularzu.</p></div>
-    <ol class="timeline">
-      <li><time>0–1 h</time><div><h3>Wybierz próbkę</h3><p>Źródła i ewaluacja sprawdzają pola, prawa, etykiety oraz kryteria u mentora. Odkładają duplikaty i wariant testowy przed strojeniem.</p></div></li>
-      <li><time>1–4 h</time><div><h3>Połącz moduły</h3><p>Import, obraz/OCR, tekst/URL, silnik i Streamlit dostarczają pionowy przekrój od pliku do pierwszej wyjaśnionej pary.</p></div></li>
-      <li><time>4–10 h</time><div><h3>Domknij P0</h3><p>Silnik i interfejs obsługują cztery statusy, częściową zgodność, brak OCR i błędny obraz. Tester sprawdza pułapkę A–B–C.</p></div></li>
-      <li><time>10–17 h</time><div><h3>Zamroź konfigurację</h3><p>Ewaluacja stroi progi na części rozwojowej. Zespół wybiera maksymalnie jeden eksperyment i utrwala wersje ekstraktorów.</p></div></li>
-      <li><time>17–24 h</time><div><h3>Zmierz i pokaż</h3><p>Na odłożonych danych porównaj oba warianty. Przećwicz dwuminutowy pokaz offline z pozytywnym przykładem i uzasadnionym wstrzymaniem decyzji.</p></div></li>
-    </ol>
-    <div class="acceptance"><h3>Co pokazujemy jury?</h3><div><p><strong>Wymagania NASK.</strong> Obecność graficznego demonstratora jest oceniana 0/1. Jury ocenia przydatność analizy i mechanizmu łączenia materiałów. Scheduler jest dodatkowym atutem.</p><p><strong>Nasz pomiar.</strong> Na identycznym podziale porównamy pełny wariant z samym TF-IDF. Podamy liczby TP, FP i FN, precision i recall par po grupowaniu oraz osobno trafne, błędne i wstrzymane przypisania nowych reklam.</p></div></div>
-  </div></section>
-  <section class="section wrap sources" id="zrodla" aria-labelledby="sources-title">
-    <div><p class="kicker"><span class="rule"></span> Dokumentacja</p><h2 id="sources-title">Źródła projektu</h2></div>
-    <ul><li><a href="https://science.nask.pl/hacknation/">FakeCollector PRO i wskazówki techniczne NASK</a></li><li><a href="https://hacknation.pl/zadania">Zadania i materiały konkursowe HackNation</a></li><li><a href="https://www.nask.pl/aktualnosci/polska-rzuca-wyzwanie-hakerom-nask-na-hacknation">NASK o „Kolekcjonerze Fejków” i systemie DROZD</a></li><li><a href="./projekt-systemu.md" download>Pełny projekt, kontrakty i testy odbiorowe (.md)</a></li></ul>
-  </section>
-</main>
-<footer><div class="wrap"><span>ScamGraph</span><span>HackNation 2026 · Projekt zespołu</span></div></footer>
-</body>
+  </body>
 </html>

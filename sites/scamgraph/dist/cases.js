@@ -32,7 +32,7 @@ const messages = {
   },
   no_match: {
     title: "Brak dopasowania",
-    summary: "SG-031 ma zarówno obraz, jak i cel zapisany w osobnym polu. Porównanie z każdą z dwóch reklam wykazało różnice w obu źródłach.",
+    summary: "SG-031 ma zarówno obraz, jak i cel zapisany w osobnym polu. Porównanie z obiema reklamami wykazało różnice w obu źródłach. Możliwy nowy wzorzec wymaga dalszej weryfikacji.",
   },
 };
 

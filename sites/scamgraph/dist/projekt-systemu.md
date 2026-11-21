@@ -1,107 +1,88 @@
-# ScamGraph — projekt systemu
+# ScamGraph — plan implementacji
 
-Projekt dla zespołu HackNation 2026, 21 listopada 2026. Status: decyzje do implementacji. Strona Sites ilustruje reguły na danych syntetycznych. Konkursowy demonstrator to oddzielna, lokalna aplikacja.
+W ciągu 24 godzin zespół ma dostarczyć lokalny demonstrator, w którym analityk dodaje reklamę i sprawdza, czy jest wariantem znanej kampanii. Wynik prowadzi do pól obu porównywanych reklam. Repozytorium zawiera dziś lokalny korpus, kontrakt i statyczne przykłady reguł. Silnik Pythona, demonstrator Streamlit i końcowy pomiar są pracą do wykonania.
 
-## Wynik dla analityka
+## Kryteria jury i dowody na pokaz
 
-Analityk dodaje PNG/JPEG z reklamą, opcjonalnie dołącza tekst i znany adres celu wraz z ich pochodzeniem. Otrzymuje propozycję grupy lub wskazanie, czemu decyzja wymaga dalszej pracy. Może otworzyć każdy dowód, zobaczyć obie wartości, ich źródła i dostępność metod. Grupa to hipoteza o kampanii. Profil grupy podaje wspólne ślady, liczbę różnych emisji i ich ID.
+Wagi pochodzą z punktu 9 pełnego opisu wyzwania. Testy odbiorowe w prawej kolumnie są propozycją zespołu.
 
-## Co ocenia NASK
-
-Opis zadania wymaga graficznego demonstratora (obecność 0/1) i kładzie nacisk na przydatność analizy, pozyskanie reklam oraz sposób wykrywania podobieństw i grupowania. Opublikowany opis pozostawia wybór reprezentacji i technologii zespołowi. Scheduler jest dodatkiem. Sposób identyfikacji osoby jest dowolny, organizator sugeruje małą bazę referencyjną. W pierwszej godzinie właściciel ewaluacji potwierdza u mentora zakres identyfikacji i ewentualną osobną punktację. §2 regulaminu odsyła do kryteriów zadania. Progi modelu i miary niżej są decyzjami zespołu. §4 dotyczy praw do wkładu i przeniesienia praw przez zwycięzców. Osoba od źródeł zapisuje pochodzenie, warunki użycia korpusu i licencje zależności oraz wag.
-
-## Dane i pierwsza godzina
-
-1. Wczytaj gotowy katalog `data/nask-hacknation-2026/` w repozytorium. Weryfikacja plików potwierdza 13 rekordów w `ads.jsonl`, 13 poprawnych SHA-256 obrazów oraz 15 osobnych zapisów w `observations/pages.jsonl`. Źródłem jest pakiet 436 plików NASK. Wśród 14 zrzutów było 11 sponsorowanych postów i 3 karty biblioteki Meta. W p1/p2 powtórzono te same pliki. Karty p3/p4 mają różne ID i zachowują dwa rekordy. Dla całego korpusu to 78 par, dla pierwszego przebiegu na 6–10 emisjach 15–45 par.
-2. Wszystkie 13 rekordów ma obraz i tekst przepisany ze zrzutu, a 0 ma potwierdzony landing_url. Połącz `observations/screenshots.jsonl` przez ad_id i zachowaj observation_group. Główne dokumenty HTML i żądania w HAR potwierdzają zaobserwowane adresy stron. Warunkiem przypisania celu do reklamy jest udokumentowany związek. Dla p3 domena na karcie różni się od hosta z HAR. Wspólny piksel i sąsiedztwo plików pozwalają zapisać hipotezę. Adres o niepotwierdzonym związku pozostaje osobną obserwacją. W odczytanych HAR nie ma zapisanych przekierowań do importu. Treść HTML i HAR parsujemy offline, zachowując pola potrzebne do dowodu.
-3. Pakiet nie zawiera wiarygodnych etykiet kampanii. Wybierz grupę referencyjną, odłożony wariant i podobny kontrprzykład, sprawdź dwie niezależne obserwacje po obu stronach pozytywnej pary. W bibliotece reklam Meta spróbuj odszukać wpisy po ID z kart, a brakujące przykłady można pozyskać z Google Ads Transparency Center po nazwie reklamodawcy lub witrynie. Zapisz zapytanie, region, okres, datę, ID i warunki użycia. Brak drugiego śladu pozostawia parę do oceny człowieka.
-4. Osobny katalog trzech URL-i NASK ma wspólne `gad_source` i różne `gad_campaignid`. To próba odporności na popularny parametr. Jawnie syntetyczny korpus pozwala sprawdzić pełny przepływ podczas ustalania etykiet. Przypadki rzeczywiste z niepewną etykietą służą ocenie jakościowej. Liczby podajemy wraz z pochodzeniem próbki.
-
-### Próba ImageHash na dwóch kartach Meta
-
-W pojedynczej próbie na oryginalnych, pełnych PNG karty p3 i p4 dały odciski `9ee1e01e610f7c78` i `9ee17c1ee11e7007`. Odległość Hamminga wyniosła 16/64, choć w obu rekordach zapisano identyczny tekst. Przy progu 6 bitów użytym wyłącznie w interaktywnej ilustracji sygnał wizualny pozostałby poniżej wymaganej zgodności. Przy strojeniu na zbiorze rozwojowym warto porównać pełny zrzut z kadrem kreacji i zapisać pochodzenie obu wariantów. Wynik jednej pary nie wyznacza progu docelowego ani etykiety kampanii.
-
-Odtworzenie z katalogu głównego repozytorium w środowisku z ImageHash 4.3.2 i Pillow 11.3.0:
-
-```python
-from pathlib import Path
-from PIL import Image
-import imagehash
-
-media = Path("data/nask-hacknation-2026/media")
-with Image.open(media / "p3-123146.png") as first, Image.open(media / "p4-123420.png") as second:
-    print(imagehash.phash(first) - imagehash.phash(second))  # 16
-```
-
-## Moduły i ich granice
-
-Jeden proces Pythona, pliki na dysku i indeks cech w pamięci. Podstawowe wywołania można testować niezależnie od Streamlit.
-
-| Właściciel / moduł | Wejście | Wyjście i odbiór |
+| Kryterium jury | Waga | Co oddajemy i jak to sprawdzamy |
 | --- | --- | --- |
-| Źródła / ingest | manifest.json, ads.jsonl, media/ | Zwalidowane Ad, raport importu. Powtórny import zachowuje liczbę emisji. |
-| Obraz i OCR / features | Bajty PNG/JPEG i pochodzenie | SHA-256, 64-bitowy pHash, tekst z Tesseract oraz informacja o brakach. Wspólne źródło OCR i obrazu zostaje zapisane. |
-| Tekst i URL / features | Tekst, OCR, cel i zapisane przekierowania | Indeks znakowego TF-IDF, fragmenty źródłowe i ostrożnie normalizowane adresy. Wartości oryginalne pozostają dostępne. |
-| Silnik / matching | Cechy, konfiguracja i indeks referencyjny | Evidence, PairAssessment, Campaign i MatchResult. Nowy materiał nie zmienia stanu referencyjnego. |
-| Interfejs / Streamlit | Formularz i MatchResult | Status, grupa, podobne pojedyncze reklamy, źródła i wartości obok siebie. |
-| Ewaluacja i demo / evaluation | Oddzielne etykiety, podział i zamrożona konfiguracja | Porównanie z metodą tekstową, zestaw kontrprzykładów, scenariusz offline. |
+| Jakość metody korelacji i grupowania materiałów | 30% | C1 pokazuje wariant znanej grupy, odrębną kampanię i niejednoznaczny przypadek. Raport porównuje model pełny z samym tekstem na identycznym podziale. |
+| Użyteczność i trafność pozyskiwanych cech oraz źródeł danych | 30% | Pary A i B dostarczają obraz, tekst i dostępne ślady infrastruktury z pochodzeniem i miarą. Na odłożonych przypadkach pokazują, które rodziny pomagają oraz kiedy generują fałszywe połączenia. |
+| Kompletność demonstratora i działanie procesu end-to-end | 15% | C2 uruchamia interfejs na czystym środowisku, importuje dane, dodaje wcześniej niewidziany plik i prezentuje rzeczywiście obliczone grupy. Powtarza próbę z brakującymi polami. |
+| Czytelność i interpretowalność prezentowanych powiązań | 15% | Przy parze widać oba rekordy, wartości i źródła, przy grupie wspólne ślady i liczbę wspierających emisji. Kontrprzykład wyjaśnia wstrzymanie decyzji. |
+| Potencjał wdrożeniowy, skalowalność i przenośność rozwiązania | 10% | Instrukcja instalacji, konfiguracji i uruchomienia, wersje zależności, licencje, pomiar czasu budowy indeksu i analizy nowej reklamy z podaną liczebnością oraz sprzętem. Planujemy preferowany przez NASK kontener z lokalnymi modelami OCR. |
 
-Manifest korpusu przechowuje schema_version, dataset_id, opis źródła i czas. Ad wymaga ad_id, source.kind, source.provider, source.collected_at ze strefą i przynajmniej jednego użytecznego pola (tekst, obraz lub zapisany URL). source.kind rozróżnia library, organizer, synthetic i upload. source.record_url wskazuje wpis w bibliotece, landing_url cel reklamy. Zaimportowana ścieżka obrazu musi wskazywać plik wewnątrz media/. Klucz powtórnego importu to dostawca i jego identyfikator, a przy braku identyfikatora dokładny odcisk stabilnych pól rekordu. Różne emisje tego samego pliku zachowują odrębne ID.
+Opis formalny wymaga GUI, metodyki, instrukcji i dostępnego organizatorowi kodu. Opis techniczny pozostawia wybór technologii zespołowi. Dopisek o obecności GUI 0/1 w załączonej zajawce dotyczy samego środowiska graficznego. Pełny proces end-to-end stanowi 15% oceny.
 
-Rozszerzenie proponowane do kontraktu v0: przechowuj identyfikator pierwotnej obserwacji przy każdym polu każdego rekordu (mapa field → origin_id). Tożsamość źródła nadaje importer lub wybór pochodzenia w formularzu. OCR, przepisany tekst i URL odczytany ze zrzutu dziedziczą origin_id obrazu. Cel zapisany przez bibliotekę może mieć odrębne pochodzenie. Przy braku pewności traktujemy pochodne jako zależne. Dowód pary zachowuje oba ID pochodzenia, oryginalne wartości i nazwy pól. Dwa dowody są niezależne tylko wtedy, gdy odwołują się do różnych obserwacji zarówno w lewej, jak i prawej reklamie.
+## Zespoły i granice modułów
 
-## Stos i decyzje algorytmiczne
+Założenie organizacyjne to sześć osób w trzech parach. Oznaczenia identyfikują role do obsadzenia.
 
-| Decyzja P0 | Uzasadnienie i ograniczenie |
+| Para | Zadania dwóch osób | Co przekazuje pozostałym | Test własny |
+| --- | --- | --- | --- |
+| **A · obraz i OCR** | **A1** waliduje bajty i wymiary PNG/JPEG, liczy SHA-256 i pHash całej kreacji oraz sprawdza wpływ kadru. **A2** uruchamia Tesseract z lokalnymi językami polskim i angielskim, zapisuje tekst i pochodzenie. | Cechy wizualne dla C1, tekst OCR z identyfikatorem źródłowego obrazu dla B2. Stos: Pillow, ImageHash, Tesseract i pytesseract. | Ten sam plik w dwóch emisjach zachowuje oba ID. Zmieniona kompresja, uszkodzony obraz i brak modelu OCR dają opisane wyniki. |
+| **B · tekst, dane i infrastruktura** | **B1** importuje manifest/JSONL, sprawdza źródła, deduplikuje ponowny import i parsuje zapisane obserwacje URL/HTML/HAR. **B2** buduje tekstowy punkt odniesienia, porównuje tekst źródłowy i OCR, zwraca wspólny fragment. | Rekordy `Ad` dla A i C, cechy tekstowe i infrastrukturalne z oryginalnym polem dla C1. Stos: Python, JSONL, urllib.parse, scikit-learn. | Ponowny import zachowuje liczbę emisji. Popularny parametr i sam przepisany napis nie dają mocnego przypisania. Pusty tekst lub słownik nie zatrzymuje analizy. |
+| **C · korelacja, GUI i ewaluacja** | **C1** implementuje ocenę par, grupowanie, porównanie nowego materiału i raport jakości. **C2** składa formularz i panel dowodów w Streamlit, odpowiada za instrukcję, kontener, licencje i próbę od zera. | Wersjonowane `PairAssessment`, `Campaign` i `MatchResult`, działający przepływ oraz raport. | Cztery statusy, dwie konkurujące grupy, test łańcucha i próba offline. |
+
+A2 i B2 są opiekunami odłożonego testu. Oznaczają przypadki niezależnie, następnie uzgadniają sporne etykiety. B1 dokumentuje pozyskanie i źródła, A1 dostarcza duplikaty i warianty. Do strojenia C1 otrzymuje wyłącznie część rozwojową. Na każdym punkcie integracji druga para sprawdza rzeczywisty wynik właściciela.
+
+## Przepływ i kontrakty
+
+| Warstwa | Wejście | Wyjście | Jak sprawdzić granicę |
+| --- | --- | --- | --- |
+| Import · B1 | Lokalny katalog korpusu lub materiał z formularza, opcjonalny opis i znany adres celu | `Ad` ze stabilnym ID, źródłem i stanem dostępnych pól | Obsłuż nowy identyfikator i inny rozkład plików przez adapter. Przy brakującym zasobie zachowaj użyteczne pola. |
+| Ekstrakcja · A + B | `Ad`, obraz i źródło pola, oddzielne obserwacje stron | `Feature` z `ad_id, family, field, value, origin_id, method_version` | Tekst z OCR, ręczna transkrypcja i wycinek tego samego obrazu dziedziczą jego `origin_id`. B2 korzysta z tekstu źródłowego również przy wyłączonym OCR. |
+| Korelacja i grupowanie · C1 | Cechy oraz zamrożone progi | `Evidence → PairAssessment → Campaign` | Każdy dowód wskazuje pola po obu stronach. Brak porównywalnego pola odróżniamy od zmierzonej niezgodności. |
+| Zapytanie i prezentacja · C1 + C2 | Nowa reklama, indeks korpusu, konfiguracja | `MatchResult` i panel w Streamlit | Upload porównujemy z każdym członkiem grupy. Zapytanie nie zmienia grup, statystyk tekstu ani wyników poprzedniej analizy. |
+
+Jeden proces Pythona ładuje katalog wskazany przez użytkownika. Ekstraktory działają jako zwykłe funkcje, więc CLI testów i Streamlit mogą wywoływać te same obliczenia. Cechy referencyjne liczymy raz. Klucz pamięci podręcznej obejmuje odcisk korpusu, konfigurację i wersje metod. Przy 13 rekordach pełne porównanie daje 78 par, a dla nowej reklamy potrzeba 13 porównań. Większy zbiór uzasadni indeks kandydatów, gdy zmierzony czas przestanie spełniać wymagania demonstracji.
+
+## Dane i jakość śladów
+
+W repozytorium zespół ma 13 różnych zrzutów, 15 obserwacji stron i trzy adresy do testu parsera. Każdy z 13 rekordów ma tekst przepisany z obrazu. Liczba potwierdzonych adresów docelowych w rekordach wynosi zero. Pakiet startowy i materiały z kanału organizatora służą realizacji wyzwania. Zachowujemy je w dostępie ograniczonym do zespołu i oceniających. Publiczny pakiet strony korzysta z syntetycznych przykładów. Do publicznego udostępnienia kodu przygotujemy osobny pakiet bez materiałów NASK, również w historii Git. Zewnętrzne źródła wymagają odnotowania pochodzenia i warunków korzystania.
+
+B1 sprawdza trzy ID Biblioteki reklam Meta z lokalnego korpusu. Jeśli rekord biblioteki dostarcza osobne, możliwe do zweryfikowania pole celu, zapisuje ID emisji, adres wpisu, pole i czas odczytu. Inny udokumentowany kanał to eksport lub dozwolony ręczny zapis z biblioteki reklam wraz z filtrem, datą i identyfikatorem. Strona zapisana obok zrzutu pozostaje osobną obserwacją do czasu potwierdzenia związku z emisją. W przypadku niedostępnej strony zachowujemy dane z istniejącego zapisu, czas i status dostępności. Pierwsza integracja korzysta z zapisanych danych lokalnych.
+
+- **Obraz.** SHA-256 wykrywa ponowne użycie identycznego zasobu. pHash i odległość Hamminga wskazują podobieństwo wizualne. W odtwarzalnej próbie na dwóch pełnych zrzutach ImageHash 4.3.2 i Pillow 11.3.0 dały 16/64 bitów różnicy. Próg 6/64 z syntetycznego przykładu jest demonstracyjny. A1 testuje kadr i pełny zrzut na części rozwojowej.
+- **Tekst.** TF-IDF `char_wb` 3–5 i podobieństwo cosinusowe porządkują pary. Cytat pokazany jako dowód musi występować w obu polach. Tekst przepisany ze zrzutu ma to samo źródło co obraz. Słownik i częstości dopasowujemy do zbioru referencyjnego.
+- **Infrastruktura.** B1 normalizuje zapisane hosty i porty domyślne, zachowując znaczenie ścieżki i parametrów. Obserwowane przekierowanie lub charakterystyczny identyfikator wymaga udokumentowanego związku z daną reklamą i zakresu jego użycia. Wspólny popularny parametr jest wskazówką do przeglądu.
+
+## Reguła pary, grupy i nowego materiału
+
+1. **Para.** Zapisz porównywalne rodziny, trafienia i braki. Dwa zgodne ślady z różnych rodzin i niezależnych obserwacji po obu stronach, w tym przynajmniej jeden specyficzny, dają `strong`. Pozostałe podobieństwa dają `similar`, a brak trafień `none`. Do sortowania licz po 2 punkty za specyficzną i po 1 za pomocniczą obserwację. Współdzielone źródło policz raz.
+2. **Grupa.** Rozpatruj mocne krawędzie malejąco według punktów, przy remisie według uporządkowanych ID. Scalaj tylko wtedy, gdy każda para między grupami jest mocna. Przy mocnych A–B i B–C oraz słabym A–C pozostaw grupę dwóch reklam i dodatkową relację do przeglądu. Grupa ma co najmniej dwie emisje. Jej profil podaje ślady, liczbę wspierających emisji i ich ID. Podobieństwa między odrębnymi grupami można pokazać przez wspólne cechy ich profili i wskazanie par, które je uzasadniają.
+3. **Zapytanie.** Dokładnie jedna grupa z mocnym powiązaniem wobec każdego członka daje `probable_match`. Kilka pełnych grup, częściowe podobieństwo lub pojedyncza podobna emisja prowadzą do `review_needed`, o ile nie ma dokładnie jednej pełnej grupy. Bez kandydatów i bez wystarczającego pokrycia wynikiem jest `insufficient_evidence`. Bez kandydatów, przy co najmniej jednej parze z wystarczającym pokryciem, `no_match` wskazuje **możliwy nowy wzorzec do sprawdzenia**. Utworzenie nowej kampanii wymaga dalszych powiązanych emisji.
+4. **Wyjaśnienie.** Dla każdej pary UI pokazuje ID emisji, obie wartości, pola, pierwotne obserwacje, metodę, metrykę i przyczynę decyzji. Panel grupy pokazuje również częściowe sugestie i brakujące rodziny. Braki nie dodają punktów za podobieństwo.
+
+## Integracja w 24 godziny
+
+| Czas | Punkt integracji i warunek odbioru |
 | --- | --- |
-| Python, Streamlit, CPU | Jeden formularz i bezpośrednie wywołania funkcji. Brak usługi sieciowej na ścieżce analizy. |
-| Pillow, ImageHash, hashlib | SHA-256 rozpoznaje ponowne użycie pliku. Odległość Hamminga pHash daje porównanie kreacji. Kadrowanie może osłabić wynik. |
-| Tesseract + pytesseract, modele pol i eng | OCR lokalny. Pliki językowe i binarkę przygotować na laptopie przed próbą offline. Przy braku modelu pokaż stan i dopuść tekst z oznaczonym źródłem. |
-| scikit-learn, TF-IDF char_wb 3–5, cosinus | Tani sposób na odmiany zapisu. Statystyki dopasuj wyłącznie do korpusu referencyjnego. Cytat jako dowód musi faktycznie występować w obu polach. |
-| urllib.parse, zapisane metadane | Porównuj pełny cel lub charakterystyczny element o znanym zakresie. Normalizuj wielkość liter hosta i port domyślny, zachowaj semantykę ścieżki i parametrów. Popularny host i ogólne parametry mogą dać tylko sugestię. |
-| Lista par i grup w pamięci | Dla 6–10 emisji potrzebujemy 15–45 par. Przechowujemy dowody oraz brakujące rodziny. Ponowny upload kosztuje n porównań. Cache wiąże odcisk korpusu, konfigurację i wersje ekstraktorów. |
+| 0–1 h | A2 i B2 wydzielają przypadki finałowe, w tym wariant znanej kampanii i materiał z innej kampanii. Przechowują je wraz z etykietami poza zbiorem roboczym. C1 dostaje część rozwojową. Zespół uzgadnia `Ad`, `Feature` i `origin_id`. |
+| 1–4 h | B1 przekazuje jeden poprawny rekord i jeden z brakami. A oddaje cechy obrazu, B cechy tekstu, C pokazuje w GUI pierwszy **obliczony** dowód z obu reklam. |
+| 4–10 h | C1 zwraca grupy i cztery statusy. A2 weryfikuje podwójne liczenie OCR, B2 sprawdza wariant tekstowy i popularne parametry. C2 łączy niezmienne zapytanie z panelem dowodów. |
+| 10–17 h | Testy na części rozwojowej, porównanie rodzin i próby błędnego scalenia. Najwyżej jeden eksperyment po działającym P0. Zamrażamy konfigurację, ekstraktory, korpus referencyjny i instrukcję środowiska. |
+| 17–24 h | Po zamrożeniu obu wariantów A2 i B2 uruchamiają je na odłożonym zbiorze i przekazują C1 wyniki do raportu. C2 sprawdza nowy katalog z innymi ID, czas wykonania i instalację na czystym stanowisku. Przegląd, próba offline i pełny pokaz. |
 
-Organizator wskazuje ImageHash, OCR i uzasadnianie krawędzi. Wymienia też CLIP/SigLIP, sentence-transformers, MinHash/LSH, HDBSCAN, Neo4j, sygnały infrastrukturalne oraz InsightFace/ArcFace, MagFace i facetorch. P1 ma jeden budżet eksperymentalny. Wybierz embedding tekstu przy przeoczonych parafrazach albo obrazu przy zmienionych kadrach. Włącz po wzroście recall na zbiorze rozwojowym przy tej samej lub mniejszej liczbie fałszywych par. Przy potrzebie rozpoznawania wizerunku sprawdź pochodzenie referencji i licencję wag oraz obsłuż wynik „nie rozpoznano”. Wspólna osoba pozostaje poszlaką. Scheduler wymaga powtarzalnego, dozwolonego źródła. Bazę grafową lub indeks kandydatów rozważ po pomiarze kosztu pełnego porównania. Integracja z DROZD jest kierunkiem dalszego rozwoju.
+## Walidacja i pakiet dla jury
 
-## Od pary do decyzji
+Organizator przeprowadzi własne testy na dodatkowym, wcześniej nieudostępnionym zbiorze. Znajdą się w nim warianty znanych kampanii i materiały innych kampanii. Adapter wczytuje nowe ID i źródła. Progi, ścieżki i reguły nie mogą zależeć od nazw przykładów startowych.
 
-1. Policz cechy referencyjne raz. Dla każdej pary zapisz dostępne rodziny (tekst, obraz, infrastruktura), pokrycie oraz trafienia z obu reklam. Możliwość porównania dwóch niezależnych rodzin wystarcza do oceny pokrycia nawet przy braku zgodności.
-2. Mocna para wymaga zgodności przynajmniej dwóch niezależnych rodzin, w tym jednego specyficznego śladu (np. konkretny zapisany cel potwierdzony na zbiorze rozwojowym). Ustal listę takich śladów i progi na zbiorze rozwojowym. Pozostałe trafienia dają similar, brak trafień daje none. Ranking nadaje 2 punkty za obserwację specyficzną i 1 za pomocniczą. Dowody pochodne liczą się raz. Przy współdzielonym pochodzeniu wybierz najwyższą sumę dowodów rozłącznych po obu stronach. Wynik rankingu ustala kolejność, a o sile pary rozstrzyga osobna reguła.
-3. Zacznij od pojedynczych rekordów. Rozpatruj mocne krawędzie malejąco według rankingu, remisy według uporządkowanych ID. Scalaj grupy tylko przy mocnej każdej parze między nimi. Mocne A–B i B–C przy słabym A–C tworzą jedną grupę dwóch rekordów i drugą sugestię. Taka heurystyka może rozdzielić prawdziwą kampanię z brakami danych. Zapisuj niescalone krawędzie do wglądu.
-4. Porównaj upload z każdym członkiem zapisanego korpusu. Grupa referencyjna ma minimum dwie reklamy. Pierwsza pasująca reguła poniżej ustala status. Wyświetl pełne grupy przed częściowymi, w obrębie kategorii sortuj po najwyższej ocenie pary i ID grupy.
+- **Podział i etykiety.** Zanim zacznie się strojenie, A2 i B2 oddzielają rozwój od testu oraz zapisują uzasadnione etykiety poza danymi dostępnymi silnikowi. Identyczne pliki i niemal identyczne kopie tej samej emisji pozostają w jednej części. W teście nowego wariantu grupa referencyjna zawiera inne emisje znanej kampanii. W teście odrębnej kampanii wszystkie jej emisje pozostają poza referencją. Niepewne etykiety służą ocenie jakościowej.
+- **Pomiary.** W wariancie tekstowym krawędź powstaje, gdy cosinus wektorów TF-IDF pary osiąga próg dobrany osobno na części rozwojowej. W wariancie pełnym krawędź powstaje zgodnie z regułą niezależnych rodzin. Oba warianty używają tego samego podziału danych i tej samej procedury scalania grup po wyznaczeniu krawędzi. Na odłożonym teście raportuj TP, FP i FN par po grupowaniu, precision, recall oraz liczebność i pochodzenie próby. Osobno podaj poprawne, błędne i wstrzymane przypisania zapytań znanych oraz nowych kampanii. Przy zerowym mianowniku oznacz wynik jako niemierzalny.
+- **Próby odporności.** Sprawdź powtórny import, brak OCR, pusty tekst, nieczytelny lub za duży obraz, różne formaty wejścia, niedostępną stronę, generyczny parametr, wspólny wizerunek, dwie konkurujące grupy i słabe A–C. Dla każdego błędu UI wskazuje przyczynę i pozwala wykonać następną analizę.
+- **Oddanie.** C2 przekazuje dostępny jury kod, metodykę z parametrami, raport z wzorcami i źródłami metadanych, instrukcję instalacji, konfiguracji, startu i testów oraz listę zależności, modeli, usług, licencji i ograniczeń. Wersję kontenerową sprawdza na nowej maszynie. Jeśli wybrana usługa wymaga autoryzacji, dokumentujemy sposób uzyskania dostępu i zapewniamy weryfikowalny przebieg oceny bez udostępniania prywatnych kluczy lub certyfikatów.
+- **Pokaz.** Wczytaj zbiór, wyodrębnij cechy i pokaż wynik grupowania. Dodaj odłożoną reklamę, otwórz oba źródła dowodu, a następnie podaj materiał z innej kampanii lub z brakami. Zamknij pokaz liczebnością i rzeczywistym wynikiem względem metody tekstowej. Przykłady syntetyczne potwierdzają zachowanie reguł w izolacji. Ocena jakości na rzeczywistych kampaniach wymaga osobnych, wiarygodnych etykiet.
 
-| Status | Warunek |
-| --- | --- |
-| probable_match | Dokładnie jedna grupa ma mocne połączenie z zapytaniem dla każdego członka, także gdy są inne częściowe sugestie. |
-| review_needed | Kilka grup spełnia warunek albo występuje choć jedna częściowa sugestia lub podobna pojedyncza reklama. |
-| insufficient_evidence | Brak sugestii i brak pary z wystarczającym pokryciem. |
-| no_match | Brak sugestii przy co najmniej jednej parze z wystarczającym pokryciem. |
+## Po działającym P0
 
-MatchResult przechowuje identyfikatory zapytania, korpusu i konfiguracji, status, reason_codes, kandydatów wraz z parami oraz similar_ads. Panel dowodu wskazuje rodzinę, siłę, oba ad_id, pola, wartości, obserwacje i opcjonalnie metrykę. Profil odlicza różne reklamy wspierające dany ślad.
+Parafrazy mogą uzasadnić eksperyment z embeddingiem tekstowym, zmiana kadru eksperyment z embeddingiem obrazu. Do demonstratora włączamy metodę po poprawie recall na części rozwojowej bez wzrostu liczby fałszywych powiązań. Automatyczne wyszukiwanie w bibliotece reklam, cykliczny import i rozpoznawanie wizerunków są rozszerzeniami. Dla modeli i baz referencyjnych zespół sprawdza pochodzenie i licencje. Rozszerzenia nie opóźniają testu całego przepływu.
 
-## Plan, pomiar i odbiór
+## Materiały dla programistów
 
-| Czas od startu | Rezultat możliwy do sprawdzenia |
-| --- | --- |
-| 0–1 h | Osoba od danych potwierdza źródło i pola, osoba od ewaluacji weryfikuje kryteria i odkłada przypadki. Zespół uzgadnia identyfikatory obserwacji. |
-| 1–4 h | Import, ekstraktory, silnik i UI spotykają się na jednym rekordzie. Z formularza do pola źródłowego prowadzi pierwszy rzeczywiście obliczony dowód. |
-| 4–10 h | Cały przepływ P0. Zespół próbuje pozytywu, kontrprzykładu, łańcucha A–B–C i czterech statusów. |
-| 10–17 h | Strojenie i ewentualnie jeden eksperyment. Zamrożenie konfiguracji, słownika, korpusu referencyjnego i wersji zależności. |
-| 17–24 h | Pomiar końcowy, czyste uruchomienie według README, powtórzenie offline, niezależny przegląd i poprawki. |
+W repozytorium zacznij od `README.md` i `docs/DATA_CONTRACT.md`. Transkrypcje otrzymanych PDF są w `docs/NASK_ZADANIE.md` oraz `docs/NASK_REGULAMIN.md`, a pochodzenie danych w `docs/NASK_DATA.md`. Katalog korpusu dla lokalnego demonstratora to `data/nask-hacknation-2026/`.
 
-Tester zapisuje etykiety przypisane przez analityków wraz z podstawą decyzji, oddzielnie od wejścia silnika. Dzieli przypadki przed strojeniem, trzyma duplikaty jednej kreacji w jednej części, a wariant zapytania poza korpusem i jego statystykami. Dla wariantu tekstowego i pełnego używa tego samego podziału i tej samej reguły grupowania. Osobny próg tekstowy ustala na części rozwojowej. Na zamrożonym teście liczy TP, FP, FN dla par po grupowaniu, precision = TP/(TP+FP) oraz recall = TP/(TP+FN). Podaje liczebność, pochodzenie i liczbę niepewnych etykiet pominiętych w ocenie. Przy zerowym mianowniku raportuje „brak podstaw do obliczenia”. Oddzielnie podaje trafne, błędne i wstrzymane przypisania nowych reklam. Przy tak małym zbiorze publikujemy również surowe liczby.
-
-Testy blokujące pokaz obejmują błędny format lub nadmiar bajtów/pikseli, brak OCR lub pusty słownik, brakujące metadane, ponowny import, obraz i tekst przepisany ze zrzutu, wspólną twarz lub gad_source, słabe A–C, dwie pełne grupy i pełną grupę z częściową sugestią. Sprawdź, czy przejście do poprzedniego wyniku nie miesza dowodów. Brak OCR wyłącza tę metodę, kolejny poprawny upload działa. Analiza używa wyłącznie danych lokalnych, podejrzane adresy są tekstem. Do README demonstratora wpisz rzeczywiście sprawdzone polecenia uruchomienia i testów.
-
-Dwuminutowy pitch: przez 20 s pokaż źródło i dodaj odłożoną kreację. Do 1:10 pokaż grupę i dwa konkretne ślady. Do 1:40 pokaż podobną reklamę z uzasadnionym wstrzymaniem decyzji. W pozostałym czasie podaj wielkość próby oraz liczby z porównania z samym tekstem. Dzisiaj wynik empiryczny pozostaje do zmierzenia.
-
-## Źródła
-
-- [Oficjalny wykaz zadań i dokumenty konkursowe](https://hacknation.pl/zadania)
-- [Przykład i wskazówki techniczne NASK](https://science.nask.pl/hacknation/)
-- [NASK o celu zadania i DROZD](https://www.nask.pl/aktualnosci/polska-rzuca-wyzwanie-hakerom-nask-na-hacknation)
-- [Przewodnik uczestnika](https://hacknation.pl/przewodnik-uczestnika)
-- [Google o Ads Transparency Center](https://support.google.com/adspolicy/answer/13733850?hl=pl)
-- [Dokumentacja ImageHash](https://github.com/JohannesBuchner/imagehash), [Tesseract](https://tesseract-ocr.github.io/tessdoc/Data-Files.html), [scikit-learn](https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html)
-
-Materiały zespołu w repozytorium obejmują README.md, docs/MVP.md, docs/DATA_CONTRACT.md, docs/NASK_DATA.md, docs/NASK_ZADANIE.md, docs/NASK_REGULAMIN.md oraz AGENTS.md.
+- [Materiały konkursowe HackNation](https://hacknation.pl/zadania) · [Techniczne inspiracje NASK](https://science.nask.pl/hacknation/)
+- [ImageHash](https://github.com/JohannesBuchner/imagehash) · [Modele Tesseract](https://tesseract-ocr.github.io/tessdoc/Data-Files.html) · [TF-IDF w scikit-learn](https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html)

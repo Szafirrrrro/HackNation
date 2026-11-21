@@ -11,9 +11,13 @@ ScamGraph to planowany demonstrator na zadanie NASK „Kolekcjoner Fejków” po
 - Deterministyczne porównanie obrazów, tekstu i dostępnych metadanych. OCR odczytuje tekst z kreacji. Silnik pokazuje grupę, hipotezę do sprawdzenia albo brak podstaw do przypisania.
 - Pokaz jednego uzasadnionego dopasowania i jednego trudnego kontrprzykładu, z pomiarem względem prostego wariantu tekstowego.
 
+Zgodnie z nowym opisem NASK po 30% oceny przypada na metodę korelacji i grupowania oraz na jakość cech i źródeł. Pozostałe kryteria to pełny demonstrator (15%), interpretowalność (15%) oraz potencjał wdrożeniowy, skalowalność i przenośność (10%). Podczas oceny NASK wykorzysta także wcześniej nieudostępniony zbiór. [Pełny opis zadania](docs/NASK_ZADANIE.md)
+
 ## Dane do pierwszego uruchomienia
 
 Wskaż jako katalog korpusu [data/nask-hacknation-2026](data/nask-hacknation-2026/). Rekordy wejściowe są w [ads.jsonl](data/nask-hacknation-2026/ads.jsonl). Ich ścieżki `image_path` liczą się od katalogu z [manifestem](data/nask-hacknation-2026/manifest.json). Całość można odczytać offline.
+
+Materiały przekazane przez NASK służą wyłącznie realizacji wyzwania. Punkt 8 zadania zabrania ich publicznego rozpowszechniania. Korpus pracuje lokalnie, a publiczna strona zespołu ilustruje reguły na danych syntetycznych. Dostęp do repozytorium zawierającego korpus lub jego historię powinien być ograniczony.
 
 Pierwsze porównanie można wykonać na zrzutach [p3](data/nask-hacknation-2026/media/p3-123146.png) i [p4](data/nask-hacknation-2026/media/p4-123420.png). Na obu widać ten sam krajobraz i tekst „Temat, o którym mówi cała Polska”. Karty mają różne ID Biblioteki reklam Meta. To para do sprawdzenia podobieństwa kreacji. Etykieta kampanii pozostaje nieustalona.
 
@@ -24,11 +28,13 @@ W podkatalogu `observations/` są też [zapisy 15 obserwacji stron](data/nask-ha
 1. Zacznij od [pełnej treści zadania NASK](docs/NASK_ZADANIE.md) i [regulaminu zadania](docs/NASK_REGULAMIN.md).
 2. Przeczytaj [plan MVP](docs/MVP.md), [kontrakt danych](docs/DATA_CONTRACT.md) i [przewodnik po danych NASK](docs/NASK_DATA.md). Zasady pracy i przeglądu zmian są w [AGENTS.md](AGENTS.md).
 3. Wczytaj lokalny korpus NASK i wybierz przypadki do porównań i ewaluacji przed strojeniem.
-4. Zbuduj najkrótszy przepływ od pliku reklamy do obliczonego i wyświetlonego dowodu. Pełny podział pracy i kryteria odbioru są w planie MVP.
+4. Para A odpowiada za obraz i OCR, para B za import, tekst i metadane, para C za korelację, interfejs i ewaluację. Pierwszy wspólny wynik to obliczony dowód widoczny z formularza. [Plan, podział ról i testy odbiorowe](docs/MVP.md)
 
-## Prototyp strony
+## Podręcznik dewelopera
 
-Statyczny prototyp pokazuje reguły dopasowania na danych syntetycznych. Jego pliki źródłowe znajdują się w [sites/scamgraph/dist/](sites/scamgraph/dist/), a scenariusze mają [testy w Node.js](sites/scamgraph/tests/cases.test.mjs). Poniższe polecenia uruchom z katalogu głównego. W Windows możesz użyć `py -3` zamiast `python`.
+[Pierwszy dzień w projekcie](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/start.html) prowadzi od uruchomienia przykładu do pierwszego zadania w parze. [Interaktywna mapa systemu](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/#architektura), [kontrakty warstw](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/architektura.html) i [przykład jednej analizy](https://scamgraph-hacknation.valid-mouse-6580.chatgpt.site/przyklad.html) opisują ten sam przepływ z trzech perspektyw.
+
+Strona dla programistów przedstawia architekturę, technologie, odpowiedzialność trzech par i testy integracji. Statyczny przykład pokazuje reguły dopasowania na danych syntetycznych. Jej pliki źródłowe znajdują się w [sites/scamgraph/dist/](sites/scamgraph/dist/), a scenariusze mają [testy w Node.js](sites/scamgraph/tests/cases.test.mjs). Poniższe polecenia uruchamiają statyczną stronę z katalogu głównego. W Windows możesz użyć `py -3` zamiast `python`.
 
 ```sh
 node --test sites/scamgraph/tests/cases.test.mjs

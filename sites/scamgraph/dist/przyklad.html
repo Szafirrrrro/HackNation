@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101316" />
+    <meta
+      name="description"
+      content="Prześledź analizę jednej reklamy w ScamGraph. Sprawdź dane wejściowe, oblicz odległość obrazu, zmień cel i odczytaj dowody decyzji."
+    />
+    <title>Od reklamy do decyzji / ScamGraph</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./walkthrough.js"></script>
+  </head>
+  <body class="guide">
+    <a class="skip" href="#tresc">Przejdź do treści</a>
+    <header class="topbar">
+      <a class="brand" href="./index.html"
+        ><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span
+        >ScamGraph</a
+      >
+      <span class="edition">Dokumentacja techniczna</span>
+      <a class="download" href="./projekt-systemu.md" download
+        >Specyfikacja <span>MD</span></a
+      >
+    </header>
+    <div class="guide-shell">
+      <nav class="guide-nav" aria-label="Dokumentacja i etapy przykładu">
+        <p class="nav-label">Dokumentacja</p>
+        <a href="./index.html">Mapa projektu</a>
+        <a href="./start.html">Pierwszy dzień</a>
+        <a href="./architektura.html">Warstwy systemu</a>
+        <a href="./przyklad.html" aria-current="page">Przykład analizy</a>
+        <p class="nav-label">W tym przykładzie</p>
+        <a href="#wejscie">Rekordy wejściowe</a>
+        <a href="#cechy">Cechy i pochodzenie</a>
+        <a href="#referencja">Grupa referencyjna</a>
+        <a href="#porownanie">Porównanie z grupą</a>
+        <a href="#warianty">Zmień przypadek</a>
+        <a href="#granice">Testy graniczne</a>
+        <a href="#odtworzenie">Odtwórz obliczenie</a>
+      </nav>
+      <main id="tresc" class="guide-main">
+        <p class="breadcrumb">ScamGraph <span>/</span> Przykład analizy</p>
+        <h1>Od reklamy do decyzji</h1>
+        <p class="guide-lead">
+          Analityk ma dwie wcześniejsze emisje reklamy i właśnie dostał trzecią.
+          Chce ustalić, czy wszystkie trzy warto badać razem. Prześledźmy, jakie
+          dane dostaje każda para developerów, co przekazuje dalej i z czego
+          wynika odpowiedź.
+        </p>
+        <p class="guide-callout">
+          W przeglądarce działa porównanie syntetycznych cech zapisanych w
+          <code>cases.js</code>. Możesz zmieniać scenariusz i odczytywać wynik
+          obu porównań. Import plików, OCR, budowę grup i docelowe obiekty
+          Pythona opisujemy poniżej jako zadania dla zespołu.
+        </p>
+
+        <section id="wejscie">
+          <h2>Oddziel materiał znany od nowego zgłoszenia</h2>
+          <p>
+            <code>SG-014</code> i <code>SG-022</code> oznaczają dwie emisje.
+            Każda ma własny wpis i własny obraz. To nasz
+            <strong>korpus referencyjny</strong>, czyli materiał, z którym
+            będziemy porównywać kolejne zgłoszenia. <code>SG-031</code> oznacza
+            nową reklamę. Na czas analizy pozostaje poza korpusem.
+          </p>
+          <p>
+            W planowanym importerze B1 opis całego zbioru trafia do
+            <code>manifest.json</code>, a każda emisja zajmuje jeden wiersz
+            <code>ads.jsonl</code>. Tak można zapisać pierwszą reklamę w
+            kontrakcie v0. Pokazane ścieżki są fikcyjne i ilustrują układ
+            plików.
+          </p>
+          <pre><code>{
+  "ad_id": "SG-014",
+  "source": {
+    "kind": "synthetic",
+    "provider": "przyklad-zespolu",
+    "ad_ref": "emisja-014",
+    "collected_at": "2026-11-21T12:00:00+01:00"
+  },
+  "image_path": "media/sg-014.png",
+  "landing_url": "https://oferta.example/karta/k7m4"
+}</code></pre>
+          <p>
+            Druga emisja ma <code>ad_id=SG-022</code>, własny identyfikator
+            dostawcy i plik <code>media/sg-022.png</code>. Oba wpisy mają osobno
+            zapisany ten sam adres celu. B1 zachowuje oba ID po imporcie. Przy
+            powtórnym wczytaniu tego samego zestawu liczba emisji nadal powinna
+            wynosić dwa.
+          </p>
+          <p>
+            W docelowym formularzu analityk przesyła obraz trzeciej reklamy i
+            podaje dostępne metadane. Adapter nadaje zgłoszeniu ID i
+            <code>source.kind=upload</code>. Dla wariantu podstawowego
+            zakładamy, że cel SG-031 jest udokumentowany w osobnym źródle. Adres
+            przepisany przez analityka z przesłanego zrzutu dziedziczyłby
+            pochodzenie obrazu.
+          </p>
+        </section>
+
+        <section id="cechy">
+          <h2>Zamień pola na porównywalne obserwacje</h2>
+          <p>
+            W pierwszym wariancie SG-031 dostarcza poniższe trzy wartości.
+            Identyfikatory <code>origin_id</code> ilustrują kontrakt zespołu.
+            Pokazują, z którego pierwotnego źródła pochodzi cecha.
+          </p>
+          <div class="table-wrap">
+            <table class="guide-table">
+              <thead>
+                <tr>
+                  <th scope="col">Ślad</th>
+                  <th scope="col">Wartość SG-031</th>
+                  <th scope="col">Pochodzenie</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Obraz / pHash</th>
+                  <td><code>6996966996699669</code></td>
+                  <td><code>img-031</code> · piksele zgłoszenia</td>
+                </tr>
+                <tr>
+                  <th scope="row">Tekst / OCR</th>
+                  <td>Odbierz kartę testową</td>
+                  <td>
+                    <code>img-031</code> · napis odczytany z tych samych pikseli
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Infrastruktura / adres celu</th>
+                  <td><code>https://oferta.example/karta/k7m4</code></td>
+                  <td><code>cel-031</code> · odrębne metadane emisji</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A1 liczy odcisk obrazu. A2 wydobywa z niego napis dla B2. W stronie
+            przykładowej napis i odciski są już zapisane. B1 przekazuje
+            zaobserwowany cel i jego pochodzenie. B2 w planowanym systemie
+            obliczy TF-IDF i podobieństwo cosinusowe. Tutaj próbka tekstowa jest
+            mała i kod sprawdza dokładną zgodność napisu.
+          </p>
+          <p>
+            <strong
+              >Trzy porównania dają tu najwyżej dwa niezależne źródła.</strong
+            >
+            Jeśli ten sam napis zostanie przekazany ponownie jako tekst
+            formularza, zachowuje <code>img-031</code>. Analogiczne powiązanie
+            trzeba zachować po stronie każdej reklamy referencyjnej. Zgodność
+            obrazu i OCR daje wspólnie jedną obserwację wizualną lub tekstową do
+            reguły pary.
+          </p>
+        </section>
+
+        <section id="referencja">
+          <h2>Zbuduj grupę z wcześniejszych reklam</h2>
+          <p>
+            Zanim wpłynie SG-031, silnik porównuje SG-014 z SG-022. Ich odciski
+            pHash kończą się odpowiednio na <code>65</code> i <code>5a</code>.
+            Różnią się w 6 z 64 pozycji bitowych. W tej próbce próg dla
+            podobnego obrazu wynosi <strong>maksymalnie 6</strong>. Drugi ślad
+            to zgodny, pełny adres celu zapisany niezależnie od obu obrazów. W
+            konfiguracji tej fikcyjnej próbki konkretny cel jest
+            charakterystyczny dla grupy.
+          </p>
+          <p>
+            Obie strony spełniają więc warunek mocnej krawędzi. Planowany silnik
+            C1 może utworzyć grupę z dwóch emisji i zachować
+            <code>PairAssessment</code> tej pary. Aktualna strona korzysta z
+            takiej gotowej grupy. Jej skład jest stały we wszystkich wariantach
+            poniżej. W większym zbiorze C1 ma sprawdzać każdą parę między
+            scalanymi grupami.
+          </p>
+        </section>
+
+        <section id="porownanie">
+          <h2>Porównaj zgłoszenie z każdym członkiem</h2>
+          <p>
+            Na wejściu są dwa znane materiały, więc C1 ma wykonać dwa
+            porównania. W wariancie „Dwa ślady” pierwsze czternaście znaków
+            szesnastkowych odcisku SG-031 pokrywa się z oboma odciskami
+            referencyjnymi. Wystarczy rozpatrzyć ostatni bajt. Operator
+            <code>XOR</code> ustawia jedynkę w każdej pozycji, na której bity
+            się różnią. Liczba jedynek to odległość Hamminga.
+          </p>
+          <pre><code>SG-031 ↔ SG-014    0x69 XOR 0x65 = 0x0c = 00001100 → 2 różne bity
+SG-031 ↔ SG-022    0x69 XOR 0x5a = 0x33 = 00110011 → 4 różne bity</code></pre>
+          <p>
+            W obu parach wynik mieści się w demonstracyjnym progu. Napis także
+            się pokrywa i wskazuje tę samą obserwację obrazu. Osobny adres celu
+            pokrywa się w pełni z adresem każdej referencji. Dlatego obie pary
+            dostają <code>strong</code>.
+          </p>
+          <p>
+            Według proponowanej punktacji Pythona każda z tych par mogłaby
+            uzyskać <strong>3 punkty</strong> (2 za specyficzny adres celu oraz
+            1 za pomocniczą obserwację obrazu). Identyczny OCR wykorzystuje już
+            policzone źródło. <code>rank_score</code> służy do sortowania par. O
+            przydziale do kampanii decyduje reguła niezależnych rodzin i liczba
+            w pełni dopasowanych grup. Prototyp JS wylicza kategorię pary bez
+            liczbowego rankingu.
+          </p>
+          <p>
+            C2 może teraz pokazać <code>probable_match</code>, ponieważ
+            dokładnie jedna grupa ma mocne połączenie zgłoszenia z każdym
+            członkiem. Analityk widzi ID obu reklam, porównane wartości oraz
+            wyjaśnienie. Liczby 2 i 4 mówią mu, ile bitów odcisku zmieniło się
+            między obrazami.
+          </p>
+        </section>
+
+        <section id="warianty">
+          <h2>Zmień zgłoszenie i sprawdź oba wyniki</h2>
+          <p>
+            Zacznij od dwóch śladów. Następnie zmień tylko cel, pozostawiając
+            identyczny odcisk i napis. Dwa kolejne warianty używają odległego
+            odcisku. W pierwszym brakuje celu i OCR, w drugim oba pola mają
+            wartości. Sprawdź, jak ta różnica wpływa na decyzję.
+          </p>
+          <p id="walk-loading">
+            Wariant podstawowy kończy się <code>probable_match</code>. Pełne
+            działanie interaktywnego porównania wymaga JavaScript i otwarcia
+            strony przez HTTP.
+          </p>
+          <div id="walk-explorer" hidden>
+            <div
+              class="case-controls"
+              role="group"
+              aria-label="Dane nowego zgłoszenia"
+            >
+              <button type="button" data-walk-case="match" aria-pressed="true">
+                Dwa ślady
+              </button>
+              <button
+                type="button"
+                data-walk-case="review"
+                aria-pressed="false"
+              >
+                Zmień tylko cel
+              </button>
+              <button
+                type="button"
+                data-walk-case="missing"
+                aria-pressed="false"
+              >
+                Brak drugiego źródła
+              </button>
+              <button type="button" data-walk-case="none" aria-pressed="false">
+                Różne materiały
+              </button>
+            </div>
+            <div
+              class="guide-callout"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <h3 id="walk-title"></h3>
+              <code id="walk-status"></code>
+              <p id="walk-summary"></p>
+            </div>
+            <div id="walk-pairs"></div>
+            <details>
+              <summary>Obiekt zwracany przez <code>getCase()</code></summary>
+              <p>
+                To dokładny wynik przykładu w przeglądarce. Nazwy pól docelowego
+                interfejsu Pythona opisuje
+                <a href="./architektura.html">przewodnik po warstwach</a>.
+              </p>
+              <pre><code id="walk-json"></code></pre>
+            </details>
+          </div>
+        </section>
+
+        <section id="granice">
+          <h2>Odróżnij brak danych od sprzecznych danych</h2>
+          <p>
+            Wybór „Zmień tylko cel” daje po jednej pomocniczej obserwacji obrazu
+            dla obu referencji. Obie pary dostają <code>similar</code>, a
+            zgłoszenie <code>review_needed</code>. Analityk może sprawdzić
+            wspólną kreację i poszukać jeszcze jednego niezależnego śladu.
+          </p>
+          <p>
+            Przy odległym obrazie i brakującym celu pokrycie materiału jest zbyt
+            małe, żeby rozstrzygnąć sprawę. Prawidłowy status to
+            <code>insufficient_evidence</code>. Jeśli porównano obraz i dostępny
+            niezależny cel, a oba wskazują różne materiały i nie ma innych
+            trafień, wynikiem jest <code>no_match</code>. To kandydat na nowy
+            wzorzec do dalszego badania. Utworzenie nowej grupy wymaga co
+            najmniej dwóch powiązanych emisji.
+          </p>
+          <h3>Pułapka łańcucha A–B–C</h3>
+          <p>
+            W osobnym teście algorytmu grupowania zapisz mocne A–B i B–C oraz
+            słabe A–C. Jeśli A–B ma wyższy ranking, powstaje grupa {A, B}.
+            Dołączenie C wymaga następnie dwóch mocnych połączeń, z A i z B. A–C
+            blokuje ten krok. Związek B–C można nadal pokazać jako sugestię.
+            Test odbiorowy C1 sprawdza brak grupy {A, B, C} i zachowanie dowodu
+            dla B–C. Ten przypadek dotyczy budowy referencji, przed porównaniem
+            zgłoszenia.
+          </p>
+          <p>
+            Jeśli zgłoszenie silnie pasuje do wszystkich członków dokładnie
+            jednej grupy, analityk zobaczy dopasowanie nawet wtedy, gdy inna
+            grupa ma jedynie częściową zgodność. Dwie w pełni pasujące grupy
+            pozostawiają decyzję do weryfikacji. Rozróżnienie tych sytuacji
+            wymaga sprawdzenia wszystkich członków każdej kandydackiej grupy.
+          </p>
+        </section>
+
+        <section id="odtworzenie">
+          <h2>Odtwórz obliczenie podczas implementacji</h2>
+          <p>
+            Z katalogu głównego repozytorium uruchom poniższe polecenia.
+            Pierwsze potwierdza scenariusze i wartości Hamminga. Drugie pokazuje
+            w terminalu dokładnie ten sam wynik dla podmienionego adresu, z
+            którego korzysta ta strona.
+          </p>
+          <pre><code>node --test sites/scamgraph/tests/cases.test.mjs
+node --input-type=module -e "import { getCase } from './sites/scamgraph/dist/cases.js'; console.log(JSON.stringify(getCase('review'), null, 2))"</code></pre>
+          <p>
+            Druga próba powinna zwrócić status <code>review_needed</code>, dwa
+            wpisy w <code>pairs</code>, poziom <code>similar</code> przy obu
+            oraz inny adres w lewym polu dowodu. Gdy nowy silnik zwróci
+            <code>probable_match</code>, sprawdź w pierwszej kolejności
+            <code>origin_id</code> obrazu i napisu po obu stronach. Gdy wynik
+            zmienia się po wielokrotnym uruchomieniu zapytania, sprawdź, czy
+            zapytanie nie zostało włączone do indeksu referencyjnego.
+          </p>
+          <p>
+            <a href="./architektura.html">Przejdź do kontraktów warstw</a> lub
+            <a href="./start.html">wybierz pierwsze zadanie w swojej parze</a>.
+          </p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
