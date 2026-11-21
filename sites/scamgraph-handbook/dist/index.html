@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="description" content="Podręcznik implementacji ScamGraph. Architektura, kontrakty, korelacja kampanii i plan pracy zespołu.">
+<title>Architektura systemu · ScamGraph Docs</title>
+<link rel="icon" href="mark.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css">
+<script defer src="manual.js"></script><script defer src="explorer.js"></script><script defer src="app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Przejdź do treści</a>
+<aside class="rail" id="rail" aria-label="Nawigacja podręcznika">
+<a class="brand" href="#/overview"><img src="mark.svg" alt=""><span>ScamGraph<span class="brand-suffix">Docs</span></span></a>
+<div class="rail-sub">Podręcznik implementacji</div>
+<nav id="navigation"></nav>
+<a class="rail-foot" href="#/data"><i data-icon="layers"></i><span>Kontrakt danych</span><code>v0</code></a>
+</aside>
+<div id="scrim" hidden></div>
+<div class="workspace">
+<header class="topbar"><button type="button" class="icon-button mobile" id="menu" aria-label="Otwórz nawigację" aria-controls="rail" aria-expanded="false"><i data-icon="menu"></i></button>
+<div class="crumb"><i data-icon="book"></i><span>Dokumentacja</span><b>/</b><strong id="crumb">Architektura systemu</strong></div>
+<button type="button" class="search-toggle" id="open-search"><i data-icon="search"></i><span>Szukaj w dokumentacji</span><kbd>Ctrl K</kbd></button>
+</header>
+<main id="main" tabindex="-1">
+<div class="lead"><div><div class="section-name" id="section-name"></div><h1 id="heading"></h1><p id="intro"></p></div><button type="button" class="outline-toggle" id="outline-toggle" aria-expanded="false" aria-controls="outline"><i data-icon="list"></i>Spis treści</button><nav id="outline" aria-label="Spis treści rozdziału" hidden></nav></div>
+<div id="interactive"></div><article id="article"></article><nav id="paging" aria-label="Sąsiednie rozdziały"></nav>
+</main></div>
+<dialog id="find"><div class="find-head"><i data-icon="search"></i><input id="query" type="search" aria-label="Szukaj w dokumentacji" placeholder="Szukaj rozdziału, pola lub metody…" autocomplete="off"><button class="icon-button" id="close-search" aria-label="Zamknij wyszukiwanie"><i data-icon="close"></i></button></div><div id="hit-count" aria-live="polite"></div><div id="hits"></div></dialog>
+<dialog id="map-dialog"><div class="dialog-title"><strong>Mapa systemu</strong><button class="icon-button" id="close-map" aria-label="Zamknij mapę"><i data-icon="close"></i></button></div><div id="big-map"></div></dialog>
+</body></html>
