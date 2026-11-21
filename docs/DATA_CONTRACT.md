@@ -98,6 +98,20 @@ Zespół przyjmuje regułę zaimplementowaną w `graph/ftf_graph` (`scoring.py`,
 
 **Znane ograniczenia reguły.** Obraz i jego OCR z tego samego zrzutu mogą trafić do różnych grup i liczą się wtedy jako dwa ślady, choć mają wspólny `origin_id`. Jeden rzadki ślad twardy, np. piksel śledzący, sam daje wysoki `score`. Brak pola po jednej stronie daje siłę 0, więc „nie dało się porównać” wygląda tak samo jak „różne wartości”; tę różnicę pokazuje dopiero lista braków karty. Rzadkość zależy od składu korpusu, więc dodanie reklam może zmienić `score` istniejących par. Kampanie są hipotezą do oceny analityka. Trafność wymaga pomiaru na oznaczonym zbiorze (purity, pairwise F1).
 
+### Odcisk struktury strony `dom-shingle-minhash-v1` (decyzja zespołu 2026-11-22)
+
+**Gdzie powstaje.** `scamgraph/landing.py` liczy go dla każdego zapisu HTML (rola `html`) i zapisuje w `pages[].dom_template_minhash`. Cecha dotyczy jednej strony i nie zależy od składu korpusu. Te same bajty HTML dają ten sam wynik.
+
+**Tokeny.** Drzewo parsera `Document` przechodzimy w kolejności dokumentu: `<tag` przy otwarciu, `</tag` przy zamknięciu. Elementy puste (`img`, `br`, `input` i in.) mają tylko token otwarcia. Pomijamy atrybuty, tekst i komentarze. Tagi elementów ukrytych (`script`, `template`, `noscript`, `svg` i in.) też są tokenami, bo należą do szablonu. Parser domyka `p` i `li` tak samo jak w pozostałej ekstrakcji.
+
+**Odcisk.** Zbiór fragmentów po `k = 8` kolejnych tokenów, hash każdego fragmentu z SHA-256 i 128 minimów dla stałych permutacji wyprowadzonych z nazwy metody. Zapis: `{"method": "dom-shingle-minhash-v1", "k": 8, "num_perm": 128, "tokens": N, "shingles": M, "signature": [128 liczb 0…2³²−1]}`. Strona z mniej niż 8 albo ponad 50 000 tokenami ma `dom_template_minhash: null`, a przyczynę zapisujemy przy tej stronie w `dom_template_unavailable`. Górny limit ogranicza czas liczenia jednej strony do około sekundy. Brak odcisku nie trafia do `issues`, więc nie zmienia statusu `partial` obserwacji. Zapisy przeanalizowane przed tą zmianą nie mają klucza `dom_template_minhash`. `ANALYSIS_VERSION` (`landing/3`) nie zostało podbite, więc `reanalyze` ich nie uzupełni, dopóki właściciel analizy stron nie podbije wersji. Podbicie nadaje wszystkim zapisanym pakietom nowe `capture_id`.
+
+**Porównanie.** `scamgraph.landing.template_similarity` zwraca odsetek pozycji, na których dwie sygnatury są równe. To estymator Jaccarda zbiorów fragmentów z błędem standardowym ok. 0,04 przy 128 permutacjach. Porównujemy tylko odciski o tej samej `method`, `k` i `num_perm`; w innym przypadku wynik to `null`.
+
+**Karta grafu.** `discovery/graph_feed.py` przepisuje odcisk do `card.page.dom_template_minhash` tylko przy warunkach, które obowiązują dla `final_domain`, pikseli i skryptów: zweryfikowany `AdPageLink` i odpowiedź dokumentu 2xx. Pole trafia do karty, gdy pakiet ma dokładnie jeden odcisk. Kilka różnych odcisków pozostawia pole puste. Wersja eksportu to `graph-feed/4`.
+
+**Znaczenie.** Odcisk mierzy podobieństwo w stopniu, nie równość. Pochodzi z tego samego zapisu strony co skrypty i piksele, więc nie jest od nich niezależnym dowodem. Obecny `ftf_graph` nie czyta tego pola, więc krawędzie i kampanie pozostają bez zmian. Włączenie odcisku do scorera (waga, próg, grupa śladu) jest osobną decyzją pary C po pomiarze na oznaczonych parach. Kontrola na 15 prywatnych zapisach stron z 2026-11-22 to sprawdzenie poprawności, nie pomiar trafności: odcisk różnił się od dokładnego Jaccarda najwyżej o 0,03.
+
 ## Decyzja dla nowej emisji
 
 Zapytanie wczytujemy razem z kartami referencji i przeliczamy krawędzie oraz klastry na zbiorze referencja + zapytanie, tak jak `graph/app.py`. Wynik nie zmienia zapisanej referencji. Do referencji emisję dodaje osobna, jawna akcja. Pierwszy pasujący wiersz określa status (decyzja zespołu 2026-11-21).

@@ -1,4 +1,5 @@
 """Static HTML extraction. Document order and element numbers include hidden elements."""
+import hashlib
 import json
 import re
 from html.parser import HTMLParser
@@ -88,6 +89,62 @@ class Document(HTMLParser):
 
     def handle_comment(self, text):
         self.marker = re.match(r"\s*(COMMENT|REPLY)\s+(\d+)([a-z]*)\s*:", text, re.I)
+
+
+TEMPLATE_METHOD = "dom-shingle-minhash-v1"
+TEMPLATE_K, TEMPLATE_PERM = 8, 128
+TEMPLATE_MAX_TOKENS = 50_000  # keeps one page at about a second of pure-Python hashing
+_PRIME = (1 << 61) - 1
+
+
+def _permutation(i):
+    digest = hashlib.sha256(f"{TEMPLATE_METHOD}/{i}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % (_PRIME - 1) + 1, int.from_bytes(digest[8:16], "big") % _PRIME
+
+
+_PERMUTATIONS = [_permutation(i) for i in range(TEMPLATE_PERM)]
+
+
+def structure_tokens(doc):
+    """Tags in document order: "<tag" on open, "</tag" on close; void elements only open."""
+    tokens = []
+    stack = [(part, False) for part in reversed(doc.root.parts) if isinstance(part, Node)]
+    while stack:
+        node, closing = stack.pop()
+        if closing:
+            tokens.append("</" + node.tag)
+            continue
+        tokens.append("<" + node.tag)
+        if node.tag not in VOID:
+            stack.append((node, True))
+        stack.extend((part, False) for part in reversed(node.parts) if isinstance(part, Node))
+    return tokens
+
+
+def template_minhash(doc):
+    """Page-local, corpus-independent MinHash of k-tag shingles; Jaccard is estimated by template_similarity."""
+    tokens = structure_tokens(doc)
+    if len(tokens) < TEMPLATE_K:
+        return None, f"Za mało tagów do odcisku struktury ({len(tokens)} < {TEMPLATE_K})"
+    if len(tokens) > TEMPLATE_MAX_TOKENS:
+        return None, f"Za dużo tagów do odcisku struktury ({len(tokens)} > {TEMPLATE_MAX_TOKENS})"
+    shingles = {hashlib.sha256("\x1f".join(tokens[i:i + TEMPLATE_K]).encode()).digest()[:8]
+                for i in range(len(tokens) - TEMPLATE_K + 1)}
+    values = [int.from_bytes(s, "big") % _PRIME for s in shingles]
+    signature = [min((a * v + b) % _PRIME for v in values) & 0xFFFFFFFF for a, b in _PERMUTATIONS]
+    return {"method": TEMPLATE_METHOD, "k": TEMPLATE_K, "num_perm": TEMPLATE_PERM, "tokens": len(tokens),
+            "shingles": len(shingles), "signature": signature}, None
+
+
+def template_similarity(a, b):
+    """Estimated Jaccard of the shingle sets; None when the fingerprints are missing or not comparable."""
+    keys = ("method", "k", "num_perm")
+    if not a or not b or any(a.get(k) != b.get(k) for k in keys):
+        return None
+    sa, sb = a.get("signature") or [], b.get("signature") or []
+    if len(sa) != a["num_perm"] or len(sb) != b["num_perm"]:
+        return None
+    return sum(x == y for x, y in zip(sa, sb)) / len(sa)
 
 
 def is_entry(node):
@@ -281,6 +338,9 @@ def landing(path, artifact, *, ad_card=False):
         record["order"] = order
     if not ad_card:
         result["reading_text"] = transcript(doc, artifact, dialog_ids)
+        result["dom_template_minhash"], reason = template_minhash(doc)
+        if reason:
+            result["dom_template_unavailable"] = reason
     return result
 
 
