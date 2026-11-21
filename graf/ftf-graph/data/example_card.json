@@ -1,0 +1,102 @@
+{
+  "ad_id": "A00",
+  "provenance": {
+    "source": "meta_ad_library",
+    "url": "https://okazja-0.test/?utm_campaign=bfdefc15",
+    "fetched_at": "2026-11-01T10:00:00Z",
+    "snapshot": "snapshots/A00/"
+  },
+  "first_seen": "2026-11-01T09:00:00Z",
+  "last_seen": "2026-11-03T09:00:00Z",
+  "status": "dead",
+  "infra": {
+    "redirect_chain": [
+      "okazja-0.test",
+      "track-hub.test",
+      "inwestuj-teraz.test"
+    ],
+    "final_domain": "inwestuj-teraz.test",
+    "rdap": {
+      "registered": "2026-10-30T09:00:00Z",
+      "registrar": "Registrar-Alfa",
+      "nameservers": [
+        "ns1.cloudflare.test"
+      ]
+    },
+    "dns": {
+      "ip": "104.16.1.1",
+      "asn": "AS13335"
+    },
+    "cert": {
+      "id": "crtA-0",
+      "san": [
+        "inwestuj-teraz.test"
+      ]
+    },
+    "favicon": {
+      "mmh3": 432620297,
+      "phash": null
+    }
+  },
+  "page": {
+    "tracking_ids": {
+      "meta_pixel": "PX-771001",
+      "ga": null
+    },
+    "script_hashes": [
+      "sha:f1a358ca0",
+      "sha:countdown-A"
+    ],
+    "form_endpoint": "api.leadbox-a.test/submit",
+    "contacts": {
+      "phones": [
+        "+48500100200"
+      ],
+      "telegram": [],
+      "crypto": []
+    },
+    "dom_template_hash": "dom:269118bb16",
+    "hidden_text_hash": null
+  },
+  "text": {
+    "ad_text": "Prezes zdradza sekret inwestycji #0",
+    "ocr_text": "",
+    "keywords": [
+      "inwestycja",
+      "orlen",
+      "pasywny dochód"
+    ],
+    "embedding": [
+      -0.2894,
+      -0.1138,
+      0.1775,
+      -0.3223,
+      "..."
+    ]
+  },
+  "visual": {
+    "phash": "2ac34446e883a1d4",
+    "clip_embedding": [
+      -0.2818,
+      0.3484,
+      -0.0214,
+      -0.0592,
+      "..."
+    ]
+  },
+  "faces": [
+    {
+      "person": "prezenter_A",
+      "similarity": 0.826,
+      "quality": 0.6,
+      "deepfake_score": 0.86,
+      "embedding": [
+        -0.1173,
+        0.1999,
+        -0.0217,
+        -0.0977,
+        "..."
+      ]
+    }
+  ]
+}
