@@ -130,6 +130,7 @@ def collect_landing(stage, options, finding, *, defer=False):
     from .landing_visit import visit
     from .landing_fetch import public_url
     from .trusted_domains import match_url, skip_reason
+    from .verified_entity import match_verified_entity
 
     index = finding.card.get("cta_element")
     candidates = finding.card.get("landing_candidates", [])
@@ -150,10 +151,15 @@ def collect_landing(stage, options, finding, *, defer=False):
                 "reason": "Brak poprawnego odnośnika we wskazanym elemencie karty."}
     database = options.get("domain_db")
     host = match_url(database, url)
+    verified = match_verified_entity(url, options)
     timeout = options.get("landing_timeout", 22)
     if host:
         outcome = {"status": "trusted_domain", "content_status": "skipped", "reason_code": "trusted_domain",
                    "trusted_domain": host, "reason": skip_reason(host)}
+    elif verified:
+        code, reason = verified
+        outcome = {"status": "skipped", "content_status": "skipped", "reason_code": code,
+                   "reason": reason}
     elif defer:
         outcome = {"status": "queued", "content_status": "pending", "reason_code": "queued",
                    "reason": "Oczekuje na odczyt strony docelowej."}
