@@ -2,7 +2,17 @@
 
 ScamGraph ma pomóc analitykowi NASK odpowiedzieć na pytanie „Czy tę reklamę widzieliśmy już w innej odsłonie?”. Analityk wczyta zbiór postów, zobaczy proponowane kampanie na grafie, wybierze grupę i prześledzi jej historię na osi czasu. Po dodaniu nowego materiału będzie mógł otworzyć dwa porównywane źródła i ocenić podstawę przypisania.
 
-**Dziś w repozytorium** działa lokalny scheduler i panel znalezisk. Przeszukuje zapisy publicznej Biblioteki reklam Meta i lokalny korpus NASK. W panelu można uruchomić jedno lub oba źródła, zobaczyć postęp i otworzyć dowód kandydata. Zegar domyślnie sprawdza źródła co 30 minut. [Instrukcja obsługi panelu i lokalizacja pobranych danych](docs/PANEL_REKLAM.md) · [Uruchomienie na Windows, konfiguracja i testy](docs/AD_DISCOVERY.md) · [Pakiety dowodowe](docs/PAKIET_DOWODOWY.md)
+## Wyszukiwanie reklam i panel znalezisk
+
+W trybie live ScamGraph odczytuje publiczną Bibliotekę reklam Meta przez Chrome i Playwright, bez API i tokenu Meta. Panel i PowerShell uruchamiają ten sam adapter. Działający scheduler domyślnie powtarza wyszukiwanie co 30 minut. System obsługuje również import lokalnego korpusu NASK.
+
+Aby wykonać jeden przebieg odpowiadający przyciskowi **Uruchom teraz**, otwórz PowerShell w katalogu projektu. Dla przygotowanego lokalnie profilu z limitem 40 kart na frazę użyj poniższej komendy. Na nowej instalacji podaj zamiast niego własny profil `discovery.local.json` przygotowany według instrukcji poniżej.
+
+```powershell
+.\.venv\Scripts\python.exe -m scamgraph.live --config .private-discovery/browser-40.json run --source meta
+```
+
+Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live/captures/`, a pliki z wizyt na stronach docelowych w `.private-discovery/browser-live/pages/`. Instrukcja pokazuje, jak uruchomić demo lub tryb live i przejść od reklamy w panelu do jej HTML-a, zrzutu ekranu i pliku HAR. [Instrukcja obsługi panelu reklam](docs/PANEL_REKLAM.md)
 
 ## Od pliku do wyniku
 

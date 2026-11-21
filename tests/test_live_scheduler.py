@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 from scamgraph.capture import read_json, staging, verified, write_json
 from scamgraph.catalog import catalog, matches
-from scamgraph.discovery import landing_visit, meta, meta_api
+from scamgraph.discovery import landing_visit, meta
 from scamgraph.discovery.engine import connection, store_card
 from scamgraph.discovery.graph_feed import export_graph, update_campaigns
 from scamgraph.discovery.page_queue import drain, process_one
 from scamgraph.discovery.service import engine_for, load_config, publish
-from scamgraph.discovery.types import Query, SourceError
+from scamgraph.discovery.types import Query
 from scamgraph.discovery.trusted_domains import canonical_domain, match_url
 from scamgraph.discovery.landing_fetch import PageReads, TrustedDestination
 
@@ -163,25 +163,18 @@ class LiveScheduler(unittest.TestCase):
         log = read_json(folder / "network.har")["log"]["entries"]
         self.assertEqual([(e["request"]["url"], e["response"]["redirectURL"]) for e in log], [(start, target)])
 
-    def test_live_api_safe_pagination_provenance_and_no_landing(self):
+    def test_cards_without_destination_reach_graph(self):
         opts = self.cfg["sources"]["meta"]
-        response = lambda data: type("Response", (), {"status": 200, "json": lambda _:data})()
         body = "Czerwone jabłka z sadu w koszyku dostępne przez cały listopad"
-        first = {"id": "81", "ad_creative_bodies": [body], "ad_snapshot_url": "PRIVATE"}
-        second = {"id": "82", "ad_creative_bodies": [body]}
-        third = {"id": "85", "ad_creative_bodies": ["Szkolenie komputerowe dla początkujących pracowników biurowych"]}
-        with patch.dict(os.environ, {"SCAMGRAPH_META_TOKEN": "test-token"}), patch.object(meta_api.urllib3, "PoolManager") as pool:
-            request = pool.return_value.__enter__.return_value.request
-            request.side_effect = [response({"data": [first], "paging": {"next": "PRIVATE", "cursors": {"after": "abc"}}}),
-                                   response({"data": [first, second, third]})]
-            findings = list(meta_api.fetch(opts, self.query))
-            self.assertEqual([f.ad_ref for f in findings], ["81", "82", "85"])
-            self.assertEqual(request.call_args.args[1], meta_api.ENDPOINT)
-            self.assertEqual(request.call_args.kwargs["fields"]["after"], "abc")
-            self.assertNotIn("PRIVATE", findings[0].original.read_text())
-            request.side_effect = [type("Denied", (), {"status": 429})()]
-            with self.assertRaisesRegex(SourceError, "429"):
-                list(meta_api.fetch(opts, self.query))
+        texts = {"81": body, "82": body, "85": "Szkolenie komputerowe dla początkujących pracowników biurowych"}
+        self.source.write_text("".join(
+            f"<article><div>Library ID: {ref}</div><p>{text}</p></article>" for ref, text in texts.items()
+        ), encoding="utf8")
+        findings = list(meta.fetch({"mode": "import", "imports": {"test": str(self.source)}}, self.query))
+        self.assertEqual([card.ad_ref for card in findings], list(texts))
+        for card in findings:
+            card.source_kind = "library"
+            card.card["text"] = texts[card.ad_ref]
         with patch.object(landing_visit, "visit", side_effect=AssertionError("unexpected network")):
             for finding in findings:
                 cid = publish("meta", {**opts, "query_phrase": "test", "query_country": "PL"}, finding)

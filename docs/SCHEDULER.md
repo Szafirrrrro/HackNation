@@ -1,6 +1,6 @@
 # Harmonogram wyszukiwania reklam w bibliotekach Meta i TikToka
 
-Na gałęzi `codex/ad-discovery` działa panel, zegar i CLI dla publicznej Biblioteki reklam Meta oraz korpusu NASK. Poniższy projekt API opisuje dalszą integrację usług z zatwierdzonym dostępem. [Uruchomienie działającego modułu](AD_DISCOVERY.md)
+Działający scheduler odczytuje publiczną Bibliotekę reklam Meta przez Chrome i Playwright. Panel i CLI korzystają z tego samego adaptera. Poniższy dokument zachowuje historyczny projekt integracji API. [Uruchomienie działającego modułu](AD_DISCOVERY.md)
 
 To projekt dodatkowej funkcji demonstratora. Co 30 minut osobny proces przeszukuje biblioteki Meta i TikToka według zapisanych polskich fraz i filtrów kraju właściwych dla dostawcy, zachowuje źródła i ocenia nowe materiały względem poprzedniej wersji referencji. Wyniki trafiają do panelu analityka. NASK wymaga przyjęcia materiału, ekstrakcji, grupowania, analizy nowego zgłoszenia i GUI. Automatyczne wyszukiwanie oraz okresowe aktualizacje wskazano jako rozszerzenie. Pierwszeństwo ma działająca ścieżka lokalna. [Zadanie NASK, pkt 3–6](NASK_ZADANIE.md) · [Plan MVP](MVP.md)
 
@@ -24,7 +24,7 @@ To projekt dodatkowej funkcji demonstratora. Co 30 minut osobny proces przeszuku
 
 Daty w przykładzie są danymi testowymi. Worker wylicza je z zegara UTC. Filtr `PL` opisuje kraj targetowania. Strona wyników ma najwyżej 10 reklam, fraza do 50 znaków, a najwcześniejsza data zapytania musi mieścić się w ostatnim roku. W tabeli parametrów i pierwszym przykładzie przewodnika występuje `country_code_list`, choć w innym przykładzie dostawcy widnieje `country_code`. Implementujemy pole tabeli. Odbiór live obejmuje poprawne wykonanie zapytania z tym filtrem na zatwierdzonym koncie. [Specyfikacja filtrów](https://developers.tiktok.com/docs/en/commercial-content-api-query-ads) · [Lista krajów](https://developers.tiktok.com/docs/en/commercial-content-api-supported-countries) · [Pierwsze zapytanie i paginacja](https://developers.tiktok.com/docs/en/commercial-content-api-getting-started)
 
-## Adapter Meta Ad Library API
+## Historyczny projekt integracji z Meta Ad Library API
 
 **Dostęp.** Operator potwierdza tożsamość i lokalizację na koncie Facebook, rejestruje się w Meta for Developers, akceptuje warunki i konfiguruje aplikację uprawnioną do korzystania z Ad Library API. Token dostępu dla tej aplikacji przekazuje wyłącznie procesowi serwerowemu. Przypinamy udokumentowaną wersję Graph API `v27.0`. Meta udostępnia w tym zakresie m.in. reklamy dowolnego rodzaju emitowane w UE w ostatnim roku. [Dostęp i zakres programu Meta](https://br-fr.facebook.com/ads/library/api/) · [Referencja Graph API](https://developers.facebook.com/docs/graph-api/reference/ads_archive/)
 

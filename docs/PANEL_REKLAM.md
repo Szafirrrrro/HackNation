@@ -28,7 +28,7 @@ Pozostaw PowerShell otwarty. Polecenie `serve` uruchamia też zegar wyszukiwań.
 
 ## Wyszukiwanie rzeczywistych reklam
 
-Profil przeglądarkowy korzysta z lokalnego Chrome i Playwright. W tej instalacji przygotowano prywatny profil dla Polski z limitem do 40 kart na frazę. Po zatrzymaniu demo uruchom go i otwórz ten sam adres panelu.
+Panel i PowerShell korzystają z tego samego adaptera. Playwright otwiera publiczną Bibliotekę reklam Meta w lokalnym Chrome bez API i tokenu Meta. W tej instalacji przygotowano prywatny profil dla Polski z limitem do 40 kart na frazę. Po zatrzymaniu demo uruchom go i otwórz ten sam adres panelu.
 
 ```powershell
 .\.venv\Scripts\python.exe -m scamgraph.live --config .private-discovery/browser-40.json serve --port 8527
@@ -37,6 +37,26 @@ Profil przeglądarkowy korzysta z lokalnego Chrome i Playwright. W tej instalacj
 Na nowej instalacji utwórz prywatną kopię `discovery.live.json` w katalogu projektu pod nazwą `discovery.local.json`. Uzupełnij w niej `sources.meta.permission` zakresem udzielonego uprawnienia do automatycznego odczytu Meta. W poleceniu powyżej podaj wtedy `--config discovery.local.json`.
 
 Frazy ustawiasz w `sources.meta.phrases` wybranego pliku JSON, a maksymalną liczbę kart na frazę w `sources.meta.limit`. **Uruchom teraz** używa tej listy. Pole frazy w **Diagnostyka Meta** służy do osobnego sprawdzenia. Domyślny profil live sprawdza źródło co 30 minut. Liczba nowych reklam i liczba zapisanych stron mogą być mniejsze od limitu.
+
+## Uruchom teraz z PowerShella
+
+W katalogu projektu wykonaj poniższe polecenia. Wybierz ten sam plik konfiguracji co w panelu, żeby użyć tych samych fraz i zapisać wyniki w tej samej bazie.
+
+```powershell
+.\.venv\Scripts\python.exe -m scamgraph.live --config .private-discovery/browser-40.json run --source meta
+```
+
+To odpowiednik wyboru źródła Meta i kliknięcia **Uruchom teraz**. Dla opcji **Wszystkie źródła** pomiń `--source meta`. Komenda wykonuje jeden przebieg, obsługuje jego kolejkę wizyt na stronach docelowych, odświeża graf i wypisuje podsumowanie JSON. Panel może być zamknięty. W trybie live adapter nadal używa Chrome w tle.
+
+Aby odczytać ostatni stan źródeł i listę reklam bez ponownego wyszukiwania, wykonaj w tym samym oknie:
+
+```powershell
+$wynik = .\.venv\Scripts\python.exe -m scamgraph.live --config .private-discovery/browser-40.json status | ConvertFrom-Json
+$wynik.sources | Format-Table source_id, status, read_count, new_count, known_count, error -Wrap
+$wynik.candidates | Select-Object ad_ref, capture_id
+```
+
+Na świeżej instalacji w obu poleceniach podaj po `--config` przygotowany wcześniej plik `discovery.local.json`. Do ćwiczenia offline wybierz `discovery.demo.json`.
 
 ## Gdzie są pliki
 
