@@ -6,7 +6,8 @@ node_modules/
 
 # Local environment settings
 .env
-.env.local
+.env.*
+!.env.example
 
 # Downloaded puzzle inputs and working copies
 ___BACKUP.zip
@@ -15,8 +16,16 @@ scam_links.enc
 decoded-catalog.txt
 
 # Desktop metadata
+.idea/
+.worktrees/
 .DS_Store
 Thumbs.db
 
 # cloaking test
 cloaking_test/
+
+# Private offline captures and organizer acceptance fixture
+/data/struct/
+/data/captures/
+/.private-discovery/
+/discovery.local.json

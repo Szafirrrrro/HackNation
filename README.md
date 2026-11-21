@@ -2,9 +2,11 @@
 
 ScamGraph ma pomóc analitykowi NASK odpowiedzieć na pytanie „Czy tę reklamę widzieliśmy już w innej odsłonie?”. Analityk wczyta zbiór postów, zobaczy proponowane kampanie na grafie, wybierze grupę i prześledzi jej historię na osi czasu. Po dodaniu nowego materiału będzie mógł otworzyć dwa porównywane źródła i ocenić podstawę przypisania.
 
-**Dziś w repozytorium** można zweryfikować prywatny korpus, obejrzeć obserwacje reklam i stron oraz uruchomić testy laboratorium modeli. **Do zbudowania** są importer aplikacji, silnik grupowania, ekran analityka i kontener demonstratora. Laboratorium ma własne kontenery CPU. Wyniki trafności przypisania do rzeczywistych kampanii pozostają do zmierzenia.
+**Dziś w repozytorium** działa lokalny scheduler i panel znalezisk. Przeszukuje zapisy publicznej Biblioteki reklam Meta i lokalny korpus NASK. W panelu można uruchomić jedno lub oba źródła, zobaczyć postęp i otworzyć dowód kandydata. Zegar domyślnie sprawdza źródła co 30 minut. [Uruchomienie na Windows, konfiguracja i testy](docs/AD_DISCOVERY.md) · [Pakiety dowodowe](docs/PAKIET_DOWODOWY.md)
 
 ## Od pliku do wyniku
+
+Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.json serve`, aby otworzyć panel schedulera z lokalnymi kartami demonstracyjnymi. Profil Meta API uruchamia `python -m scamgraph.live serve` po przekazaniu tokenu w zmiennej środowiskowej `SCAMGRAPH_META_TOKEN`. Listą zaufanych domen dla wybranego profilu zarządza polecenie `trusted-domains`. [Instalacja i konfiguracja](docs/AD_DISCOVERY.md)
 
 | Krok | Technologia i wynik planowanego systemu | Wymaganie NASK |
 | --- | --- | --- |

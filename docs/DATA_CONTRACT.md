@@ -1,8 +1,26 @@
 # Kontrakt danych i decyzji ScamGraph
 
+Moduł wyszukiwania przechowuje kandydatów i historię powodów w SQLite. Rekord znaleziska wskazuje lokalny pakiet z oryginałem, lokalizatorem i sumą SHA-256. Karta wyłącznie katalogowa jest częściowym wynikiem. [Integracja schedulera](AD_DISCOVERY.md) · [Format pakietu](PAKIET_DOWODOWY.md)
+
 To specyfikacja planowanego demonstratora. Para A przekazuje korpus i pochodzenie obserwacji. Para B zwraca cechy i mierzy wpływ metod. Para C buduje referencję, porównuje nowe materiały i wyświetla dowody. Import, CLI i GUI mają korzystać z tego samego silnika. [Plan MVP](MVP.md)
 
 ## Wejście i zgodność z v0
+
+### Publikacja podczas pracy zegara
+
+Decyzja `trusted_domain` dotyczy wizyty w stronie docelowej. Scheduler sprawdza host ustalony z oryginalnego CTA oraz cele przekierowań HTTP głównego dokumentu. Porównuje dokładne nazwy DNS, zapisane w postaci ASCII IDNA w tabeli `trusted_domains(domain)` prywatnej bazy schedulera. Każdą zaufaną subdomenę wprowadza się osobno. Karta oraz źródłowy odnośnik zachowują pochodzenie. Wpis `landing_visit.trusted_domain` identyfikuje trafienie. Odebrane wcześniej przekierowania zostają w HAR. Ocena treści pominiętej strony pozostaje nieznana.
+
+Wejście do grafu zawiera ostatnią obserwację każdej pary dostawca–ID w danym trybie. Wpis z brakującym pakietem nosi pole `unavailable`. Po przywróceniu pakietu scheduler ponawia projekcję. Raport wylicza podobieństwa na dostępnych dowodach i osobno wymienia brakujące paczki.
+
+Decyzja zespołu dla tekstu karty z potwierdzonym pochodzeniem: co najmniej cztery słowa i 24 znaki pozwalają wyliczyć znormalizowany wektor znakowych n-gramów długości 3–5 w obrębie słów (1024 wymiary, podpisany hashing). Pole `text.origin_id` wskazuje plik źródłowy cechy, a `text.method` wersję obliczenia. Silnik stosuje własne progi podobieństwa kosinusowego. Zgodność tekstu daje jedną miękką przesłankę, również gdy wiele fragmentów pochodzi z tego samego opisu. Próg długości i podobieństwo leksykalne wymagają oceny jakości na rzeczywistych kampaniach. Raport zachowuje wersję metody przy uzasadnieniu tekstowym.
+
+Scheduler zatwierdza obserwację karty i zlecenie pobrania jej udokumentowanego celu w jednej transakcji SQLite. Od tego momentu analityk może otworzyć pakiet karty. Po zebraniu strony worker publikuje nowy pakiet dowodowy i aktualizuje wskazanie tej samej obserwacji. Numer obserwacji, emisja i powody wyszukania zachowują tożsamość. Stan wizyty oraz stan wyszukiwania źródła mają oddzielne pola. Po przerwaniu procesu zegar podejmuje niedokończone zlecenia. Tryby import i replay działają lokalnie.
+
+W `landing/3` pole `pages[].reading_text` przechowuje tekst w kolejności DOM oraz lokalizator HTML dla każdego fragmentu. Opcjonalne `reading_source` wskazuje pierwotną odpowiedź HTTP, gdy dostarczyła treści pominiętej w zapisanym widoku. Manifest wymienia eksport TXT i jego sumę kontrolną w `derived_files`. Pełny zrzut, początkowy widok i kadr ograniczony rozmiarem mają osobne nazwy. W starszych paczkach dla skryptu zapisanego w ZIP pola HAR `_artifact`, `_member` i `_sha256` identyfikują oryginalną odpowiedź.
+
+Wersja analizy `landing/2` rozróżnia pełne wypowiedzi w `opinions`, odznaki ocen zbiorczych w `pages[].rating_badges`, ceny w `pages[].prices` oraz saldo w `pages[].cart_balances`. Produkt powiązany z ceną ma własny dowód. Etykiety kupującego, oceny, liczniki i deklaracje skuteczności są danymi opublikowanymi przez źródło. Każde wystąpienie sygnału ma lokalizator i kontekst. Panel grupuje równe fragmenty w obrębie tego samego kontekstu. Pole `landing_summary` wskazuje dostępne dowody treści oferty, okna cookies i ocenionego obszaru zrzutu.
+
+Przeliczenie zapisanych materiałów zachowuje identyfikator obserwacji, skróty oryginałów i historię pobrania. Nowy manifest wskazuje poprzedni pakiet i jego SHA-256 w `reanalyzed_from`.
 
 | Obiekt | Co przyjmuje importer |
 | --- | --- |
@@ -13,6 +31,8 @@ To specyfikacja planowanego demonstratora. Para A przekazuje korpus i pochodzeni
 | Zgłoszenie z GUI | Adapter nadaje ID i `source.kind=upload`, zachowuje zwalidowane bajty i źródło każdego dodatkowego pola. Przyjmuje dostępny materiał do analizy także wtedy, gdy brakuje obrazu lub celu. |
 
 Dotychczasowy korpus v0 można wczytać bez migracji. Brak opcjonalnego pliku relacji oznacza pusty zbiór powiązań. Sam adres celu wpisany przez użytkownika pozostaje porównywalnym polem z opisanym pochodzeniem. Wspólny host, katalog archiwum albo podobny tytuł mogą podpowiedzieć, które obserwacje sprawdzić. Przyjęcie `AdPageLink` wymaga wskazania dowodu pozwalającego prześledzić związek konkretnej emisji z konkretnym zapisem. Importer zgłasza niedostępny odnośnik, sprzeczność lub niejednoznaczny cel i zachowuje dostępne rekordy do oddzielnej analizy.
+
+W pakiecie z pobrania celu CTA relacja w `extracted.json` wskazuje element i atrybut w oryginalnym zapisie karty oraz przez `navigation_evidence` indeks odpowiedzi dokumentu w lokalnym HAR. `final_url` podaje adres po przekierowaniach z pominięciem parametrów zapytania. Wypowiedzi ze strony wskazują element HTML w `landing/`. Nieudana próba pobrania strony zachowuje powód w `landing_visit` i dostępne artefakty.
 
 **Klucze importu.** Powtórne wczytanie tego samego ID emisji jest idempotentne. Adapter uzgadnia `(source.provider, source.ad_ref)` z `(dataset_id, ad_id)`, gdy istnieją obie tożsamości. Odcisk stabilnych pól pomaga wykryć ponowny import obcego zapisu bez ID. Konflikt dwóch identyfikatorów trafia do raportu z wierszami źródłowymi. SHA-256 identyfikuje bajty i pozwala współdzielić ekstrakcję. Dwie znane emisje o różnych ID zachowują odrębne rekordy nawet przy tym samym obrazie. Dwa pobrania tego samego URL mogą mieć różny czas, status i treść.
 
@@ -130,3 +150,9 @@ To kompletny **format przekazania cech**, nie zmiana reguły punktowania. Obecny
 ich do decyzji kampanii wymagają odrębnej implementacji i pomiaru.
 
 Komendy i własny przykład syntetyczny: [instrukcja integracji](../graf/ftf-graph-py/HANDOFF.md).
+
+## Zapis jednej wizyty HTTP
+
+Każde sprawdzenie adresu dostaje osobny katalog `pages/<id_pobrania>/` w prywatnym katalogu stanu. Źródłami dla analizy są `page.html` (DOM po wykonaniu JavaScriptu), `page_files/`, `screenshot.png` i `network.har` (HAR 1.2 z treściami odpowiedzi). `metadata.json` przechowuje pełne adresy wejścia i końca nawigacji, czas UTC, viewport, status i błędy. Status `success` wymaga DOM, zrzutu, wpisu odpowiedzi dokumentu i braku błędów. `partial` oznacza zachowaną odpowiedź lub DOM przy niepełnej wizycie, a `failed` brak obu. Żądania zablokowane przez transport i brakujące odpowiedzi mają jawny ślad. Kolektor przewija stronę bez naciskania przycisków i wysyłania formularzy.
+
+Paczka jest prywatnym źródłem. W eksporcie analitycznym pola sieciowe nadal mają dotychczasowy ograniczony zakres. Samodzielna wizyta nie tworzy relacji z emisją. Scheduler wiąże kartę z paczką na podstawie elementu CTA i wpisu HAR dokumentu. Wcześniejsze pakiety pozostają czytelne po ścieżkach zapisanych w ich manifestach.
