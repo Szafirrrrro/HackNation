@@ -459,9 +459,16 @@ def _live(options, query):
                     if 300 <= status < 400 and status != 304:
                         if main_document:
                             navigation_error.append(f"Meta zwróciła przekierowanie HTTP {status}.")
-                        session.send("Fetch.failRequest", {**params, "errorReason": "BlockedByClient"})
+                        method, params = "Fetch.failRequest", {**params, "errorReason": "BlockedByClient"}
                     else:
-                        session.send("Fetch.continueRequest", params)
+                        method = "Fetch.continueRequest"
+                    try:
+                        session.send(method, params)
+                    except BrowserError:
+                        # Żądanie zostało już zamknięte (context.route, nawigacja lub zamknięcie strony):
+                        # CDP zwraca wtedy "Invalid InterceptionId". Wyjątek w obsłudze zdarzenia
+                        # przerywał odczyt całej frazy, a nie ma już czego wznawiać ani blokować.
+                        pass
 
                 session.on("Fetch.requestPaused", check_response)
                 session.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Response"}]})
