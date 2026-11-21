@@ -2,3 +2,7 @@ numpy>=1.24
 scikit-learn>=1.3
 hdbscan>=0.8.33
 neo4j>=5.14
+streamlit>=1.50
+pyvis>=0.3.2
+plotly>=5.20
+pandas>=2.0
