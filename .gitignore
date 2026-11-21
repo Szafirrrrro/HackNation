@@ -17,3 +17,6 @@ decoded-catalog.txt
 # Desktop metadata
 .DS_Store
 Thumbs.db
+
+# cloaking test
+cloaking_test/
