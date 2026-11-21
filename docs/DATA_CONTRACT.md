@@ -7,7 +7,7 @@ To specyfikacja planowanego demonstratora. Para A przekazuje korpus i pochodzeni
 | Obiekt | Co przyjmuje importer |
 | --- | --- |
 | Manifest | `manifest.json` zawiera `schema_version`, `dataset_id`, opis pochodzenia w `source_description` i `collected_at`. Identyfikatory lokalne mają zakres korpusu. Adapter obcego formatu zgłasza zastosowane mapowanie oraz pominięte pola. |
-| `Ad` — jedna emisja | Jeden wiersz `ads.jsonl` ma stabilne `ad_id`, `source.kind` (`library`, `organizer`, `synthetic` lub `upload`), `source.provider`, czas pozyskania ze strefą w `source.collected_at` oraz przynajmniej jedno użyteczne pole spośród `text`, `image_path`, `landing_url`. Opcjonalne `source.ad_ref` i `source.record_url` wskazują wpis u dostawcy, `advertiser_ref` identyfikuje reklamodawcę w jego systemie, a `observed_redirect_urls` przechowuje już zaobserwowane przekierowania. |
+| `Ad` — jedna emisja | Jeden wiersz `ads.jsonl` ma stabilne `ad_id`, `source.kind` (`library`, `organizer`, `synthetic` lub `upload`), `source.provider`, czas pozyskania ze strefą w `source.collected_at` oraz przynajmniej jedno użyteczne pole spośród `text`, `image_path`, `landing_url`, `audio_path`, `video_path` (dwa ostatnie: nagranie lub wideo ze ścieżką dźwiękową, decyzja zespołu 2026-11-21). Opcjonalne `source.ad_ref` i `source.record_url` wskazują wpis u dostawcy, `advertiser_ref` identyfikuje reklamodawcę w jego systemie, a `observed_redirect_urls` przechowuje już zaobserwowane przekierowania. |
 | `PageCapture` — jeden zapis strony | Adapter `observations/pages.jsonl` rozpoznaje `capture_id` i dostępne sekcje `html`, `document`, `har`, `dns_tls`, `assets`. Można wczytać sam zapis strony i porównać go z innymi stronami. Zachowujemy czas, status odpowiedzi, pola źródłowe i ich lokalizację. `bundle_ids` służą do odnalezienia oryginału. |
 | `AdPageLink` — związek emisji z zapisem strony | Opcjonalny wiersz `observations/ad_page_links.jsonl` wskazuje `ad_id`, `capture_id`, `origin_id`, czas obserwacji powiązania w `observed_at` oraz `source_ref` z lokalizacją, polem źródłowym i jego wartością. Dopiero zweryfikowane powiązanie udostępnia cechy tego zapisu do porównań reklam. |
 | Zgłoszenie z GUI | Adapter nadaje ID i `source.kind=upload`, zachowuje zwalidowane bajty i źródło każdego dodatkowego pola. Przyjmuje dostępny materiał do analizy także wtedy, gdy brakuje obrazu lub celu. |
@@ -16,7 +16,7 @@ Dotychczasowy korpus v0 można wczytać bez migracji. Brak opcjonalnego pliku re
 
 **Klucze importu.** Powtórne wczytanie tego samego ID emisji jest idempotentne. Adapter uzgadnia `(source.provider, source.ad_ref)` z `(dataset_id, ad_id)`, gdy istnieją obie tożsamości. Odcisk stabilnych pól pomaga wykryć ponowny import obcego zapisu bez ID. Konflikt dwóch identyfikatorów trafia do raportu z wierszami źródłowymi. SHA-256 identyfikuje bajty i pozwala współdzielić ekstrakcję. Dwie znane emisje o różnych ID zachowują odrębne rekordy nawet przy tym samym obrazie. Dwa pobrania tego samego URL mogą mieć różny czas, status i treść.
 
-**Pochodzenie.** `image_origin`, `text_origin` i `url_origin` w rekordzie v0 oraz `observation_group` ze zrzutu wskazują źródło cechy. Obraz, jego kadr, pHash, OCR i ręczna transkrypcja mają wspólny `origin_id`. Domyślnie tekst do zdjęcia dziedziczy pochodzenie zdjęcia. Cel o nieudokumentowanym pochodzeniu można pokazać jako wskazówkę. Do niezależnych dowodów kwalifikują się tylko udokumentowane, rozłączne źródła po obu stronach porównania. Dwa wpisy HAR opisujące tę samą integrację dają jeden sygnał. Etykiety kampanii i uzasadnienia anotatorów należą do osobnego zbioru ewaluacyjnego.
+**Pochodzenie.** `image_origin`, `text_origin`, `url_origin` i `audio_origin` w rekordzie v0 oraz `observation_group` ze zrzutu wskazują źródło cechy. Obraz, jego kadr, pHash, OCR i ręczna transkrypcja mają wspólny `origin_id`. Tak samo nagranie, jego odcisk akustyczny, odcisk głosu i transkrypcja mowy (ASR); domyślnie `<ad_id>#audio_path` lub `<ad_id>#video_path`. Domyślnie tekst do zdjęcia dziedziczy pochodzenie zdjęcia. Cel o nieudokumentowanym pochodzeniu można pokazać jako wskazówkę. Do niezależnych dowodów kwalifikują się tylko udokumentowane, rozłączne źródła po obu stronach porównania. Dwa wpisy HAR opisujące tę samą integrację dają jeden sygnał. Etykiety kampanii i uzasadnienia anotatorów należą do osobnego zbioru ewaluacyjnego.
 
 **Błędy i czas.** Importer ogranicza ścieżki mediów do zadeklarowanego katalogu, sprawdza format i rozmiar obrazu, zwraca numer wiersza, ID oraz przyczynę błędu. Gdy obraz jest uszkodzony, nadal analizuje poprawny tekst. Odrębnie zapisuje datę publikacji, pozyskania i obserwacji strony wraz z precyzją źródła. Przy braku daty publikacji pole pozostaje puste.
 
@@ -58,7 +58,7 @@ Rozszerzeniem jest osobny, opcjonalny plik `observations/ad_page_links.jsonl`. W
 
 | Wynik | Co musi wyjaśniać |
 | --- | --- |
-| `Feature` i `Evidence` | Cecha wskazuje typ obiektu i jego ID, rodzinę, pole, wartość, `origin_id`, lokalizację źródła oraz wersję ekstraktora. Dowód wskazuje oba końce porównania, relację, metrykę, zmierzoną wartość, próg i siłę sygnału. Zachowujemy oryginalne wartości obok normalizacji. |
+| `Feature` i `Evidence` | Cecha wskazuje typ obiektu i jego ID, rodzinę (`text`, `visual`, `infrastructure`, `audio`), pole, wartość, `origin_id`, lokalizację źródła oraz wersję ekstraktora. Rodzina `audio` (decyzja zespołu 2026-11-21) obejmuje `audio.fingerprint` (Chromaprint) i `audio.speaker_embedding` (odcisk głosu); transkrypcja `asr.text` należy do rodziny `text`. Klasyfikację śladów audio jako specyficznych lub pomocniczych ustala para C. Dowód wskazuje oba końce porównania, relację, metrykę, zmierzoną wartość, próg i siłę sygnału. Zachowujemy oryginalne wartości obok normalizacji. |
 | Podobieństwo kreacji i wzorzec stron | Identyczne bajty, powtórzona kreacja i podobieństwo dwóch zapisów stron mają osobne znaczenia w wyniku. Przy parze stron pokaż np. tekst nagłówków i ślad HAR wraz z ich źródłami. Można zwrócić te wyniki nawet wtedy, gdy brakuje danych do oceny kampanii. |
 | `PairAssessment` emisji | Zwraca oceny `strong`, `similar` lub `none`, dowody, kolejność w rankingu, powody oraz osobny stan pokrycia. `strong` wymaga zgodności co najmniej dwóch niezależnych rodzin po obu stronach i co najmniej jednego śladu specyficznego. `similar` oznacza dostępną sugestię poniżej tego warunku, `none` brak sugestii. Wystarczające pokrycie wymaga możliwości porównania co najmniej dwóch niezależnych rodzin, nawet przy rozbieżnych wartościach. |
 | `Campaign` | Hipoteza obejmuje przynajmniej dwie emisje. Profil zawiera wspólne ślady, ich źródła, liczbę wspierających emisji i ich ID. Podobieństwo dwóch odrębnych grup wskazuje cechę profilu oraz konkretne pary wspierające analogię. |
@@ -89,3 +89,44 @@ Zapytanie nie zmienia słownika tekstu, składu kampanii ani cech referencji. Te
 ## Lokalny korpus NASK
 
 Adapter v0 może użyć obecnego katalogu od razu po implementacji. Inwentarz, przypadki do pokazu i źródła obserwacji zebrano w [przewodniku po danych](NASK_DATA.md). Sumy SHA-256 obrazów sprawdzisz zgodnie z [instrukcją repozytorium](../README.md).
+
+## JSON przekazywany Emilce (adapter `feature-join-v2`)
+
+Decyzja integracyjna zespołu 2026-11-21: wyjście Witka w `models/` pozostaje
+bez zmian (`ads.jsonl`, `corpus.json`, `features/`, `runs/`, `vectors/`, `arrays/`).
+Adapter `ftf_graph merge-features` materializuje cechy wybranej emisji i łączy je
+z obserwacją URL/HTML/HAR. Nie uruchamia modeli ani pobierania sieciowego.
+
+| Pole JSON-a | Źródło |
+| --- | --- |
+| `infra`, `page`, `provenance` | Obserwacje URL/HTML/HAR z `extract-snapshot`; brakujące RDAP/ASN/TLS pozostają puste. Włączenie do karty reklamy wymaga jawnego `--ad-page-link`. |
+| `text`, `visual`, `faces` | Dotychczasowy adapter modeli obrazu i tekstu. DINOv2 pozostaje w `extensions.image_embedding`, nie w polu CLIP. |
+| `audio.transcript`, `audio.segments`, `audio.asr_duration_s` | `asr.text`, `asr.segments`, `asr.duration_s` (Whisper). |
+| `audio.duration_s` | `audio.duration_s` (Chromaprint, potencjalnie inny zakres nagrania). |
+| `audio.fingerprint` | `audio.fingerprint`: obiekt z `array` jako listą int32, `key`, `shape`, `dtype`, `n_frames`. |
+| `audio.speaker_embedding` | `audio.speaker_embedding` (ECAPA); lista liczb, bez rozpoznania nazwiska mówcy. |
+| `audio.text_embedding` | `text.embedding` tylko dla `source_field=asr.text@<metoda>`; nie zastępuje embeddingu tekstu/OCR. |
+| `extensions.model_features[]` | Wszystkie poprawne cechy modeli, również QR, ORB, dHash i pozostałe pola. Referencje `vector`/`array` zawierają listy zamiast odnośników wymagających plików bocznych. Oryginalne metadane i ścieżki są w evidence. `grouping:false` pozostaje informacją, bez promocji do pól korelacyjnych. |
+| `extensions.model_unavailable[]`, `extraction.warnings` | Przyczyny braków oraz odrzuconych, nieaktualnych lub niejednoznacznych wyników. |
+| `extraction.evidence` | Źródło, wiersz cechy, metoda, parametry, rodzina, pochodzenie, ID emisji i fingerprint korpusu. |
+
+Audio i jego transkrypcja/embedding tekstowy dzielą `audio_origin` (domyślnie
+`<ad_id>#audio_path` lub `#video_path`). Brak audio daje puste pola, nigdy odcisk
+ciszy. Obraz nadal wymaga potwierdzenia SHA-256 jawnie wybranego zrzutu; wejście
+bez obrazu może zostać połączone po jawnym ID korpusu. Zachowujemy różne emisje
+nawet dla identycznych mediów. Konflikt ID, fingerprintu, pochodzenia lub metody
+nie jest rozstrzygany na podstawie kolejności plików.
+
+Bez `AdPageLink` strona trafia do `extensions.page_observation`, a `infra/page`
+reklamy pozostają puste. Podobieństwo tytułu, nazwa katalogu i wspólny screenshot
+nie potwierdzają przejścia z reklamy do strony. Link przekazany przez wywołującego
+musi mieć `ad_id`, `capture_id`, `origin_id`, `observed_at` i `source_ref` z plikiem,
+polem oraz URL odpowiadającym URL snapshotu. Wywołujący odpowiada za rzeczywistą
+weryfikację wskazanego dowodu; adapter sprawdza zgodność deklaracji.
+
+To kompletny **format przekazania cech**, nie zmiana reguły punktowania. Obecny
+`Scorer` nie porównuje jeszcze audio ani DINOv2; Emilka otrzymuje audio przez
+`Card.audio`, pozostałe cechy przez `Card.raw`. Progi podobieństwa audio i włączenie
+ich do decyzji kampanii wymagają odrębnej implementacji i pomiaru.
+
+Komendy i własny przykład syntetyczny: [instrukcja integracji](../graf/ftf-graph-py/HANDOFF.md).

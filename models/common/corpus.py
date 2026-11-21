@@ -41,12 +41,13 @@ class Ad:
     image_origin: str | None = None
     text_origin: str | None = None
     audio_origin: str | None = None
+    audio_field: str = "audio_path"                # pole źródłowe nagrania: audio_path | video_path
     missing: dict = field(default_factory=dict)   # modality -> przyczyna (plik zadeklarowany, ale niedostępny)
 
     @property
     def ref(self) -> str:
         r = self.record
-        return r.get("source", {}).get("ad_ref") or r.get("image_path") or r.get("audio_path") or ""
+        return r.get("source", {}).get("ad_ref") or r.get("image_path") or r.get("audio_path") or r.get("video_path") or ""
 
 
 @dataclass
@@ -88,9 +89,8 @@ class Corpus:
             elif modality == "text" and a.text:
                 out.append(Item(a.ad_id, a.text_origin, "text", "text", text=a.text, ref=a.ref))
             elif modality == "audio" and a.audio:
-                out.append(Item(a.ad_id, a.audio_origin, "audio_path", "audio", path=str(a.audio),
-                                ref=a.ref, source_value=a.record.get("audio_path")
-                                or a.record.get("video_path")))
+                out.append(Item(a.ad_id, a.audio_origin, a.audio_field, "audio", path=str(a.audio),
+                                ref=a.ref, source_value=a.record.get(a.audio_field)))
         return out
 
     def missing_reason(self, ad: Ad, modality: str) -> str:
@@ -186,7 +186,7 @@ def _load_v0(root: Path) -> Corpus:
                     a.missing["audio"] = f"{'path_outside_corpus' if p is None else 'file_not_found'}: {rec[k]}"
                     err(a.missing["audio"])
                 else:
-                    a.audio = p
+                    a.audio, a.audio_field = p, k
                     a.audio_origin = rec.get("audio_origin") or f"{ad_id}#{k}"
                 break
         if (rec.get("text") or "").strip():

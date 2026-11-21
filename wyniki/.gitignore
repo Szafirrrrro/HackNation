@@ -1,0 +1,3 @@
+# Private inputs and derived organizer data; keep out of Git and public exports.
+*
+!.gitignore

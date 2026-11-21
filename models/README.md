@@ -12,8 +12,10 @@ Siedem kontenerów uruchamia dziewięć rodzajów eksperymentów (z dekoderem QR
 | **Temat** · MiniLMv2-L6 XNLI, mDeBERTa-v3-base XNLI | *Status: `deferred`.* Odłożyć. Zestaw zwraca jedną z zadanych kategorii także dla tekstu spoza listy. Dwie różne kampanie mogą reklamować leki. |
 | **Obiekty** · Grounding DINO tiny, OWLv2 base; dekoder QR | *Status: detektory `deferred`, dekoder QR OpenCV `default` (`qr.values`, `qr.urls`).* Odłożyć. Kod zwraca rozpoznane kategorie. Dla kodu QR bardziej użyteczne jest porównanie lokalnie zdekodowanych wartości. Wspólne logo lub telefon wymaga dalszych dowodów. |
 | **Twarze** · YuNet + SFace, InsightFace buffalo_l | *Status: `deferred`.* Odłożyć. Ekstrakcja zapisuje ramki, wektory tożsamości i liczbę twarzy. Test powiązań wymagałby uprawnionej bazy referencyjnej, weryfikacji wag oraz różnych kampanii z tą samą osobą. |
-| **Mowa** · faster-whisper base/small int8 | *Status: `deferred`.* Lokalny zbiór reklam składa się z obrazów. Przy otrzymaniu nagrań przygotować pełne transkrypcje i mierzyć błędy słów, odzyskane frazy oraz czas na minutę nagrania. Ekstrakcja zapisuje pełną transkrypcję i segmenty czasowe; raport benchmarku pokazuje tylko podgląd. |
+| **Mowa** · faster-whisper base/small int8 | *Status: small `default`, base `deferred` (decyzja użytkownika 2026-11-21: wybór na oko, bez pomiaru WER).* Powód wyboru to oczekiwanie, nie pomiar: base gorzej radzi sobie z polskimi nazwami produktów i liczbami, a w reklamach to właśnie one wiążą emisje. Base nie był uruchamiany na nagraniach reklam. Do potwierdzenia: pełne ręczne transkrypcje nagrań, błąd słów (WER), odzyskane nazwy produktów, liczby i domeny oraz czas na minutę nagrania. Ekstrakcja zapisuje pełną transkrypcję i segmenty czasowe; raport benchmarku pokazuje tylko podgląd. Pierwszy przebieg 2026-11-21 na 3 nagraniach wideo reklam (materiał wyzwania, tylko lokalnie w `data/`, poza repo): dwa z mową dały spójną polską transkrypcję (ok. 2,9–3,4 tys. znaków), trzecie ma wyciszoną ścieżkę (`silent_audio`). Koszt small: 127 s na 7,5 min mowy przy 8 wątkach (aarch64), ok. 17 s na minutę nagrania. |
+| **Audio** (rodzina `audio`) · Chromaprint `fpcalc`, SpeechBrain ECAPA (`spkrec-ecapa-voxceleb`) | *Status: Chromaprint `default`, ECAPA `candidate` (decyzja zespołu 2026-11-21, zgoda użytkownika).* Chromaprint zapisuje odcisk akustyczny (`audio.fingerprint`, tablica int32, ok. 8 subodcisków/s, bez wag) i wykrywa to samo nagranie po rekompresji lub przycięciu; porównanie `features_lib.fingerprint_match` (zgodność bitów przy najlepszym przesunięciu; wspólny fragment co najmniej 40 subodcisków, ok. 5 s, i połowa krótszego nagrania; losowe bity dają 0,5, tło prawdziwych nagrań jest wyższe). Ograniczenie: wspólny fragment krótszy niż połowa krótszego nagrania (np. ten sam 10-sekundowy dżingiel w dwóch 60-sekundowych spotach) daje wynik na poziomie tła; `min_fraction` w `CHROMAPRINT_MATCH` do ustalenia razem z progiem. ECAPA zapisuje odcisk głosu (`audio.speaker_embedding`, 192d, kosinus): ten sam lektor przy innym tekście. Model trenowano na VoxCeleb (głównie angielski); przed włączeniem do profilu domyślnego zmierzyć rozdzielenie tych samych i różnych mówców na prawdziwych reklamach, także z muzyką w tle. Odcisk dźwięku, głos i transkrypcja jednego nagrania mają wspólny `origin_id`. Detektor deepfake głosu odłożony. Kontrola techniczna 2026-11-21 na własnych nagraniach syntezatora `say` (to nie pomiar jakości): Chromaprint — rekompresja AAC 0,998, wycinek 7 s 0,963 (przesunięcie 3 s), ścieżka audio z MP4 0,932, ten sam tekst innym głosem 0,72, inny tekst 0,60; ECAPA — ten sam głos, inny tekst 0,92, inny głos 0,45–0,46. Koszt (aarch64, limit 4 CPU, nagrania ok. 15 s): Chromaprint p50 19 ms, ECAPA p50 619 ms przy 1 wątku i 260 ms przy 4, ok. 150 MB pamięci. Wysoka zgodność Chromaprint dla tego samego tekstu z syntezatora i krótkich wspólnych fragmentów oznacza, że próg trzeba ustalić na prawdziwych nagraniach. |
 | **Pochodzenie obrazu** · reverse-SynthID v3/v4, klasyfikator AI/human oparty na SigLIP | *Status: `excluded` (`grouping: false` w `runs/*.json`).* Pominąć w grupowaniu. Ten sam generator może służyć niezależnym kampaniom. Materiały walidacyjne producenta detektora i przykłady syntetyczne nadają się do próby uruchomienia. |
+| **Ocena „czy to fake”** · Effort (CLIP ViT-L/14, ICML 2025), kontener `aigi_effort` | *Status: `excluded` (zgoda użytkownika 2026-11-21).* Wynik `ai.effort` (`fake_prob`, `label`) per reklama do pokazania analitykowi, poza grupowaniem. Fałszywe alarmy na zrzutach z ramką i tekstem trzeba zmierzyć na materiałach pewnie nie-AI. |
 
 Porównanie całych 13 zrzutów dało 78 par. pHash o długości 64 bitów dał odległość 16 dla p3/p4 i 14 dla p5/p8, chociaż w tej drugiej parze transkrypcje są różne. Te same transkrypcje występują w czterech parach, jednej z p3/p4 i trzech z p1/p7/p15. To obserwacje podobieństwa cech. Trafność przypisania do kampanii wymaga niezależnych etykiet. [Dane i pochodzenie](../docs/NASK_DATA.md) · [Tesseract](https://tesseract-ocr.github.io/tessdoc/) · [Dopasowania OpenCV](https://docs.opencv.org/4.x/dc/dc3/tutorial_py_matcher.html) · [Karta E5](https://huggingface.co/intfloat/multilingual-e5-small) · [DINOv2](https://github.com/facebookresearch/dinov2)
 
@@ -22,7 +24,7 @@ Porównanie całych 13 zrzutów dało 78 par. pHash o długości 64 bitów dał 
 Statusy w tabeli wyżej sterują profilami: `PROFILE=default` (domyślnie) liczy tylko modele `default`, `PROFILE=eval` dodaje kandydatów, `PROFILE=all` liczy wszystko. Jawne `MODELS=` ma pierwszeństwo przed profilem. Status i uzasadnienie trafiają do `runs/<slug>.json` (`stage`, `decision`, `grouping`).
 
 ```bash
-cd testowanie_modeli
+cd models
 bash build.sh                                   # obrazy z wagami; raz, wymaga sieci
 bash extract.sh                                 # wszystkie modele na ../data/nask-hacknation-2026
 bash extract.sh face ocr                        # wybrane kontenery
@@ -36,11 +38,11 @@ Kolejność kontenerów jest stała, także przy wyborze części z nich: `face 
 | `ads.jsonl`, `corpus.json` | Rekordy `Ad`, na których liczono, tryb wejścia, odcisk korpusu, błędy importu z numerem wiersza i duplikaty. |
 | `features/<slug>.jsonl` | Wiersze `Feature`: `object_type` (`ad`), `ad_id`, `family`, `field`, `value`, `origin_id`, `source_ref` (pole źródłowe, ścieżka pliku albo metoda tekstu pochodnego), `method_version` oraz `status`, `reason`, `source_field`, `extractor`, `use_case`. Jeden plik na ekstraktor, zapisywany atomowo. Ponowne uruchomienie nadpisuje tylko jego pliki. |
 | `vectors/<slug>/<field>.npy` | Embeddingi float32 `[n, d]`, wiersze L2-znormalizowane. `value` wskazuje plik, wiersz i wymiar. |
-| `arrays/<slug>/<field>.npz` | Tablice o zmiennym rozmiarze (deskryptory ORB). `value` wskazuje plik, klucz, kształt i typ. |
+| `arrays/<slug>/<field>.npz` | Tablice o zmiennym rozmiarze (deskryptory ORB, odciski Chromaprint). `value` wskazuje plik, klucz, kształt i typ. |
 | `runs/<slug>.json` | `status` (`ok`/`failed`) i `load_error`, `method_version`, parametry, licencja, ID obrazu Dockera, rewizja kodu, odcisk korpusu, czas, CPU, liczba wierszy `ok` i `unavailable`. |
 | `analysis/neighbors.md` | Top-3 sąsiadów każdej reklamy według każdej metody. Służy do porównania modeli. Progów i decyzji `strong`/`similar` tu nie ustalamy. |
 
-`origin_id` pochodzi kolejno z jawnego `image_origin`/`text_origin` rekordu, z `observation_group` (rekord lub `screenshots.jsonl`), a w ostateczności ma postać `<ad_id>#<pole>`. Zgodnie z kontraktem tekst reklamy z obrazem domyślnie dziedziczy pochodzenie obrazu. Cechy obrazu, tekst OCR, domeny z OCR (`ocr.urls`) i liczone z OCR embeddingi (`source_field = "ocr.text@<metoda>"`) mają to samo pochodzenie, więc nie są niezależną rodziną dowodu wobec obrazu.
+`origin_id` pochodzi kolejno z jawnego `image_origin`/`text_origin`/`audio_origin` rekordu, z `observation_group` (rekord lub `screenshots.jsonl`), a w ostateczności ma postać `<ad_id>#<pole>`. Zgodnie z kontraktem tekst reklamy z obrazem domyślnie dziedziczy pochodzenie obrazu. Cechy obrazu, tekst OCR, domeny z OCR (`ocr.urls`) i liczone z OCR embeddingi (`source_field = "ocr.text@<metoda>"`) mają to samo pochodzenie, więc nie są niezależną rodziną dowodu wobec obrazu. Analogicznie `asr.text`, `audio.fingerprint` i `audio.speaker_embedding` dzielą pochodzenie nagrania (`<ad_id>#audio_path` lub `#video_path`). Przyczyny braku dla audio: `no_audio_input`, `no_audio_stream` (wideo bez dźwięku), `unreadable_audio: …`, `audio_too_short`, `silent_audio` (ścieżka o szczycie poniżej ok. -80 dBFS, np. nagranie ekranu bez dźwięku; decyzja zespołu 2026-11-21, bo odcisk i głos ciszy pasowałyby do każdego niemego nagrania), `no_speech_detected` (tylko `asr.text`: dźwięk bez mowy).
 
 **Braki.** Brak wejścia daje wiersz `unavailable` z przyczyną w polu głównym ekstraktora (`primary_field` w `runs/<slug>.json`, np. `face.count`, `ocr.text`, `image.phash`, `qr.count`). Możliwe przyczyny to `no_image_input`, `file_not_found: …`, `path_outside_corpus: …`, `unreadable_image: …`, `image_too_large: …` (ponad 60 MP lub 50 MB) i `error: …`. Pojedyncze pole może mieć własną przyczynę: przy nieczytelnym obrazie `image.sha256` jest liczony z bajtów, a `image.phash` dostaje `unavailable`. Brak śladu to też `unavailable`, a nie pusta wartość: `qr.values`/`qr.urls` → `no_qr_detected`, `ocr.urls` → `no_url_in_ocr_text`. Dzięki temu silnik nie liczy pustych pól jako porównywalnej rodziny. Model, który się nie ładuje, daje `model_load_error: …` dla każdego wejścia i `status: failed`. Kolejne modele i kontenery liczą się dalej, a `extract.sh` kończy się kodem 1 i listą nieudanych kontenerów.
 
@@ -50,7 +52,7 @@ Kolejność kontenerów jest stała, także przy wyborze części z nich: `face 
 | --- | --- |
 | `face` | `face.count`, `face.embedding` (wektor, ramka, `det_score`; buffalo_l także wiek i płeć) |
 | `ocr` | `ocr.text`, `ocr.urls` (rodzina `infrastructure`; domeny z listą TLD, także z adresów e-mail; heurystyka bez pomiaru pominięć); Tesseract `ocr.confidence`, EasyOCR `ocr.blocks` |
-| `asr` | `asr.text`, `asr.duration_s`, `asr.segments` |
+| `asr` | `asr.text`, `asr.duration_s`, `asr.segments` (Whisper, rodzina `text`); `audio.fingerprint` (tablica int32 w `arrays/`), `audio.duration_s` (Chromaprint); `audio.speaker_embedding` (ECAPA 192d) |
 | `image_embedding` | `image.embedding` (DINOv2; CLIP odłożony), `image.clip_tags`, `image.sha256`, `image.size`, `image.phash`, `image.dhash`, `image.orb` (deskryptory w `arrays/`); kontener liczy też `qr.count`, `qr.values`, `qr.urls` (use case `qr`) |
 | `object_detection` | `objects.detections`, `objects.labels` |
 | `ai_generated` | `ai.synthid`, `ai.generated` |
@@ -65,6 +67,20 @@ tess = next(m["method_version"] for m in fs.methods() if m["field"] == "ocr.text
 keys, St, vec = tfidf_similarity({r["ad_id"]: r["value"] for r in fs.rows(field="ocr.text", method=tess)})  # domyślny tekst
 left, right = best[(i, j)]                                 # wiersze Feature obu stron jako dowód
 ```
+
+## Effort — ocena, czy obraz jest wygenerowany przez AI
+
+Kontener `tm-aigi_effort` zawiera kod [Effort](https://github.com/YZY-stack/Effort-AIGI-Detection) z przypiętego commita `96f5dea` i CLIP ViT-L/14. Checkpointu `.pth` nie ma w obrazie. Wrzuć go do `models/weights/effort/`; katalog jest ignorowany przez Git i montowany tylko do odczytu jako `training/weights/`.
+
+```bash
+bash build.sh aigi_effort
+./effort.sh --detector_config training/config/detector/effort.yaml \
+  --weights ./training/weights/effort_clip_L14_trainOn_sdv14.pth --image ~/MNW/AI_Images/
+./effort.sh                                    # to samo z domyślnymi argumentami (IMAGE=... zmienia katalog)
+PROFILE=all ./extract.sh aigi_effort           # pole ai.effort w out/features/<dataset_id>/
+```
+
+`effort.sh` uruchamia w kontenerze dokładnie `python3 training/demo.py …` z katalogu `DeepfakeBench/`, bez sieci. Ścieżkę z `--image` montuje pod tą samą ścieżką, tylko do odczytu. Ekstraktor wywołuje te same funkcje `demo.py`. Ponieważ `demo.py` ładuje wagi z `strict=False`, ekstraktor sprawdza, czy co najmniej 90% kluczy checkpointu pasuje do modelu. Liczba dopasowanych kluczy trafia do wyniku. Inny checkpoint wskazuje zmienna `EFFORT_WEIGHTS=<plik.pth>`. Do `demo.py` dodano przy budowie brakujący `import sys`.
 
 ## Ewaluacja decyzji
 
@@ -92,16 +108,16 @@ Etykiety w `eval/labels_nask_provisional.jsonl` są tymczasowe (p3/p4, p1/p7/p15
 
 ## Uruchomienie dostępne dziś
 
-**Testy laboratorium.** Z katalogu głównego repozytorium wykonaj polecenie w PowerShell. Na Linuksie użyj `python3` w miejsce `py -3`. Wystarcza Python 3.10+ i zapisywalny katalog plików tymczasowych. Dziewięć testów sprawdza odczyt korpusu i pochodzenie, raport, częściowe wyniki i oznaczanie nieudanych pomiarów. Testy kontraktu cech i ewaluacji wymagają numpy (część także scikit-learn i OpenCV) i bez nich są pomijane; w kontenerze uruchamia je `docker run --rm --network none -v "$PWD:/repo:ro" -w /repo tm-text python -B -m unittest discover -s testowanie_modeli/tests`.
+**Testy laboratorium.** Z katalogu głównego repozytorium wykonaj polecenie w PowerShell. Na Linuksie użyj `python3` w miejsce `py -3`. Wystarcza Python 3.10+ i zapisywalny katalog plików tymczasowych. Dziewięć testów sprawdza odczyt korpusu i pochodzenie, raport, częściowe wyniki i oznaczanie nieudanych pomiarów. Testy kontraktu cech i ewaluacji wymagają numpy (część także scikit-learn i OpenCV) i bez nich są pomijane; w kontenerze uruchamia je `docker run --rm --network none -v "$PWD:/repo:ro" -w /repo tm-text python -B -m unittest discover -s models/tests`.
 
 ```powershell
-py -3 -B -m unittest discover -s testowanie_modeli/tests -v
+py -3 -B -m unittest discover -s models/tests -v
 ```
 
 **Pierwszy pomiar CPU.** Użyj Bash na Linuksie lub WSL2 z dostępnym z tej powłoki Dockerem w trybie kontenerów linuksowych i poleceniem `python3`. Budowanie wymaga sieci i miejsca na bazę PyTorch oraz pobierane wagi. Filtr `MODELS` działa podczas inferencji. Budowanie OCR pobiera również EasyOCR. Zacznij w katalogu głównym repozytorium z plikami Bash zakończonymi LF.
 
 ```bash
-cd testowanie_modeli
+cd models
 docker info
 bash bench.sh build ocr
 DATA=../data/nask-hacknation-2026 CPUS=4 MEM=6g THREADS=1 MODELS=tesseract bash bench.sh run ocr
@@ -136,4 +152,4 @@ Dostępne stanowisko GPU ma RTX 3050 Laptop z 4 GiB VRAM. Obecny skrypt i obrazy
 
 Cechy w `out/features/` oraz JSON benchmarku zawierają prywatny tekst OCR, identyfikatory i wektory. Przechowuj je w dostępie zespołu i jury. Przed eksportem sprawdź również kontekst budowania Dockera, logi i historię Git. Do publicznego przykładu użyj własnych materiałów o ustalonych prawach. [Zasady NASK](../docs/NASK_ZADANIE.md) · [Regulamin](../docs/NASK_REGULAMIN.md)
 
-Ewidencja licencji powinna podawać dokładny pakiet, rewizję wag, źródło, warunki i wymagane noty. Tesseract i EasyOCR deklarują Apache-2.0, E5-small MIT, DINOv2 Apache-2.0. Oznaczenia pozostałych kandydatów znajdują się w polach `license` klas ekstraktorów w [kontenerach](containers/) i w `runs/<slug>.json` każdej ekstrakcji. Sprawdź je u producenta przed dołączeniem wag. Wagi buffalo_l ograniczono do badań niekomercyjnych. Eksperymentalny reverse-SynthID ma warunki badawcze, niekomercyjne i wymaganą atrybucję „reverse-SynthID by Alosh Denny — github.com/aloshdenny/reverse-SynthID”. Retencja i udostępnienie wyniku wymagają uwzględnienia także warunków danych wejściowych. [InsightFace](https://github.com/deepinsight/insightface#license) · [reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID)
+Ewidencja licencji powinna podawać dokładny pakiet, rewizję wag, źródło, warunki i wymagane noty. Tesseract i EasyOCR deklarują Apache-2.0, E5-small MIT, DINOv2 Apache-2.0. Oznaczenia pozostałych kandydatów znajdują się w polach `license` klas ekstraktorów w [kontenerach](containers/) i w `runs/<slug>.json` każdej ekstrakcji. Sprawdź je u producenta przed dołączeniem wag. Wagi buffalo_l ograniczono do badań niekomercyjnych. Effort (kod i wagi) ma licencję CC BY-NC 4.0, czyli niekomercyjną z uznaniem autorstwa. Eksperymentalny reverse-SynthID ma warunki badawcze, niekomercyjne i wymaganą atrybucję „reverse-SynthID by Alosh Denny — github.com/aloshdenny/reverse-SynthID”. Retencja i udostępnienie wyniku wymagają uwzględnienia także warunków danych wejściowych. [InsightFace](https://github.com/deepinsight/insightface#license) · [reverse-SynthID](https://github.com/aloshdenny/reverse-SynthID)

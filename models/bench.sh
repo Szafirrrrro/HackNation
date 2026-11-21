@@ -20,11 +20,12 @@ MEM=${MEM:-6g}
 THREADS=${THREADS:-1,all}
 RUN=${RUN:-$(date +%Y%m%d_%H%M%S)}
 
-# use case'y zapisywane przez dany kontener (kontener text mierzy dwa zestawy)
+# use case'y zapisywane przez dany kontener (text, image_embedding i asr mierzą kilka zestawów)
 suites() {
   case "$1" in
     text) printf '%s\n' text_embedding text_topic ;;
     image_embedding) printf '%s\n' image_embedding qr ;;
+    asr) printf '%s\n' asr audio_fingerprint speaker_embedding ;;
     *) printf '%s\n' "$1" ;;
   esac
 }

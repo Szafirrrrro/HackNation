@@ -1,6 +1,6 @@
 # Wspólne ustawienia skryptów (source).
 # Kolejność ma znaczenie dla extract: ocr i asr przed text (text czyta ocr.text / asr.text).
-ALL_UC=(face ocr asr image_embedding object_detection ai_generated text)
+ALL_UC=(face ocr asr image_embedding object_detection ai_generated aigi_effort text)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Wybrane kontenery zawsze w kolejności ALL_UC; nieznana nazwa = błąd.
@@ -31,7 +31,9 @@ docker_flags() {
     -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e NO_ALBUMENTATIONS_UPDATE=1 \
     -e IMAGE_ID="$(docker image inspect -f '{{.Id}}' "tm-$uc:latest" 2>/dev/null | cut -c8-19)" \
     -e GIT_REV="$(git_rev)" \
-    -v "$ROOT/common:/app/common:ro" -v "$ROOT/containers/$uc:/app/uc:ro"
+    -v "$ROOT/common:/app/common:ro" -v "$ROOT/containers/$uc:/app/uc:ro" \
+    $( [ "$uc" = aigi_effort ] && [ -d "$ROOT/weights/effort" ] && \
+       echo -v "$ROOT/weights/effort:/opt/effort/DeepfakeBench/training/weights:ro" )
 }
 
 abs_dir() { (cd "$1" && pwd); }

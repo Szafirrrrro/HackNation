@@ -204,6 +204,157 @@ class FeatureContractTest(unittest.TestCase):
             "Zarabiaj teraz.To proste teraz.co tutaj.my juz.in rejestracja.id www.oferta.co bit.to/abc"),
             ["bit.to/abc", "oferta.co"])
 
+    def test_audio_family_rows_share_recording_origin(self):
+        ex = self.extractor
+        fp = np.random.default_rng(0).integers(-2**31, 2**31, size=120, dtype=np.int64).astype(np.int32)
+
+        class FakeAudio(ex.Extractor):
+            name, use_case, family, modality = "fake-audio", "audio_fingerprint", "audio", "audio"
+            primary_field, version = "audio.fingerprint", "1"
+
+            def load(self, threads):
+                pass
+
+            def extract(self, item):
+                if Path(item.path).read_bytes() == b"wideo-bez-dzwieku":
+                    raise ex.Unavailable("no_audio_stream")
+                return [ex.Out("audio.fingerprint", {"array": fp, "n_frames": fp.size}),
+                        ex.Out("audio.speaker_embedding", ex.l2(np.array([3.0, 4.0]))),
+                        ex.Out("asr.text", "Kup teraz", family="text")]
+
+        with TemporaryDirectory() as tmp:
+            data, out = Path(tmp) / "corpus", Path(tmp) / "out"
+            (data / "media").mkdir(parents=True)
+            for n, b in (("a.mp3", b"mp3-a"), ("b.mp4", b"mp4-b"), ("c.mp4", b"wideo-bez-dzwieku")):
+                (data / "media" / n).write_bytes(b)
+            ads = [{"ad_id": "a", "audio_path": "media/a.mp3"},
+                   {"ad_id": "b", "video_path": "media/b.mp4", "audio_origin": "nagranie-b"},
+                   {"ad_id": "c", "video_path": "media/c.mp4"},
+                   {"ad_id": "d", "text": "sam tekst"}]
+            (data / "ads.jsonl").write_text("".join(json.dumps(a) + "\n" for a in ads), encoding="utf-8")
+            args = SimpleNamespace(data=str(data), out=str(out), threads=1)
+            with patch("bench.set_threads"), patch("bench.cpu_seconds", return_value=0.0):
+                self.main.cmd_extract(args, [FakeAudio()])
+            fs = self.FeatureStore(out / "corpus")
+            rows = {(r["ad_id"], r["field"]): r for r in fs.rows(status=None)}
+            # jedno nagranie = jedno źródło: odcisk, głos i transkrypcja mają wspólny origin_id
+            self.assertEqual({rows[("a", f)]["origin_id"] for f in
+                              ("audio.fingerprint", "audio.speaker_embedding", "asr.text")}, {"a#audio_path"})
+            self.assertEqual(rows[("b", "audio.fingerprint")]["origin_id"], "nagranie-b")
+            self.assertEqual(rows[("b", "audio.fingerprint")]["source_ref"],
+                             {"field": "video_path", "value": "media/b.mp4"})
+            self.assertEqual(rows[("a", "audio.fingerprint")]["source_ref"],
+                             {"field": "audio_path", "value": "media/a.mp3"})
+            self.assertEqual((rows[("a", "audio.fingerprint")]["family"], rows[("a", "asr.text")]["family"]),
+                             ("audio", "text"))
+            self.assertEqual((rows[("c", "audio.fingerprint")]["status"], rows[("c", "audio.fingerprint")]["reason"]),
+                             ("unavailable", "no_audio_stream"))
+            self.assertEqual((rows[("d", "audio.fingerprint")]["status"], rows[("d", "audio.fingerprint")]["reason"]),
+                             ("unavailable", "no_audio_input"))
+            from features_lib import fingerprint_match
+            sim, off, overlap = fingerprint_match(fs, "a", "b")
+            self.assertEqual((sim, off, overlap), (1.0, 0, 120))
+            self.assertIsNone(fingerprint_match(fs, "a", "c"))
+
+    def test_chromaprint_similarity_finds_cropped_fragment(self):
+        from features_lib import chromaprint_similarity
+        rng = np.random.default_rng(1)
+        full = rng.integers(-2**31, 2**31, size=400, dtype=np.int64).astype(np.int32)
+        frag = full[100:220].copy()
+        frag ^= np.int32(1)   # 1 z 32 bitów zmieniony (rekompresja)
+        sim, off, overlap = chromaprint_similarity(full, frag)
+        self.assertEqual((off, overlap), (100, 120))
+        self.assertAlmostEqual(sim, 31 / 32)
+        other = rng.integers(-2**31, 2**31, size=400, dtype=np.int64).astype(np.int32)
+        self.assertLess(chromaprint_similarity(other[:200], frag)[0], 0.7)
+        self.assertIsNone(chromaprint_similarity(full, np.array([], dtype=np.int32)))
+        # liczby bez znaku prosto z JSON fpcalc dają ten sam wynik co int32 z arrays/
+        self.assertEqual(chromaprint_similarity(full.view(np.uint32).tolist(), frag), (sim, off, overlap))
+        # krótkie fragmenty na brzegach nie wygrywają: wspólna część >= połowa krótszego odcisku
+        long_a = rng.integers(0, 2**32, size=4000, dtype=np.int64)
+        long_b = rng.integers(0, 2**32, size=4000, dtype=np.int64)
+        s, _, ov = chromaprint_similarity(long_a, long_b)
+        self.assertGreaterEqual(ov, 2000)
+        self.assertLess(s, 0.52)
+
+    def test_chromaprint_maps_fpcalc_errors_to_reasons(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "asr_models", COMMON.parent / "containers" / "asr" / "models.py")
+        asr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(asr)
+        ext, item = asr.Chromaprint(), SimpleNamespace(path="/data/x.wav")
+        asr.load_audio = Mock(return_value=np.ones(16000, dtype=np.float32))  # bez av/ffmpeg w tm-text
+        cases = [("ERROR: Empty fingerprint", "audio_too_short"),
+                 ("ERROR: Could not find audio stream", "no_audio_stream"),
+                 ("ERROR: Could not open the input file (Invalid data)",
+                  "unreadable_audio: ERROR: Could not open the input file (Invalid data)")]
+        for stderr, reason in cases:
+            done = SimpleNamespace(returncode=2, stdout="", stderr=stderr)
+            with patch.object(asr.subprocess, "run", return_value=done):
+                with self.assertRaises(self.extractor.Unavailable) as cm:
+                    ext.extract(item)
+            self.assertEqual(str(cm.exception), reason)
+        ok = SimpleNamespace(returncode=0, stderr="",
+                             stdout=json.dumps({"duration": 1.5, "fingerprint": [4294967295, 1]}))
+        with patch.object(asr.subprocess, "run", return_value=ok):
+            outs = {o.field: o for o in ext.extract(item)}
+        self.assertEqual(outs["audio.fingerprint"].value["array"].tolist(), [-1, 1])
+        self.assertEqual(outs["audio.duration_s"].value, 1.5)
+
+    def _asr_module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "asr_models", COMMON.parent / "containers" / "asr" / "models.py")
+        asr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(asr)
+        return asr
+
+    def test_silent_track_is_unavailable_for_all_audio_models(self):
+        # regresja: nagranie ekranu z wyciszoną ścieżką (same zera) dawało status ok,
+        # pusty tekst, odcisk ciszy i głos ciszy, które pasowały do każdego niemego nagrania
+        asr = self._asr_module()
+        self.assertTrue(asr.is_silent(np.zeros(16000, dtype=np.float32)))
+        self.assertTrue(asr.is_silent(np.zeros(0, dtype=np.float32)))
+        self.assertFalse(asr.is_silent(np.full(16000, 0.01, dtype=np.float32)))
+        asr._has_audio_stream = Mock(return_value=True)
+        fw = SimpleNamespace(decode_audio=Mock(return_value=np.zeros(32000, dtype=np.float32)))
+        item = SimpleNamespace(path="/data/cisza.mp4")
+        run = Mock()
+        small = next(e for e in asr.EXTRACTORS if e.name == "faster-whisper-small-int8")
+        with patch.dict(sys.modules, {"faster_whisper": fw}), patch.object(asr.subprocess, "run", run):
+            for ext in (small, asr.Chromaprint(), asr.ECAPA()):
+                ext.m = Mock()
+                with self.assertRaises(self.extractor.Unavailable) as cm:
+                    ext.extract(item)
+                self.assertEqual(str(cm.exception), "silent_audio", ext.name)
+                ext.m.transcribe.assert_not_called()
+            run.assert_not_called()   # fpcalc nie liczy odcisku ciszy
+            # cisza w zakresie liczenia cechy (ECAPA: pierwsze 60 s), dźwięk dopiero później
+            late = np.zeros(70 * 16000, dtype=np.float32)
+            late[65 * 16000:] = 0.2
+            fw.decode_audio.return_value = late
+            with self.assertRaises(self.extractor.Unavailable) as cm:
+                asr.ECAPA().extract(item)
+            self.assertEqual(str(cm.exception), "silent_audio")
+            self.assertEqual(asr.load_audio(item.path).size, late.size)   # bez limitu: dźwięk jest
+            fw.decode_audio.return_value = np.zeros(0, dtype=np.float32)
+            with self.assertRaises(self.extractor.Unavailable) as cm:
+                asr.load_audio(item.path)
+            self.assertEqual(str(cm.exception), "audio_too_short")
+
+    def test_whisper_without_speech_reports_reason(self):
+        asr = self._asr_module()
+        asr.load_audio = Mock(return_value=np.full(32000, 0.1, dtype=np.float32))
+        stages = {e.name: e.stage for e in asr.EXTRACTORS if e.use_case == "asr"}
+        self.assertEqual(stages, {"faster-whisper-small-int8": "default", "faster-whisper-base-int8": "deferred"})
+        ext = next(e for e in asr.EXTRACTORS if e.name == "faster-whisper-small-int8")
+        ext.m = Mock()
+        ext.m.transcribe.return_value = (iter([]), SimpleNamespace(duration=2.0))
+        outs = {o.field: o for o in ext.extract(SimpleNamespace(path="/data/muzyka.mp3"))}
+        self.assertEqual((outs["asr.text"].value, outs["asr.text"].reason), (None, "no_speech_detected"))
+        self.assertEqual(outs["asr.segments"].value, [])
+
     def test_rerun_is_idempotent(self):
         ocr, _ = self._fake_exts()
         with TemporaryDirectory() as tmp:

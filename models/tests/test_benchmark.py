@@ -6,13 +6,13 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from testowanie_modeli.scripts.report import METRICS, summarize
-from testowanie_modeli.common.corpus import load_corpus
-from testowanie_modeli.common.errors import Unavailable
+from models.scripts.report import METRICS, summarize
+from models.common.corpus import load_corpus
+from models.common.errors import Unavailable
 
 # Test wejść nie odczytuje CPU ani RAM i działa bez pakietów z kontenera.
 with patch.dict(sys.modules, {"psutil": Mock()}):
-    from testowanie_modeli.common import bench
+    from models.common import bench
 
 
 def _ext(name, use_case="ocr"):
