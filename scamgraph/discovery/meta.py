@@ -22,6 +22,11 @@ from .cta import card_cta
 
 LIBRARY = "https://www.facebook.com/ads/library/"
 MAX_BYTES = 12 * 1024 * 1024
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/158.0.0.0 Safari/537.36"
+)
 ID = re.compile(
     r"\b(?:identyfikator\s+(?:w\s+)?bibliote(?:ki|ce)(?:\s+reklam)?|id\s+biblioteki(?:\s+reklam)?|library\s+id)\s*[:#]?\s*(\d{1,30})\b",
     re.I,
@@ -374,9 +379,8 @@ def _live(options, query):
     headless = options.get("headless", True)
     if not isinstance(headless, bool):
         raise SourceError("Pole headless wymaga wartości JSON true lub false.")
-    user_agent = options.get("user_agent")
-    if user_agent is not None and (not isinstance(user_agent, str) or not user_agent.strip()
-                                   or "\n" in user_agent or "\r" in user_agent):
+    user_agent = options.get("user_agent", DEFAULT_USER_AGENT)
+    if not isinstance(user_agent, str) or not user_agent.strip() or "\n" in user_agent or "\r" in user_agent:
         raise SourceError("Pole user_agent musi zawierać poprawny, niepusty ciąg User-Agent.")
     if find_spec("playwright") is None:
         runtime = Path(__file__).resolve().parents[2] / ".private-discovery" / "playwright-runtime"
@@ -393,16 +397,77 @@ def _live(options, query):
     main_status = None
     with sync_playwright() as driver:
         try:
-            with driver.chromium.launch(channel=options.get("channel", "chrome"), headless=headless, timeout=12000) as browser:
-                context = browser.new_context(service_workers="block", locale="pl-PL",
-                                              accept_downloads=False, user_agent=user_agent)
-                deadline = monotonic() + 24
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-infobars",
+            ]
+            if options.get("no_sandbox"):
+                launch_args.append("--no-sandbox")
+
+            with driver.chromium.launch(
+                channel=options.get("channel", "chrome"),
+                headless=headless,
+                args=launch_args,
+                timeout=15000,
+            ) as browser:
+                context_kwargs = {
+                    "service_workers": "block",
+                    "locale": "pl-PL",
+                    "timezone_id": "Europe/Warsaw",
+                    "accept_downloads": False,
+                    "user_agent": user_agent,
+                    "viewport": {"width": 1366, "height": 900},
+                    "screen": {"width": 1366, "height": 900},
+                    "color_scheme": "light",
+                    "extra_http_headers": {
+                        "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "sec-ch-ua": '"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"',
+                        "sec-ch-ua-mobile": "?0",
+                        "sec-ch-ua-platform": '"Windows"',
+                        "Upgrade-Insecure-Requests": "1",
+                    },
+                }
+                if options.get("proxy"):
+                    context_kwargs["proxy"] = options["proxy"]
+
+                context = browser.new_context(**context_kwargs)
+                context.add_init_script(
+                    """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'languages', {get: () => ['pl-PL', 'pl', 'en-US', 'en']});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                """
+                )
+
+                deadline = monotonic() + 32
                 page = context.new_page()
 
                 def route(request_route):
                     req = request_route.request
-                    if (req.method == "GET" and monotonic() < deadline
-                            and _allowed_url(req.url, req.is_navigation_request())):
+                    try:
+                        is_main = req.frame == page.main_frame
+                        allowed = monotonic() < deadline and (
+                            is_main
+                            or _allowed_url(req.url, req.is_navigation_request())
+                            or any(
+                                h in (req.url or "")
+                                for h in (
+                                    "fbcdn.net",
+                                    "facebook.net",
+                                    "static.xx.fbcdn.net",
+                                    "scontent",
+                                    "external.xx.fbcdn",
+                                    "__rd_verify",
+                                )
+                            )
+                        )
+                    except BrowserError:
+                        allowed = False
+                    if allowed:
                         request_route.continue_()
                     else:
                         request_route.abort()
@@ -431,7 +496,7 @@ def _live(options, query):
                 phase = "otwieranie strony wyników"
 
                 target_url = search_url(query)
-                response = page.goto(target_url, wait_until="domcontentloaded", timeout=14000)
+                response = page.goto(target_url, wait_until="domcontentloaded", timeout=20000)
                 if response is None:
                     raise SourceError("Brak odpowiedzi HTTP dla dokumentu Biblioteki Meta.")
 
@@ -444,11 +509,70 @@ def _live(options, query):
                         return SourceError(detail + " Nie udało się zapisać zrzutu widoku.")
                     return SourceError(f"{detail} Zrzut widoku: {path.name}")
 
+                # === Rozwiązywanie rd_challenge ===
+                # === Rozwiązywanie rd_challenge (stabilna wersja) ===
+                if response.status == 403:
+                    body = ""
+                    try:
+                        body = page.content()
+                    except BrowserError:
+                        pass
+
+                    challenge_match = re.search(
+                        r"""fetch\s*\(\s*['"](/__rd_verify_[^'"]+)['"]""",
+                        body,
+                        re.I,
+                    )
+                    if not challenge_match:
+                        raise page_error("Meta zwróciła HTTP 403 Forbidden (brak rozpoznanego challenge).")
+
+                    challenge_path = challenge_match.group(1)
+                    challenge_url = "https://www.facebook.com" + challenge_path
+                    phase = "rozwiązywanie rd_challenge"
+
+                    try:
+                        # POST poza kontekstem strony – nie niszczy execution context
+                        challenge_resp = context.request.post(
+                            challenge_url,
+                            headers={
+                                "Origin": "https://www.facebook.com",
+                                "Referer": target_url,
+                                "Accept": "*/*",
+                                "Sec-Fetch-Site": "same-origin",
+                                "Sec-Fetch-Mode": "cors",
+                                "Sec-Fetch-Dest": "empty",
+                            },
+                            timeout=10000,
+                        )
+                        # Cookie rd_challenge powinno być już w context
+                        page.wait_for_timeout(600)
+
+                        # Ponowne załadowanie strony wyników z cookie
+                        response = page.goto(target_url, wait_until="domcontentloaded", timeout=18000)
+                        if response is None:
+                            raise SourceError("Brak odpowiedzi po rozwiązaniu challenge.")
+                    except BrowserError as exc:
+                        raise page_error(f"Nie udało się rozwiązać rd_challenge: {exc}") from exc
+
+                if response.status == 403:
+                    # Drugi raz 403 – challenge nie pomógł (prawdopodobnie IP)
+                    raise page_error(
+                        "Meta nadal zwraca 403 po próbie rozwiązania challenge. "
+                        "Najpewniej blokada IP. Spróbuj headless=false + residential proxy "
+                        "lub przejdź na tryb import (ręcznie zapisany HTML)."
+                    )
+
+                if response.status == 403:
+                    raise page_error(
+                        "Meta nadal zwraca 403 po próbie rozwiązania challenge. "
+                        "Spróbuj headless=false + residential proxy lub ręczny import HTML."
+                    )
+
                 if response.status >= 400:
                     title = clean(page.title())[:120]
-                    reason = "Odmowa dostępu" if response.status == 403 else "Błąd pobrania"
-                    raise page_error(f"{reason}. Tytuł strony: {title or '(pusty)'}.")
+                    raise page_error(f"Błąd pobrania. Tytuł strony: {title or '(pusty)'}.")
 
+                # Reszta logiki (odczyt DOM, scroll, screenshoty) – bez zmian
                 phase = "odczyt wyrenderowanego dokumentu"
                 seen = set()
                 scrolls = 0

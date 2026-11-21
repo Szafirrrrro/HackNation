@@ -6,7 +6,7 @@ ScamGraph ma pomóc analitykowi NASK odpowiedzieć na pytanie „Czy tę reklam�
 
 ## Od pliku do wyniku
 
-Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.json serve`, aby otworzyć panel schedulera z lokalnymi kartami demonstracyjnymi. Profil Meta API uruchamia `python -m scamgraph.live serve` po przekazaniu tokenu w zmiennej środowiskowej `SCAMGRAPH_META_TOKEN`. Listą zaufanych domen dla wybranego profilu zarządza polecenie `trusted-domains`. [Instalacja i konfiguracja](docs/AD_DISCOVERY.md)
+Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.json serve`, aby otworzyć panel schedulera z lokalnymi kartami demonstracyjnymi. Domyślny profil `discovery.live.json` uruchamia Chrome przez Playwright i wyszukuje do 40 kart na frazę. Aby zachować opis uprawnienia lokalnie, skopiuj profil do `discovery.local.json`, uzupełnij `sources.meta.permission` i uruchom `python -m scamgraph.live --config discovery.local.json serve`. Panel otworzysz pod adresem http://127.0.0.1:8527/. Listą zaufanych domen dla wybranego profilu zarządza polecenie `trusted-domains`. [Instalacja i konfiguracja](docs/AD_DISCOVERY.md)
 
 | Krok | Technologia i wynik planowanego systemu | Wymaganie NASK |
 | --- | --- | --- |

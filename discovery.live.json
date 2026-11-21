@@ -1,17 +1,22 @@
 {
   "interval_seconds": 1800,
-  "state_dir": ".private-discovery/live-api",
+  "state_dir": ".private-discovery/browser-live",
   "sources": {
     "meta": {
-      "name": "Meta Ad Library API",
+      "name": "Biblioteka reklam Meta",
       "provider": "meta-ad-library",
-      "adapter": "scamgraph.discovery.meta_api:fetch",
+      "adapter": "scamgraph.discovery.meta:fetch",
       "mode": "live",
+      "synthetic": false,
+      "manual_import": false,
+      "requires_web_permission": true,
+      "permission": "",
+      "headless": true,
       "country": "PL",
       "phrases": [
         "oferta inwestycyjna"
       ],
-      "limit": 10
+      "limit": 40
     }
   }
 }
