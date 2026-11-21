@@ -1,39 +1,64 @@
 # ftf-graph — silnik łączenia reklam w kampanie (Follow the Fake)
 
 Wczytuje **karty reklam** (JSONL, jedna reklama na linię), liczy krawędzie podobieństwa
-**z uzasadnieniem**, grupuje reklamy w kampanie algorytmem **HDBSCAN** i eksportuje graf do **Neo4j**.
+**z uzasadnieniem**, grupuje reklamy w kampanie algorytmem **HDBSCAN** i zapisuje graf do **Neo4j**.
 
 ```
-karty.jsonl ──► artefakty + wektory ──► krawędzie SIMILAR (score + powody) ──► HDBSCAN ──► kampanie
-                                                                              └──► graph.cypher (Neo4j)
+karty.jsonl ──► artefakty + wektory ──► score par (z powodami) ──► HDBSCAN ──► kampanie
+                                                                            └──► Neo4j (sterownik neo4j)
 ```
 
-## Budowanie i uruchomienie
+## Instalacja i uruchomienie
 
 ```bash
-python3 tools/gen_sample_cards.py          # 27 syntetycznych kart -> data/sample_cards.jsonl
-cmake -S . -B build && cmake --build build
-./build/ftf-graph data/sample_cards.jsonl --query B03
+pip install -r requirements.txt
+python tools/gen_sample_cards.py                       # 27 syntetycznych kart -> data/sample_cards.jsonl
+python -m ftf_graph data/sample_cards.jsonl --query B03
 ```
 
-Opcje: `--out DIR` (domyślnie `out`), `--min-cluster N` (3), `--min-samples K` (2),
-`--min-edge X` (0.25), `--query AD_ID` (wyjaśnia, do której kampanii pasuje reklama i dlaczego).
+Z zapisem do Neo4j:
+
+```bash
+docker compose up -d                                   # Neo4j 5, Browser: http://localhost:7474
+python -m ftf_graph data/sample_cards.jsonl --neo4j bolt://localhost:7687 --neo4j-password hackathon123 --wipe
+```
+
+Opcje: `--out DIR` (domyślnie `out`), `--min-cluster N` (3), `--min-samples K` (2), `--min-edge X` (0.25),
+`--query AD_ID` (wyjaśnia, do której kampanii pasuje reklama i dlaczego), `--neo4j URI`, `--neo4j-user`,
+`--neo4j-password` (albo zmienne `NEO4J_USER` / `NEO4J_PASSWORD`), `--wipe` (czyści bazę przed zapisem — tylko do demo).
 
 Wynik:
 - `out/edges.json` — każda krawędź: `score` + lista `reasons` (`kind`, `hard`, `strength`, `detail`)
 - `out/campaigns.json` — kampanie: członkowie, okres aktywności, aktywne/martwe, domeny, osoby, wspólne ślady
-- `out/graph.cypher` — skrypt do załadowania grafu
 
-## Załadowanie do Neo4j
+Użycie z kodu (np. ze Streamlita):
 
-Neo4j nie ma oficjalnego sterownika C++, dlatego silnik generuje plik Cypher:
+```python
+from ftf_graph.card import load_cards
+from ftf_graph.scoring import Scorer
+from ftf_graph.cluster import cluster
+from ftf_graph.report import summarize
 
-```bash
-docker run -d -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/hackathon123 neo4j:5
-cypher-shell -a bolt://localhost:7687 -u neo4j -p hackathon123 -f out/graph.cypher
+cards = list(load_cards("cards.jsonl"))
+sc = Scorer(cards)
+scores, edges = sc.score_all()
+res = cluster(scores)
+campaigns, label_to_id = summarize(cards, scores, res, sc)
 ```
 
-Model grafu:
+## Struktura
+
+| Plik | Co robi |
+|---|---|
+| `ftf_graph/card.py` | parsowanie karty, normalizacja domen, wyciąganie artefaktów |
+| `ftf_graph/scoring.py` | wagi, ślady twarde i miękkie, noisy-OR, uzasadnienia (numpy) |
+| `ftf_graph/cluster.py` | HDBSCAN (`hdbscan`, a gdy go brak — `sklearn.cluster.HDBSCAN`) |
+| `ftf_graph/report.py` | podsumowanie kampanii, zapis JSON |
+| `ftf_graph/neo4j_store.py` | zapis grafu do Neo4j (paczki UNWIND, idempotentne MERGE) |
+| `ftf_graph/__main__.py` | CLI |
+| `tools/gen_sample_cards.py` | syntetyczny scenariusz testowy |
+
+## Model grafu w Neo4j
 
 | Węzeł | Skąd |
 |---|---|
@@ -46,14 +71,18 @@ Model grafu:
 | `Campaign` | wynik HDBSCAN |
 
 Relacje: `(Ad)-[:USES {kind}]->(artefakt)`, `(Ad)-[:STARTS_AT]->(Domain)`,
-`(Domain)-[:REDIRECTS_TO]->(Domain)`, `(Ad)-[:LANDS_ON]->(Domain)`, `(Certificate)-[:COVERS]->(Domain)`,
+`(Domain)-[:REDIRECTS_TO {hop}]->(Domain)`, `(Ad)-[:LANDS_ON]->(Domain)`, `(Certificate)-[:COVERS]->(Domain)`,
 `(Ad)-[:SIMILAR {score, reasons, has_hard_evidence}]-(Ad)`, `(Ad)-[:IN_CAMPAIGN {strength}]->(Campaign)`.
 Każdy artefakt ma `ads` (w ilu reklamach występuje) i `rarity` (0–1).
 
-Przykładowe zapytania:
+Martwych reklam i domen **nie usuwamy** (`status`, `first_seen`, `last_seen`): nowe domeny łączą się
+ze starymi kampaniami przez wspólne piksele, favicony, szablony i twarze. Przy każdym przeliczeniu
+zmieniają się tylko przypisania `IN_CAMPAIGN` i węzły `Campaign`.
+
+Przykładowe zapytania (Neo4j Browser):
 
 ```cypher
-// kampania z jej śladami
+// kampania z jej rzadkimi śladami
 MATCH (k:Campaign {id:'CMP-1'})<-[:IN_CAMPAIGN]-(a:Ad)-[:USES]->(x) WHERE x.rarity > 0 RETURN k,a,x;
 // dlaczego reklama jest połączona z innymi
 MATCH (a:Ad {id:'B03'})-[r:SIMILAR]-(b) RETURN b.id, r.score, r.reasons ORDER BY r.score DESC;
@@ -62,9 +91,6 @@ MATCH (s:Domain)-[:REDIRECTS_TO]->(d:Domain) RETURN d.value, count(s) AS wejscia
 // oś czasu kampanii
 MATCH (a:Ad)-[:IN_CAMPAIGN]->(:Campaign {id:'CMP-1'}) RETURN a.first_seen, a.id, a.status ORDER BY a.first_seen;
 ```
-
-Martwych reklam i domen **nie usuwamy** (`status`, `first_seen`, `last_seen`): nowe domeny łączą się
-ze starymi kampaniami przez wspólne piksele, favicony, szablony i twarze.
 
 ## Jak liczony jest wynik krawędzi
 
@@ -76,7 +102,7 @@ score = 1 − Π (1 − s_i)
 
 **Ślady twarde** (ta sama wartość = wspólny węzeł): `s = waga_rodzaju × rzadkość`.
 Rzadkość = `log(N/df) / log(N/2)`: artefakt w 2 reklamach ≈ 1, artefakt w ponad 30% korpusu
-(Cloudflare, popularne słowa) = 0. Wagi rodzajów są w `Config::base` (`src/scoring.hpp`):
+(Cloudflare, popularne słowa) = 0. Wagi rodzajów są w `Config.base` (`scoring.py`):
 piksel/GA i endpoint formularza 0.90, telefon/Telegram 0.85, certyfikat 0.80, strona docelowa 0.75,
 ukryty tekst 0.70, domena w łańcuchu 0.65, favicon/szablon/skrypt 0.60, IP 0.40, … rejestrator 0.05.
 
@@ -95,16 +121,10 @@ Zasady:
   łączy dopiero razem z narracją albo infrastrukturą. Rozmazana twarz (niska jakość) waży mniej.
 - **Max na grupę.** Trzy wspólne domeny z jednego łańcucha to jeden dowód, a nie trzy
   (grupy `domain` i `contact`).
-- Krawędzie poniżej `min_edge` nie trafiają do grafu.
+- Do grafu trafiają krawędzie `>= min_edge`. HDBSCAN dostaje pełną macierz `d = 1 − score`
+  (pary bez wspólnych śladów mają `d = 1`).
 
 Wszystkie progi i wagi to punkty startowe. Stroimy je na ręcznie oznaczonym zbiorze (purity, pairwise F1).
-
-## HDBSCAN
-
-Własna implementacja na grafie rzadkim (`src/hdbscan.hpp`), bez macierzy odległości N×N:
-`d = 1 − score` → odległość core → mutual reachability → MST (Kruskal) → drzewo skondensowane →
-wybór klastrów EOM. Rozłączne składowe grafu są zawsze osobnymi klastrami. Reklamy bez kampanii
-trafiają do `unassigned`. `strength` w `IN_CAMPAIGN` mówi, jak „rdzeniowa” jest reklama w kampanii.
 
 ## Scenariusz testowy (`tools/gen_sample_cards.py`)
 
@@ -113,32 +133,22 @@ trafiają do `unassigned`. `strength` w `IN_CAMPAIGN` mówi, jak „rdzeniowa”
 - **C** — wspólny certyfikat (SAN), favicon, szablon, ukryty tekst, domeny kupione w ciągu godziny
 - **N** — szum: Cloudflare, popularne słowa, rozmyta twarz
 
-Wynik: 3 kampanie i 6 reklam szumu. **A i C pozostają rozdzielone**, choć obie używają tej samej
-twarzy (`prezenter_A`). Między nimi jest 20 krawędzi ≈ 0.40 opartych wyłącznie na twarzy, a wewnątrz
-kampanii krawędzie mają ≈ 0.96–1.00, więc HDBSCAN uznaje je za osobne skupiska.
+Wynik (identyczny dla `hdbscan` i `sklearn`): 3 kampanie i 6 reklam szumu. **A i C pozostają
+rozdzielone**, choć obie używają tej samej twarzy (`prezenter_A`). Między nimi są krawędzie ≈ 0.40
+oparte wyłącznie na twarzy, a wewnątrz kampanii ≈ 0.96–1.00.
 
 ## Format karty
 
 Pełny przykład: `data/example_card.json`. Pola opcjonalne mogą być `null` albo pominięte.
-Na hackathonie wektory można trzymać inline. Przy dużym korpusie lepiej trzymać je w osobnym
-pliku `.npy` lub parquet z kolumną `ad_id` (wtedy trzeba dopisać ładowanie w `card.hpp`).
-
-## Integracja z resztą (Python / Streamlit)
-
-Ekstraktory (crawler, OCR, twarze, CLIP) zapisują karty do JSONL, a Streamlit wywołuje silnik:
-
-```python
-subprocess.run(["./build/ftf-graph", "cards.jsonl", "--query", ad_id], capture_output=True, text=True)
-```
-
-i czyta `out/campaigns.json` oraz `out/edges.json`.
+Wszystkie wektory jednego rodzaju muszą mieć ten sam wymiar.
 
 ## Skalowanie
 
-Pary liczone są O(N²), co wystarcza do kilku tysięcy reklam. Przy większej skali: indeks odwrotny
-artefaktów (ślady twarde) + kNN/FAISS na wektorach (ślady miękkie) zamiast wszystkich par.
+Ślady twarde liczone są przez indeks odwrotny, a miękkie przez mnożenie macierzy (numpy).
+HDBSCAN dostaje gęstą macierz N×N, co wystarcza do kilku tysięcy reklam (5000 reklam ≈ 200 MB).
+Przy większej skali: kNN (FAISS) na wektorach i HDBSCAN na grafie rzadkim albo Leiden w Neo4j GDS.
 
-## Licencje
+## Licencje komponentów
 
-- `third_party/nlohmann/json.hpp` — nlohmann/json 3.11.3, licencja MIT
-- kod silnika — do ustalenia przez zespół (np. MIT)
+numpy (BSD-3), scikit-learn (BSD-3), hdbscan (BSD-3), neo4j Python driver (Apache 2.0),
+Neo4j Community Edition (GPLv3, uruchamiany jako osobna usługa w Dockerze).
