@@ -54,6 +54,11 @@ def projection(folder):
         card["page"]["tracking_ids"] = {"meta_pixel": ids[0]} if len(ids) == 1 else {}
         card["page"]["script_hashes"] = sorted({a["sha256"] for a in meta["artifacts"]
             if a["role"] == "asset" and a["type"] in {"text/javascript", "application/javascript"}})
+        # Same conditions as the fields above; several different page fingerprints stay unresolved.
+        templates = {json.dumps(p["dom_template_minhash"], sort_keys=True) for p in result["pages"]
+                     if p.get("dom_template_minhash")}
+        if len(templates) == 1:
+            card["page"]["dom_template_minhash"] = json.loads(templates.pop())
         break
     return card
 
@@ -101,7 +106,7 @@ def export_graph(state, mode="live"):
             if not cid.isalnum():
                 raise ValueError("Niepoprawny identyfikator pakietu grafu.")
             versions.append(package_stamp(state / "captures" / cid))
-        revision = hashlib.sha256(json.dumps(["graph-feed/3", [tuple(r) for r in rows], versions]).encode()).hexdigest()
+        revision = hashlib.sha256(json.dumps(["graph-feed/4", [tuple(r) for r in rows], versions]).encode()).hexdigest()
         last = index.execute("SELECT revision FROM exports WHERE mode=?", (mode,)).fetchone()
         if last and last[0] == revision and output.is_file():
             return output

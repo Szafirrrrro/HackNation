@@ -104,6 +104,7 @@ Legenda: **T** = artefakt, z którego powstaje ślad twardy (i węzeł w Neo4j) 
 | `page.contacts.telegram[]` | **T** `telegram` | normalizacja: `https://t.me/X`, `t.me/X`, `@X` → `@x` |
 | `page.contacts.crypto[]` | **T** `crypto` | bez normalizacji |
 | `page.dom_template_hash` | **T** `template` | |
+| `page.dom_template_minhash` | — | odcisk `dom-shingle-minhash-v1` z `scamgraph` (podobieństwo szablonu, nie równość); scorer go jeszcze nie czyta — zachowany w `Card.raw`, zob. [kontrakt](../docs/DATA_CONTRACT.md) |
 | `page.hidden_text_hash` | **T** `hidden_text` | |
 | `text.keywords[]` | **T** `keyword` | małe litery |
 | `text.embedding` | **M** `text` | |
