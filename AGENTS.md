@@ -7,7 +7,7 @@ Pracę zacznij od [README](README.md). Sprawdź, które elementy są dostępne w
 | Obszar | Właściciel | Co przeczytać przed zmianą |
 | --- | --- | --- |
 | Import, emisje, strony, pochodzenie | Para A | [Przewodnik po danych](docs/NASK_DATA.md) i [kontrakt](docs/DATA_CONTRACT.md). Tu sprawdzisz, które relacje potwierdzają źródła. |
-| Cechy obrazu i tekstu, doświadczenia z modelami, pomiar | Para B | [Laboratorium](testowanie_modeli/README.md) i [kontrakt](docs/DATA_CONTRACT.md). Każdy wynik musi dać się powiązać z materiałem i wersją metody. |
+| Cechy obrazu i tekstu, doświadczenia z modelami, pomiar | Para B | [Laboratorium](models/README.md) i [kontrakt](docs/DATA_CONTRACT.md). Każdy wynik musi dać się powiązać z materiałem i wersją metody. |
 | Pary, kampanie i zapytania | Para C | [Kontrakt](docs/DATA_CONTRACT.md). Tu utrzymujemy definicje niezależnego dowodu, grupowania i pierwszeństwa statusów. |
 | Ekran analityka i pakiet jury | Para C | [Graf i oś czasu](docs/PLAN_GRAF_I_OS_CZASU.md) oraz [instrukcja budowy](docs/INSTRUKCJA_BUDOWY.md). Interfejs prezentuje decyzję tego samego silnika, z którego korzysta ewaluacja. |
 

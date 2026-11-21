@@ -28,10 +28,10 @@ print("Zweryfikowane obrazy:", len(ads))
 ```
 
 ```powershell
-py -3 -B -m unittest discover -s testowanie_modeli/tests -v
+py -3 -B -m unittest discover -s models/tests -v
 ```
 
-Druga komenda uruchamia cztery testy mechanizmu pomiarowego. Wynik oczekiwany to `OK`. Do pomiaru modeli potrzebne są Bash, Docker dla Linuksa i wagi pobrane na etapie budowy obrazu. [Uruchomienie benchmarku CPU](../testowanie_modeli/README.md)
+Druga komenda uruchamia testy laboratorium (pomiar, format cech, ewaluacja). Wynik oczekiwany to `OK`; bez numpy część testów jest pomijana. Do pomiaru modeli potrzebne są Bash, Docker dla Linuksa i wagi pobrane na etapie budowy obrazu. [Uruchomienie benchmarku CPU](../models/README.md)
 
 ## Pierwszy wspólny przebieg
 
@@ -54,7 +54,7 @@ Druga komenda uruchamia cztery testy mechanizmu pomiarowego. Wynik oczekiwany to
 1. Użyj Pythona, Pillow i ImageHash. Zweryfikuj format i wymiary obrazu, uwzględnij orientację i zachowaj współrzędne wykorzystanego kadru. pHash obliczaj ze znormalizowanego obrazu. SHA-256 licz z oryginalnych bajtów. Dla problematycznych przycięć porównaj z lokalnymi punktami OpenCV ORB i sprawdź zgodność rozmieszczenia dopasowań. Warstwa wizualna powinna wskazać analitykowi obszar wspólny obu materiałów.
 2. Tesseract 5 z polskim i angielskim pakietem językowym odczytuje tekst i umożliwia zapisanie obszaru odczytu. Domyślna baza tekstowa to scikit-learn `TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5))`. Słownik dopasuj do referencji. Zgłoszenie porównuj za pomocą `transform`. Pokazuj rozpoznane frazy i odnośnik do obrazu także przy skromnym pokryciu. OCR, jego transkrypcja i embedding tego samego kadru dziedziczą tę samą obserwację.
 3. Wydobądź lokalnie pola zapisanych URL, HTML i HAR. Zachowuj wartość oryginalną, znormalizowany host, znaczące części ścieżki, wartości identyfikatorów, stan odpowiedzi i źródło. Oddziel popularne usługi platformy od specyficznych integracji. Zgrupuj powtórzenia tej samej obserwacji. Wykaż na kontrprzykładzie wpływ wspólnego parametru reklamowego.
-4. Mierz koszt całej ścieżki na CPU. Czas zimnej budowy referencji i odczytu OCR raportuj oddzielnie. Porównaj wariant tekstowy z pełnym klasycznym. Eksperyment na RTX 3050 Laptop 4 GiB ma sens po ustaleniu, czy błąd powodują kadry (DINOv2-small) czy parafrazy (E5-small). Decyzję o włączeniu jednego modelu podejmij na części rozwojowej. [Warunek jakości, budżet CPU i plan GPU](../testowanie_modeli/README.md)
+4. Mierz koszt całej ścieżki na CPU. Czas zimnej budowy referencji i odczytu OCR raportuj oddzielnie. Porównaj wariant tekstowy z pełnym klasycznym. Eksperyment na RTX 3050 Laptop 4 GiB ma sens po ustaleniu, czy błąd powodują kadry (DINOv2-small) czy parafrazy (E5-small). Decyzję o włączeniu jednego modelu podejmij na części rozwojowej. [Warunek jakości, budżet CPU i plan GPU](../models/README.md)
 
 ### C · od wyniku pary do pracy analityka
 

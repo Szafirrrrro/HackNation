@@ -40,7 +40,7 @@ Poniższe godziny to cele zespołu w czasie polskim. Oficjalny termin utworzenia
 
 Kopie oraz bliskie warianty tej samej emisji zostają po jednej stronie podziału. Dla zapytania o znaną kampanię referencja zawiera inne oznaczone emisje tej kampanii. Dla kampanii nowej wszystkie jej emisje pozostają poza referencją. W korpusie startowym brakuje potwierdzonych etykiet kampanii. Na tych danych mierzymy podobieństwo kreacji lub rozpoznanie udokumentowanego śladu. Przy braku wiarygodnych etykiet rzeczywistych kampanii pełne przypisanie demonstrujemy na podpisanej próbie kontrolowanej.
 
-Na tym samym podziale porównujemy TF-IDF, pełną metodę klasyczną i ewentualny wariant z jednym embeddingiem. Raport podaje liczbę kampanii i zapytań, TP/FP/FN par po klastrowaniu, precyzję i czułość, trafienia w pierwszej trójce oraz poprawne, błędne i wstrzymane przypisania dla znanych i nowych kampanii. Pokazujemy liczniki i mianowniki. Przy braku mianownika wpisujemy „niemierzalne”. Koszt obejmuje czas budowy indeksu i p95 od wczytania obrazu do wyniku, z wydzielonym czasem OCR. [Laboratorium i warunek użycia modelu](../testowanie_modeli/README.md)
+Na tym samym podziale porównujemy TF-IDF, pełną metodę klasyczną i ewentualny wariant z jednym embeddingiem. Raport podaje liczbę kampanii i zapytań, TP/FP/FN par po klastrowaniu, precyzję i czułość, trafienia w pierwszej trójce oraz poprawne, błędne i wstrzymane przypisania dla znanych i nowych kampanii. Pokazujemy liczniki i mianowniki. Przy braku mianownika wpisujemy „niemierzalne”. Koszt obejmuje czas budowy indeksu i p95 od wczytania obrazu do wyniku, z wydzielonym czasem OCR. [Laboratorium i warunek użycia modelu](../models/README.md)
 
 ## Scenariusz dwuminutowego pokazu
 

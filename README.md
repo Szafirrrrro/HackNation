@@ -45,7 +45,7 @@ Oczekiwany wynik dla tej wersji to **`SHA-256: 13/13`**. Inny wynik oznacza, że
 | Twoja rola | Pierwsza lektura | Pierwszy wynik do przekazania |
 | --- | --- | --- |
 | A · dane i źródła | [Korpus NASK](docs/NASK_DATA.md) i [kontrakt danych](docs/DATA_CONTRACT.md) | Dwie emisje i zapis strony z identyfikatorami źródeł |
-| B · ekstrakcja i pomiar | [Laboratorium modeli i testy](testowanie_modeli/README.md) | Porównanie dwóch kadrów z miarą i informacją o pochodzeniu |
+| B · ekstrakcja i pomiar | [Laboratorium modeli i testy](models/README.md) | Porównanie dwóch kadrów z miarą i informacją o pochodzeniu |
 | C · korelacja | [Kontrakt i reguła decyzji](docs/DATA_CONTRACT.md) | Ocena pary odtwarzalna z obu źródeł |
 | C · demonstrator | [Scenariusz grafu i osi czasu](docs/PLAN_GRAF_I_OS_CZASU.md) | Pierwszy wynik obliczony po przesłaniu materiału przez formularz |
 

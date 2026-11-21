@@ -18,7 +18,7 @@ SOURCES = {
     "data": ("docs/NASK_DATA.md", "data"),
     "ui": ("docs/PLAN_GRAF_I_OS_CZASU.md", "ui"),
     "build": ("docs/INSTRUKCJA_BUDOWY.md", "flow"),
-    "lab": ("testowanie_modeli/README.md", "lab"),
+    "lab": ("models/README.md", "lab"),
     "agents": ("AGENTS.md", "onboarding"),
 }
 ROUTES = {path: route for path, route in SOURCES.values()}
