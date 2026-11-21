@@ -1,0 +1,57 @@
+# Ręczna lista zaufanych domen (uzupełnia ranking Tranco). Dopasowanie obejmuje subdomeny.
+# Plik data/trusted_domains.txt GENERUJE tools/build_trusted_list.py — edytuj ten plik, nie tamten.
+#
+# UWAGA: nie wpisuj tu platform z treściami użytkowników (blogspot.com, github.io, sites.google.com,
+# wixsite.com, firebaseapp.com, pages.dev, vercel.app, netlify.app...). Oszuści hostują tam strony,
+# a nazwa subdomeny (np. krypto-bot.blogspot.com) jest wtedy ich śladem.
+#
+# Docelowo listę można zasilić np. czołówką rankingu Tranco (https://tranco-list.eu), po ręcznym
+# usunięciu platform z treściami użytkowników.
+
+# wideo i media społecznościowe
+youtube.com
+youtu.be
+facebook.com
+fb.com
+fb.me
+instagram.com
+tiktok.com
+twitter.com
+x.com
+linkedin.com
+pinterest.com
+reddit.com
+whatsapp.com
+messenger.com
+
+# wyszukiwarki, encyklopedie, duże serwisy
+google.com
+google.pl
+bing.com
+wikipedia.org
+apple.com
+microsoft.com
+amazon.com
+allegro.pl
+olx.pl
+onet.pl
+wp.pl
+interia.pl
+gazeta.pl
+gov.pl
+
+# infrastruktura reklam, analityki i CDN (wspólna dla milionów stron)
+googletagmanager.com
+google-analytics.com
+googleapis.com
+gstatic.com
+googlesyndication.com
+doubleclick.net
+facebook.net
+fbcdn.net
+cloudflare.com
+cloudflare-dns.com
+akamaihd.net
+jsdelivr.net
+jquery.com
+unpkg.com
