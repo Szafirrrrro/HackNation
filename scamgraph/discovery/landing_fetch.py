@@ -23,6 +23,10 @@ class LandingError(ValueError):
     pass
 
 
+class DocumentTimeout(LandingError):
+    pass
+
+
 class TrustedDestination(LandingError):
     def __init__(self, host):
         super().__init__(skip_reason(host))
@@ -102,15 +106,15 @@ def read_public(url, budget, seconds, origin=None):
             response_headers = dict(response.headers)
             received_at = monotonic()
             chunks = bytearray()
-            read_error = False
+            read_error = None
             try:
                 while len(chunks) <= budget:
                     chunk = response.read1(min(65536, budget + 1 - len(chunks)), decode_content=False)
                     if not chunk:
                         break
                     chunks.extend(chunk)
-            except (OSError, urllib3.exceptions.HTTPError):
-                read_error = True
+            except (OSError, urllib3.exceptions.HTTPError) as exc:
+                read_error = exc
             raw = bytes(chunks)
             encoding = response.headers.get("Content-Encoding", "identity").lower()
             data, error = raw, None
@@ -132,6 +136,7 @@ def read_public(url, budget, seconds, origin=None):
             location = response.headers.get("Location") if status in {301, 302, 303, 307, 308} else None
             wire = {"ip": str(ips[0]), "protocol": {10:"HTTP/1.0", 11:"HTTP/1.1"}.get(response.version, ""),
                     "headers": wire_headers, "reason": response.reason, "error": error,
+                    "timeout": isinstance(read_error, (TimeoutError, urllib3.exceptions.TimeoutError)),
                     "receive": int((monotonic() - received_at) * 1000), "body_size": len(raw) if len(raw) <= budget else -1,
                     "charged": max(len(raw), len(data or b""))}
             return status, response_mime(response.headers), data, location, response_headers, wire
@@ -236,11 +241,14 @@ class PageReads:
                 self.record(url, "GET", pairs(headers.items()), observed, 0, browser_headers=browser_headers,
                             error="Przerwano oczekiwanie na odpowiedź.", pending=True)
                 status, mime, body, redirect, response_headers, *details = read_public(
-                    url, min(4 * 1024 * 1024, self.remaining), min(4, seconds), origin)
+                    url, min((8 if document else 4) * 1024 * 1024, self.remaining),
+                    min(6 if document else 4, seconds), origin)
             except (OSError, ValueError, urllib3.exceptions.HTTPError) as exc:
                 self.record(url, "GET", pairs(headers.items()), observed, int((monotonic()-start)*1000),
                             error=str(exc) if isinstance(exc, LandingError) else type(exc).__name__,
                             browser_headers=browser_headers)
+                if document and isinstance(exc, (TimeoutError, urllib3.exceptions.TimeoutError)):
+                    raise DocumentTimeout("Upłynął czas pobierania głównego dokumentu.") from exc
                 raise
             wire = details[0] if details else {"headers": pairs(response_headers.items())}
             self.remaining -= wire.get("charged", len(body or b""))
@@ -248,7 +256,9 @@ class PageReads:
             self.record(url, "GET", pairs(headers.items()), observed, int((monotonic()-start)*1000),
                         status=status, mime=mime, body=body, target=target, browser_headers=browser_headers,
                         wire=wire, error=wire.get("error"))
-            if wire.get("error") and (body is None or resource):
+            if document and wire.get("timeout"):
+                raise DocumentTimeout("Upłynął czas pobierania głównego dokumentu.")
+            if wire.get("error"):
                 raise LandingError(wire["error"])
             response_headers = urllib3.HTTPHeaderDict(response_headers)
             if target:

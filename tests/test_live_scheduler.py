@@ -12,7 +12,7 @@ from scamgraph.catalog import catalog, matches
 from scamgraph.discovery import landing_visit, meta
 from scamgraph.discovery.engine import connection, store_card
 from scamgraph.discovery.graph_feed import export_graph, update_campaigns
-from scamgraph.discovery.page_queue import drain, process_one
+from scamgraph.discovery.page_queue import confirm_target, drain, process_one, run_landing_totals
 from scamgraph.discovery.service import engine_for, load_config, publish
 from scamgraph.discovery.types import Query
 from scamgraph.discovery.trusted_domains import canonical_domain, match_url
@@ -85,6 +85,44 @@ class LiveScheduler(unittest.TestCase):
         self.assertEqual(self.engine.snapshot()["candidates"][0]["seq"], jobs[1]["seq"])
         self.assertEqual(self.engine.snapshot()["candidates"][0]["page_status"], "queued")
         self.assertEqual(export_graph(self.state, "replay").read_bytes(), b"")
+
+    def test_analyst_confirms_one_candidate_and_binary_keeps_its_proof(self):
+        self.source.write_text('<article><div>Library ID: 401</div><a href="https://shop.example/a">A</a>'
+                               '<a href="https://shop.example/picture.png">B</a></article>', encoding="utf8")
+        base = self.insert()
+        row, = self.engine.snapshot()["candidates"]
+        self.assertEqual(run_landing_totals(self.state, [self.run])[self.run]["content"], {"review": 1})
+        card = read_json(self.state / "captures" / base / "ad/card.json")
+        picked = card["landing_candidates"][1]
+        with self.assertRaises(ValueError):
+            confirm_target(self.state, row["seq"], {**picked, "element": 999})
+        confirm_target(self.state, row["seq"], picked)
+        with self.assertRaises(ValueError):
+            confirm_target(self.state, row["seq"], picked)
+
+        def visit(store, url, *_):
+            import io
+            from PIL import Image
+
+            self.assertEqual(url, "https://shop.example/picture.png")
+            data = io.BytesIO()
+            Image.new("RGB", (1, 1)).save(data, "PNG")
+            folder = store / "test-image"
+            with patch("scamgraph.discovery.landing_fetch.read_public", return_value=(200, "image/png", data.getvalue(), None, {})):
+                result = landing_visit.gather(folder, url)
+            return {**result, "page_id": folder.name}
+
+        with patch.object(landing_visit, "visit", side_effect=visit):
+            self.assertTrue(process_one(self.cfg))
+        latest, = self.engine.snapshot()["candidates"]
+        folder = self.state / "captures" / latest["capture_id"]
+        result = read_json(folder / "extracted.json")
+        verified(folder, read_json(folder / "manifest.json"))
+        self.assertEqual(result["ad_target_link"]["source_ref"]["element"], picked["element"])
+        self.assertEqual(result["landing_visit"]["target_basis"], "analyst")
+        self.assertEqual(result["ad_page_links"], [])
+        self.assertEqual(read_json(export_graph(self.state))["infra"], {})
+        self.assertEqual(run_landing_totals(self.state, [self.run])[self.run]["by_type"], {"image": {"usable": 1}})
 
     def test_restart_and_permission_revoked_between_jobs(self):
         self.insert()

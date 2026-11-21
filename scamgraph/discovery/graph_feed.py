@@ -32,6 +32,9 @@ def projection(folder):
         vector = HashingVectorizer(analyzer="char_wb", ngram_range=(3, 5), n_features=1024)
         card["text"].update(embedding=vector.transform([body]).toarray()[0].round(6).tolist(),
                             method=TEXT_METHOD, origin_id=ad["text_origin"])
+    visit = result.get("landing_visit", {})
+    if "content_status" in visit and (visit["content_status"] != "usable" or visit.get("target_kind") != "web"):
+        return card
     for link in result.get("ad_page_links", []):
         if link["capture_id"] != folder.name or link["ad_id"] != ad.get("ad_id"):
             continue

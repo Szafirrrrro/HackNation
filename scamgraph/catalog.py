@@ -125,6 +125,8 @@ def preview(folder, meta, ref, excerpt=None):
             return "json", pixel_from_url(node.attr("src"))
         else:
             value = node.words(True)
+            if not value and node.tag == "meta" and node.attr("property") in {"og:title", "og:description"}:
+                value = clean(node.attr("content"))
             if not value and node.attr("itemprop").lower() in {"price", "pricecurrency", "name"}:
                 value = clean(node.attr("content"))
             return "text", value

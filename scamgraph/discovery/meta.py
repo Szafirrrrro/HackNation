@@ -22,11 +22,6 @@ from .cta import card_cta
 
 LIBRARY = "https://www.facebook.com/ads/library/"
 MAX_BYTES = 12 * 1024 * 1024
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/158.0.0.0 Safari/537.36"
-)
 ID = re.compile(
     r"\b(?:identyfikator\s+(?:w\s+)?bibliote(?:ki|ce)(?:\s+reklam)?|id\s+biblioteki(?:\s+reklam)?|library\s+id)\s*[:#]?\s*(\d{1,30})\b",
     re.I,
@@ -379,8 +374,8 @@ def _live(options, query):
     headless = options.get("headless", True)
     if not isinstance(headless, bool):
         raise SourceError("Pole headless wymaga wartości JSON true lub false.")
-    user_agent = options.get("user_agent", DEFAULT_USER_AGENT)
-    if not isinstance(user_agent, str) or not user_agent.strip() or "\n" in user_agent or "\r" in user_agent:
+    user_agent = options.get("user_agent")
+    if "user_agent" in options and (not isinstance(user_agent, str) or not user_agent.strip() or "\n" in user_agent or "\r" in user_agent):
         raise SourceError("Pole user_agent musi zawierać poprawny, niepusty ciąg User-Agent.")
     if find_spec("playwright") is None:
         runtime = Path(__file__).resolve().parents[2] / ".private-discovery" / "playwright-runtime"
@@ -418,18 +413,16 @@ def _live(options, query):
                     "locale": "pl-PL",
                     "timezone_id": "Europe/Warsaw",
                     "accept_downloads": False,
-                    "user_agent": user_agent,
                     "viewport": {"width": 1366, "height": 900},
                     "screen": {"width": 1366, "height": 900},
                     "color_scheme": "light",
                     "extra_http_headers": {
                         "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "sec-ch-ua": '"Chromium";v="158", "Not.A/Brand";v="24", "Google Chrome";v="158"',
-                        "sec-ch-ua-mobile": "?0",
-                        "sec-ch-ua-platform": '"Windows"',
                         "Upgrade-Insecure-Requests": "1",
                     },
                 }
+                if user_agent:
+                    context_kwargs["user_agent"] = user_agent
                 if options.get("proxy"):
                     context_kwargs["proxy"] = options["proxy"]
 
@@ -448,26 +441,7 @@ def _live(options, query):
 
                 def route(request_route):
                     req = request_route.request
-                    try:
-                        is_main = req.frame == page.main_frame
-                        allowed = monotonic() < deadline and (
-                            is_main
-                            or _allowed_url(req.url, req.is_navigation_request())
-                            or any(
-                                h in (req.url or "")
-                                for h in (
-                                    "fbcdn.net",
-                                    "facebook.net",
-                                    "static.xx.fbcdn.net",
-                                    "scontent",
-                                    "external.xx.fbcdn",
-                                    "__rd_verify",
-                                )
-                            )
-                        )
-                    except BrowserError:
-                        allowed = False
-                    if allowed:
+                    if monotonic() < deadline and _allowed_url(req.url, req.is_navigation_request()):
                         request_route.continue_()
                     else:
                         request_route.abort()
@@ -524,7 +498,11 @@ def _live(options, query):
                         re.I,
                     )
                     if not challenge_match:
-                        raise page_error("Meta zwróciła HTTP 403 Forbidden (brak rozpoznanego challenge).")
+                        try:
+                            title = clean(page.title())[:120]
+                        except BrowserError:
+                            title = ""
+                        raise page_error(f"Odmowa dostępu. Tytuł strony: {title or '(pusty)'}.")
 
                     challenge_path = challenge_match.group(1)
                     challenge_url = "https://www.facebook.com" + challenge_path

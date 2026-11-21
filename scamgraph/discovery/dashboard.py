@@ -7,10 +7,12 @@ import time
 
 import streamlit as st
 
-from ..catalog import catalog
+from ..catalog import catalog, preview
 from ..capture import read_json
+from ..landing_quality import CONTENT_STATUS, REASON, TARGET_TYPE, content_status
+from ..sources import evidence
 from .engine import connection
-from .page_queue import drain
+from .page_queue import confirm_target, drain
 from .graph_feed import refresh_graph
 from .diagnostic import enabled as diagnostic_enabled, last_live_run, run_diagnostic
 from .service import engine_for, load_config, restore_config, save_import
@@ -162,7 +164,7 @@ def run_pages(root, select):
                       and key[1] == st.query_params.get("fraza", key[1])), 0)
         st.subheader("Odczyt stron docelowych")
         selected = st.selectbox("Przebieg i fraza", choices, index=first, format_func=labels.get, key="coverage-run")
-        rows = db.execute("""SELECT o.ad_ref,o.card,o.capture_id,j.status AS page_status,j.error AS job_error
+        rows = db.execute("""SELECT o.seq,o.mode,o.ad_ref,o.card,o.capture_id,j.status AS page_status,j.error AS job_error
                           FROM observations o LEFT JOIN page_jobs j USING(seq)
                           WHERE o.run_id=? AND o.phrase=? ORDER BY o.seq""", selected).fetchall()
     details = []
@@ -170,17 +172,18 @@ def run_pages(root, select):
         try:
             record = coverage(root / "captures" / row["capture_id"])
         except (KeyError, ValueError, OSError):
-            record = {"reason": "Nie udało się odczytać pakietu"}
+            record = {"reason": "Nie udało się odczytać pakietu", "content_status": "unreadable"}
         details.append((row, record))
-    st.write(f"Karty · {len(rows)}   |   Z celem CTA · {sum(bool(r.get('cta')) for _, r in details)}"
-             f"   |   Odczytane strony · {sum(bool(r.get('document')) for _, r in details)}")
+    st.write(f"Karty · {len(rows)}   |   Z celem · {sum(bool(r.get('cta')) or bool(row['page_status']) for row, r in details)}"
+             f"   |   Użyteczna treść · {sum(content_status(r, row['page_status']) == 'usable' for row, r in details)}")
     table = []
     for row, r in details:
         name = json.loads(row["card"]).get("page_name") or row["ad_ref"]
-        table.append({"Reklama": name, "ID emisji": row["ad_ref"],
-                      "Wizyta": PAGE_STATUS.get(row["page_status"], "—"), "Powód": row["job_error"] or "",
-                      "Strona": "Odczytano HTML" if r.get("document") else r.get("reason") or "Brak zapisanego HTML",
-                      "Renderowanie": ("Częściowe" if r.get("issues") else "Zapisany widok" if r.get("screen") else "Brak oceny"),
+        table.append({"Reklama": name, "ID emisji": row["ad_ref"], "Typ celu": TARGET_TYPE.get(r.get("target_kind"), "—"),
+                      "Treść celu": CONTENT_STATUS[content_status(r, row["page_status"])],
+                      "Wizyta": PAGE_STATUS.get(row["page_status"], "—"),
+                      "Powód": row["job_error"] or r.get("reason") or REASON.get(r.get("reason_code"), ""),
+                      "Ostrzeżenia zapisu": len(r.get("issues", [])),
                       "Widok": ("Wykryto okno cookies" if r.get("dialog") else
                                 "Jednolity środek zrzutu" if (r.get("screen") or {}).get("mostly_uniform") else "—"),
                       "Treść oferty": ("Wykryto" if r.get("offer") else "Nie oceniono" if r.get("document") and "offer" not in r
@@ -191,6 +194,31 @@ def run_pages(root, select):
     if st.button("Otwórz pakiet reklamy"):
         select(rows[pick]["capture_id"])
         st.rerun()
+    row = rows[pick]
+    card = json.loads(row["card"])
+    candidates = card.get("landing_candidates", [])
+    if row["mode"] == "live" and not row["page_status"] and card.get("cta_element") is None and candidates:
+        selected_target = st.selectbox("Cel do potwierdzenia", range(len(candidates)), key=f"target-{row['seq']}",
+                                       format_func=lambda i: " · ".join(v for v in (candidates[i]["url"],
+                                           candidates[i].get("object_id"), f"element {candidates[i]['element']}") if v))
+        candidate = candidates[selected_target]
+        if st.checkbox("Pokaż odnośnik na karcie", key=f"target-proof-{row['seq']}"):
+            try:
+                folder = root / "captures" / row["capture_id"]
+                meta = read_json(folder / "manifest.json")
+                original = next(item for item in meta["artifacts"] if item["role"] == "source_record")
+                ref = evidence(original, element=candidate["element"], attribute=candidate["attribute"])
+                _, source = preview(folder, meta, ref)
+                st.text(f"{ref['file']} · element {candidate['element']}")
+                st.json(source)
+            except (OSError, ValueError, IndexError, StopIteration):
+                st.error("Brak lokalnego dowodu odnośnika.")
+        if st.button("Potwierdź cel i dodaj do kolejki"):
+            try:
+                confirm_target(root, row["seq"], candidate)
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
 
 
 @st.fragment(run_every=1)

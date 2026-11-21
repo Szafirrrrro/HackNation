@@ -44,6 +44,8 @@ def rendition(store, cid):
     result["capture_id"] = new_id
     for link in result["ad_page_links"]:
         link["capture_id"] = new_id
+    if result.get("ad_target_link"):
+        result["ad_target_link"]["capture_id"] = new_id
     target = store / new_id
     with staging(store) as temp:
         folder = temp / "capture"

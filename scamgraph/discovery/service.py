@@ -126,45 +126,49 @@ def engine_for(config):
 
 def collect_landing(stage, options, finding, *, defer=False):
     from ..landing import Document
-    from .cta import destination
+    from .cta import destination, target_identity
     from .landing_visit import visit
     from .landing_fetch import public_url
     from .trusted_domains import match_url, skip_reason
 
     index = finding.card.get("cta_element")
+    candidates = finding.card.get("landing_candidates", [])
     if index is None:
-        return {"reason": finding.card.get("landing_missing_reason") or "Karta bez dostępnego odnośnika CTA."}
+        return {"content_status": "review" if candidates else "no_target", "reason_code": "unconfirmed_target" if candidates else "no_target",
+                "candidates": candidates, "reason": finding.card.get("landing_missing_reason") or "Karta bez dostępnego odnośnika CTA."}
     raw = finding.original.read_bytes()
     if hashlib.sha256(raw).hexdigest() != finding.source_sha256:
         raise SourceError("Materiał źródłowy karty zmienił się przed odczytem CTA.")
     doc = Document(raw.decode("utf8"))
-    if not isinstance(index, int) or not 1 <= index <= len(doc.nodes):
-        return {"reason": "Brak wskazanego elementu CTA w źródłowej karcie."}
-    node = doc.nodes[index - 1]
-    if not any(finding.locator == f"element:{p.index}" for p in [node, *node.ancestors()]):
-        return {"reason": "Odnośnik CTA poza zapisaną kartą."}
-    attribute = finding.card["cta_attribute"]
-    url = destination(node.attr(attribute))
+    node = doc.nodes[index - 1] if isinstance(index, int) and 1 <= index <= len(doc.nodes) else None
+    attribute = finding.card.get("cta_attribute")
+    inside_card = node and any(finding.locator == f"element:{p.index}" for p in (node, *node.ancestors()))
+    href = node.attr(attribute) if inside_card and attribute in {"href", "data-href", "data-url"} else ""
+    url = destination(href) if href else None
     if not url:
-        return {"reason": "Brak adresu strony w odnośniku CTA."}
+        return {"status": "failed", "content_status": "error", "reason_code": "invalid_card_evidence",
+                "reason": "Brak poprawnego odnośnika we wskazanym elemencie karty."}
     database = options.get("domain_db")
     host = match_url(database, url)
     timeout = options.get("landing_timeout", 22)
     if host:
-        outcome = {"status": "trusted_domain", "trusted_domain": host, "reason": skip_reason(host)}
+        outcome = {"status": "trusted_domain", "content_status": "skipped", "reason_code": "trusted_domain",
+                   "trusted_domain": host, "reason": skip_reason(host)}
     elif defer:
-        outcome = {"status": "queued", "reason": "Oczekuje na odczyt strony docelowej."}
+        outcome = {"status": "queued", "content_status": "pending", "reason_code": "queued",
+                   "reason": "Oczekuje na odczyt strony docelowej."}
     elif timeout < 2:
-        outcome = {"reason": "Brak czasu na pobranie CTA w tym przebiegu."}
+        outcome = {"status": "failed", "content_status": "error", "reason_code": "document_timeout",
+                   "reason": "Brak czasu na pobranie CTA w tym przebiegu."}
     else:
         store = Path(options["state_dir"]) / "pages"
         outcome = visit(store, url, timeout, database) if database else visit(store, url, timeout)
     if "page_id" in outcome:
         archive = Path(options["state_dir"]) / "pages" / outcome["page_id"]
         shutil.copytree(archive, stage / "landing")
-    href = urljoin("https://www.facebook.com/", node.attr(attribute))
-    return {**outcome, "element": index, "attribute": attribute,
-            "href": public_url(href), "label": finding.card["cta"]}
+    return {"target_kind": target_identity(url)[0], **outcome, "element": index, "attribute": attribute,
+            "href": public_url(urljoin("https://www.facebook.com/", href)), "label": finding.card["cta"],
+            "target_basis": finding.card.get("cta_basis", "label"), "candidates": candidates}
 
 
 def publish(sid, options, finding):

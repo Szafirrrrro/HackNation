@@ -121,6 +121,9 @@ def inventory(source, ad_card=False):
         if flat_page or (area == "landing" and nested_page):
             area = "landing"
             role = {"network.har": "har", "page.html": "html", "metadata.json": "page_metadata"}.get(sub.as_posix(), "asset")
+            page_root = root if flat_page else root / "landing"
+            if sub.as_posix() == "original/response.html" and not (page_root / "page.html").is_file():
+                role = "html"
         elif linked_media and suffix in IMAGES | AUDIO | VIDEO:
             area = "ad"
             role = "image" if suffix in IMAGES else "audio" if suffix in AUDIO else "video"
@@ -284,6 +287,8 @@ def capture(source, store=DEFAULT_STORE, provider=None, collected_at=None, model
                          "final_url": safe_url(metadata["final_url"]) if metadata["final_url"] else None,
                          "issues": [] if not metadata["errors"] else
                          [f"Liczba błędów zapisu strony: {len(metadata['errors'])}"]}
+        landing_visit.update({key: metadata[key] for key in ("target_kind", "content_status", "reason_code", "http_status",
+                              "content_evidence", "original_file", "document_attempts") if key in metadata})
     if collected_at and datetime.fromisoformat(collected_at).utcoffset() is None:
         raise ValueError("Czas pozyskania wymaga strefy")
     if upstream:
@@ -317,6 +322,18 @@ def capture(source, store=DEFAULT_STORE, provider=None, collected_at=None, model
             identity.extend((source_kind, acquisition_method, locator))
             result["method"] += "+discovery-1"
         if landing_visit is not None:
+            landing_visit = dict(landing_visit)
+            content = landing_visit.get("content_evidence") or {}
+            content_file = next((item for item in artifacts if item["path"] == content.get("file")), None)
+            if content_file:
+                locations = {key: content[key] for key in ("element", "identity_element", "text_parts", "tag", "line") if key in content}
+                ref = evidence(content_file, **locations)
+                if "text" in content:
+                    ref["text"] = content["text"]
+                media_file = next((item for item in artifacts if item["path"] == content.get("media_file")), None)
+                if media_file:
+                    ref["media"] = evidence(media_file, document=True)
+                landing_visit["content_evidence"] = ref
             result["landing_visit"] = landing_visit
         result["landing_analysis_version"] = ANALYSIS_VERSION
         result["landing_summary"] = summarize(stage, artifacts, result)
@@ -385,19 +402,26 @@ def capture(source, store=DEFAULT_STORE, provider=None, collected_at=None, model
         if upstream:
             original = next(i for i in artifacts if i["role"] == "source_record")
             result["source_record"] = evidence(original, record=locator)
-            if landing_visit and "document_entry" in landing_visit and availability["landing"]["available"]:
+            typed = landing_visit and "content_status" in landing_visit
+            usable = typed and landing_visit["content_status"] == "usable" and content_file
+            if (landing_visit and "document_entry" in landing_visit and
+                    (usable or not typed and availability["landing"]["available"])):
                 har = next(i for i in artifacts if i["role"] == "har" and i["path"] in {"network/landing.har", "landing/network.har"})
                 element = landing_visit["element"]
-                result["ad_page_links"].append({
+                link = {
                     "ad_id": ad["ad_id"], "capture_id": capture_id, "origin_id": original["sha256"],
                     "observed_at": landing_visit["observed_at"],
                     "source_ref": {"file": original["path"], "record_id": ad_ref, "element": element,
                                    "field": landing_visit["attribute"], "value": landing_visit["href"]},
                     "evidence": evidence(original, element=element, attribute=landing_visit["attribute"]),
                     "navigation_evidence": evidence(har, entry=landing_visit["document_entry"]),
-                    "final_url": landing_visit["final_url"]})
-                ad.update(landing_url=landing_visit["url"], url_origin=original["sha256"])
-                result["ad"] = ad
+                    "final_url": landing_visit["final_url"]}
+                if typed and landing_visit["target_kind"] != "web":
+                    result["ad_target_link"] = link
+                else:
+                    result["ad_page_links"].append(link)
+                    ad.update(landing_url=landing_visit["url"], url_origin=original["sha256"])
+                    result["ad"] = ad
             if source_kind == "organizer" and original["path"].endswith(".jsonl"):
                 ad["ad_id"] = ad_ref
                 source_info["ad_ref"] = next((f["value"] for f in ad_fields if f["field"] == "library_ref"), None)

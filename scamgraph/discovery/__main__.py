@@ -10,7 +10,7 @@ import time
 from uuid import uuid4
 
 from .service import DEFAULT_CONFIG, engine_for, load_config
-from .page_queue import drain, process_one
+from .page_queue import drain, process_one, run_landing_totals
 from .graph_feed import export_graph, refresh_graph, update_campaigns
 
 
@@ -107,7 +107,9 @@ def main():
             if args.phrase is not None and not claims:
                 parser.exit(1, "Źródło zajęte lub właśnie obsłużone przez zegar. Nie uruchomiono podanej frazy.\n")
             states = [s for s in engine.snapshot()["sources"] if not args.source or s["source_id"] in args.source]
-            print(json.dumps({"started": claims, "sources": states}, ensure_ascii=False, indent=2))
+            print(json.dumps({"started": claims, "sources": states,
+                              "landing": run_landing_totals(Path(config["state_dir"]), claims.values())},
+                             ensure_ascii=False, indent=2))
             return int(any(s["status"] == "error" for s in states))
         if args.command == "graph":
             feed = export_graph(config["state_dir"], args.mode)

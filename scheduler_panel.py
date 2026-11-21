@@ -8,6 +8,7 @@ import streamlit as st
 
 from scamgraph.capture import DEFAULT_STORE
 from scamgraph.catalog import artifact_path, catalog, matches, preview
+from scamgraph.landing_quality import CONTENT_STATUS, REASON, TARGET_TYPE
 
 LABELS = {"card": "Karta reklamy", "image": "Obraz reklamy", "recording": "Nagranie", "landing": "HTML strony",
           "assets": "Zasoby strony", "har": "Zapis HAR", "screenshot": "Zrzut reklamy",
@@ -81,8 +82,8 @@ def detail(records, cid):
     st.header(label(describe(records, cid)))
     st.caption(f"{meta['acquisition_method']} · {meta['collected_at']} · {cid}")
     st.write("Analiza częściowa" if result["partial"] else "Analiza pełna dla dostarczonych materiałów")
-    if result.get("ad_page_links"):
-        st.caption("Strona docelowa z odnośnika CTA na zapisanej karcie.")
+    if result.get("ad_page_links") or result.get("ad_target_link"):
+        st.caption("Cel z odnośnika na zapisanej karcie.")
     else:
         st.caption("Powiązanie emisji ze stroną pozostaje nieustalone.")
     if "proof" in st.session_state:
@@ -136,6 +137,23 @@ def detail(records, cid):
                 button("Otwórz nagranie", cid, row, row["text"], f"audio{i}-{j}")
     with page:
         visit = result.get("landing_visit", {})
+        if visit.get("content_status"):
+            st.text(" · ".join(v for v in (TARGET_TYPE.get(visit.get("target_kind")),
+                                           CONTENT_STATUS.get(visit["content_status"])) if v))
+            if visit.get("http_status"):
+                st.text(f"Odpowiedź celu · HTTP {visit['http_status']}")
+            content = visit.get("content_evidence") or {}
+            if content.get("text"):
+                st.text(content["text"])
+                button("Otwórz dowód treści", cid, {"evidence": content}, content["text"], "target-content")
+            file = next((item for item in meta["artifacts"] if item["path"] == visit.get("original_file")), None)
+            if file and visit.get("content_status") == "usable" and visit.get("target_kind") in {"pdf", "image", "audio", "video"}:
+                try:
+                    local_file = artifact_path(folder, file)
+                    st.download_button("Pobierz zapisany plik celu", local_file.read_bytes(),
+                                       file_name=local_file.name, mime=file["type"])
+                except (OSError, ValueError):
+                    st.warning("Nie udało się zweryfikować pliku celu.")
         if visit.get("trusted_domain"):
             st.text("Pominięto pobranie · zaufana domena " + visit["trusted_domain"])
         elif visit.get("status"):
@@ -163,11 +181,13 @@ def detail(records, cid):
                 if (quality.get("screen") or {}).get("mostly_uniform"):
                     st.write("Jednolity środek zapisanego zrzutu")
                     button("Pokaż oceniony obszar", cid, quality["screen"], "", "screen-evidence")
-        if visit.get("reason"):
-            st.text(visit["reason"])
+        reason = visit.get("reason") or REASON.get(visit.get("reason_code"))
+        if reason:
+            st.text(reason)
         for issue in visit.get("issues", []):
             st.text(issue)
-        for i, link in enumerate(result.get("ad_page_links", [])):
+        links = result.get("ad_page_links", []) + ([result["ad_target_link"]] if result.get("ad_target_link") else [])
+        for i, link in enumerate(links):
             st.text(f"{visit.get('label', 'CTA')} → {link['final_url']}")
             button("Pokaż odnośnik na karcie", cid, link, "", f"cta-{i}")
             st.button("Pokaż odpowiedź serwera strony", key=f"cta-http-{i}", on_click=proof,
@@ -192,7 +212,7 @@ def detail(records, cid):
                                        file_name=Path(img["path"]).name, mime="image/png")
             except (OSError, ValueError):
                 st.warning("Nie udało się wyświetlić lokalnego obrazu strony.")
-        if not result["pages"]:
+        if not result["pages"] and visit.get("content_status") != "usable":
             st.write("Brak zapisanego HTML strony.")
         for i, saved in enumerate(result["pages"]):
             for field, heading in (("titles", "Tytuł"), ("headings", "Nagłówki"), ("products", "Rozpoznane produkty"),
