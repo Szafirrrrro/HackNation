@@ -27,11 +27,21 @@ def main():
     ap.add_argument("--k", type=int, default=3)
     args = ap.parse_args()
     fs = FeatureStore(args.root)
-    md = [f"# Najbliżsi sąsiedzi — {fs.root.name}\n",
+    cj = fs.root / "corpus.json"
+    ds = json.loads(cj.read_text(encoding="utf-8"))["dataset_id"] if cj.exists() else fs.root.name
+    md = [f"# Najbliżsi sąsiedzi — {ds}\n",
           "Dla każdej metody wektorowej: podobieństwo reklam = max cosine między ich wektorami "
           "(w nawiasie pola, które się dopasowały). Dla hashy: minimalna odległość Hamminga "
           "(0 = identyczny obraz, 64 = maksymalnie różny).\n"]
     out = {}
+    issues = [f"{r['slug']}: model nie załadował się ({r.get('load_error')})"
+              for r in fs.runs() if r.get("status") == "failed"]
+    issues += [f"{r['slug']}: policzono na innej wersji korpusu ({r.get('corpus_fingerprint')} != "
+               f"{fs.fingerprint})" for r in fs.stale_runs()]
+    if fs.dropped_rows:
+        issues.append(f"pominięto {fs.dropped_rows} wierszy reklam spoza bieżącego ads.jsonl")
+    if issues:
+        md.append("\n**Uwagi:**\n\n" + "\n".join(f"- {i}" for i in issues) + "\n")
 
     for m in fs.methods():
         if not m["vector"]:

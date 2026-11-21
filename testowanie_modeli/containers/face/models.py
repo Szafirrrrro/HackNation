@@ -6,13 +6,16 @@ from extractor import Extractor, Out, l2, load_bgr
 
 
 class InsightFace(Extractor):
+    stage = "deferred"
+    decision = "Odłożone: test powiązań wymaga uprawnionej bazy referencyjnej, weryfikacji wag i różnych kampanii z tą samą osobą."
     name = "insightface-buffalo_l"
     use_case = "face"
     family = "visual"
     modality = "image"
     primary_field = "face.count"
     version = "insightface-0.7.3/buffalo_l"
-    license = "kod MIT; wagi buffalo_l tylko do użytku niekomercyjnego/badawczego"
+    license = "kod MIT; wagi buffalo_l wyłącznie do niekomercyjnych badań"
+    params = {"det_size": 640}
     notes = "RetinaFace-10GF + ArcFace R50 WebFace600K (512d) + wiek/płeć"
 
     def load(self, threads):
@@ -41,6 +44,8 @@ class InsightFace(Extractor):
 
 
 class OpenCVFace(Extractor):
+    stage = "deferred"
+    decision = "Odłożone: jak InsightFace."
     name = "opencv-yunet-sface"
     use_case = "face"
     family = "visual"
@@ -48,6 +53,7 @@ class OpenCVFace(Extractor):
     primary_field = "face.count"
     version = f"opencv-{cv2.__version__}/yunet-2023mar+sface-2021dec"
     license = "YuNet MIT, SFace Apache-2.0"
+    params = {"score_threshold": 0.8, "nms_threshold": 0.3}
     notes = "lekka alternatywa: detekcja + embedding 128d"
 
     def load(self, threads):

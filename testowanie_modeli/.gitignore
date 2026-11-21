@@ -1,4 +1,6 @@
-# dane i wyniki (materiały NASK nie mogą trafić do publicznego repo)
+# dane i wyniki (materiały NASK i wyniki pochodne nie mogą trafić do publicznego repo)
 data/
 out/
+results/
 __pycache__/
+*.tmp

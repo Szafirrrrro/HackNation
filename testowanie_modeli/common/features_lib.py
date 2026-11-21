@@ -3,14 +3,16 @@
     from features_lib import FeatureStore
     fs = FeatureStore("out/features/nask-hacknation-2026")
     fs.methods()                                   # co jest dostępne
-    fs.rows(field="ocr.text")                      # wiersze Feature
-    X, meta = fs.vectors("face/insightface-buffalo_l@...", "face.embedding")
+    fs.stale_runs()                                # przebiegi policzone na innej wersji korpusu
+    fs.rows(field="ocr.text")                      # wiersze Feature (tylko reklamy z ads.jsonl)
+    X, meta = fs.vectors(method_version, "face.embedding")
     ids, S, best = fs.ad_similarity(method_version, "image.embedding")   # cosine ad x ad
     hamming_hex(a, b)                              # odległość pHash/dHash
 """
 from __future__ import annotations
 
 import json
+import warnings
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,15 +31,29 @@ class FeatureStore:
             for line in (self.root / "ads.jsonl").read_text(encoding="utf-8").splitlines():
                 r = json.loads(line)
                 self.ads[r["ad_id"]] = r
-        self._rows = []
+        cj = self.root / "corpus.json"
+        self.corpus = json.loads(cj.read_text(encoding="utf-8")) if cj.exists() else {}
+        self.fingerprint = self.corpus.get("fingerprint")
+        self._rows, self.dropped_rows = [], 0
         for f in sorted((self.root / "features").glob("*.jsonl")):
             for line in f.read_text(encoding="utf-8").splitlines():
-                self._rows.append(json.loads(line))
+                r = json.loads(line)
+                if self.ads and r["ad_id"] not in self.ads:  # reklama spoza bieżącego korpusu
+                    self.dropped_rows += 1
+                    continue
+                self._rows.append(r)
+        stale = self.stale_runs()
+        if stale:
+            warnings.warn(f"przebiegi z innej wersji korpusu: {[r['slug'] for r in stale]}")
         self._vec_cache: dict[str, np.ndarray] = {}
 
     def runs(self) -> list[dict]:
         return [json.loads(p.read_text(encoding="utf-8"))
                 for p in sorted((self.root / "runs").glob("*.json"))]
+
+    def stale_runs(self) -> list[dict]:
+        return [r for r in self.runs()
+                if self.fingerprint and r.get("corpus_fingerprint") not in (None, self.fingerprint)]
 
     def rows(self, field=None, method=None, status="ok", ad_id=None, use_case=None):
         return [r for r in self._rows
@@ -77,19 +93,56 @@ class FeatureStore:
         best[(i,j)] = (wiersz_lewy, wiersz_prawy) - do wyjaśnienia, co się dopasowało."""
         X, rows = self.vectors(method_version, field)
         ad_ids = sorted({r["ad_id"] for r in rows})
-        if not ad_ids:
+        n = len(ad_ids)
+        if not n:
             return [], np.zeros((0, 0)), {}
         idx = {a: i for i, a in enumerate(ad_ids)}
-        C = X @ X.T
-        n = len(ad_ids)
-        S = np.full((n, n), -1.0, dtype=np.float32)
-        best = {}
         owner = np.array([idx[r["ad_id"]] for r in rows])
-        for p in range(len(rows)):
-            for q in range(len(rows)):
-                i, j = owner[p], owner[q]
-                if i != j and C[p, q] > S[i, j]:
-                    S[i, j] = C[p, q]
-                    best[(i, j)] = (rows[p], rows[q])
-        np.fill_diagonal(S, 1.0)
+        groups = [np.flatnonzero(owner == i) for i in range(n)]
+        C = X @ X.T
+        S = np.eye(n, dtype=np.float32)
+        best = {}
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                block = C[np.ix_(groups[i], groups[j])]
+                p, q = np.unravel_index(int(block.argmax()), block.shape)
+                S[i, j] = block[p, q]
+                best[(i, j)] = (rows[groups[i][p]], rows[groups[j][q]])
         return ad_ids, S, best
+
+
+# ------------------------------------------------------ porównania bez modelu --
+TFIDF_METHOD = "text/tfidf-char_wb-3-5@sklearn"
+
+
+def tfidf_similarity(texts: dict[str, str], ngram_range=(3, 5)):
+    """Domyślne podobieństwo tekstu (decyzja 2026-11-21): TF-IDF znakowy char_wb 3-5, cosine.
+    `texts`: klucz (np. ad_id lub (ad_id, source_field)) -> tekst. Słownik i IDF dopasowujemy do
+    podanego zbioru referencyjnego - zapytanie porównuj transformacją tego samego wektoryzatora
+    (zwracany `vec`), żeby nie zmieniało statystyk referencji (kontrakt: „Zapytanie nie zmienia
+    słownika tekstu”). Wymaga scikit-learn."""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    keys = [k for k, t in texts.items() if (t or "").strip()]
+    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=ngram_range, lowercase=True)
+    T = vec.fit_transform([texts[k] for k in keys])
+    return keys, (T @ T.T).toarray(), vec
+
+
+ORB_MATCH = {"norm": "hamming", "ratio": 0.75}   # parametry porównania ORB (część metody)
+
+
+def orb_good_matches(fs: "FeatureStore", ad_a: str, ad_b: str, ratio: float = ORB_MATCH["ratio"]):
+    """Liczba dopasowań ORB po teście Lowe'a między reklamami (kandydat, nie domyślne).
+    Wymaga OpenCV. Zwraca None, gdy któraś strona nie ma deskryptorów."""
+    import cv2
+    rows = {r["ad_id"]: r for r in fs.rows(field="image.orb") if r["ad_id"] in (ad_a, ad_b)}
+    if len(rows) < 2:
+        return None
+    des = []
+    for ad in (ad_a, ad_b):
+        v = rows[ad]["value"]
+        des.append(np.load(fs.root / v["array"])[v["key"]])
+    m = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(des[0], des[1], k=2)
+    return sum(1 for p in m if len(p) == 2 and p[0].distance < ratio * p[1].distance)

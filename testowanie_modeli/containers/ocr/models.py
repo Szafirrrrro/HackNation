@@ -11,7 +11,17 @@ def _norm(s: str) -> str:
     return " ".join(s.split())
 
 
+def _urls(text: str) -> Out:
+    """Domeny z OCR; brak domeny to brak śladu (unavailable), nie pusta zgodna wartość."""
+    urls = find_urls(text)
+    return Out("ocr.urls", urls, family="infrastructure") if urls else \
+        Out("ocr.urls", family="infrastructure", reason="no_url_in_ocr_text")
+
+
 class Tesseract(Extractor):
+    stage = "default"
+    decision = ("Jedyny OCR w profilu domyślnym (zgoda użytkownika 2026-11-21): p95 ~0,4 s; "
+                "wybrany ze względu na koszt, jakość (CER) niezmierzona.")
     name = "tesseract-pol-eng"
     use_case = "ocr"
     family = "text"
@@ -19,6 +29,7 @@ class Tesseract(Extractor):
     primary_field = "ocr.text"
     license = "Apache-2.0"
     notes = "Tesseract 5 LSTM, bardzo lekki"
+    params = {"lang": "pol+eng", "min_conf": 0}
 
     @property
     def version(self):
@@ -38,10 +49,13 @@ class Tesseract(Extractor):
         conf = round(float(np.mean([c for _, c in words])) / 100, 3) if words else None
         return [Out("ocr.text", text),
                 Out("ocr.confidence", conf),
-                Out("ocr.urls", find_urls(text), family="infrastructure")]
+                _urls(text)]
 
 
 class EasyOCR(Extractor):
+    stage = "deferred"
+    decision = ("Odłożone (zgoda użytkownika 2026-11-21): p95 14,5 s na CPU przekracza budżet 5 s; "
+                "zostaje Tesseract. CER nie był mierzony (brak referencji).")
     name = "easyocr-pl-en"
     use_case = "ocr"
     family = "text"
@@ -49,7 +63,9 @@ class EasyOCR(Extractor):
     primary_field = "ocr.text"
     version = "easyocr-1.7.2/craft+latin_g2"
     license = "Apache-2.0"
-    notes = "CRAFT + CRNN; quantize=False (na aarch64 kwantyzacja daje puste wyniki)"
+    notes = ("CRAFT + CRNN; paragraph=True (kolejność czytania jak w planie porównania CER); "
+             "quantize=False (na aarch64 kwantyzacja daje puste wyniki); bez ocr.confidence")
+    params = {"langs": ["pl", "en"], "paragraph": True, "quantize": False}
 
     def load(self, threads):
         import easyocr
@@ -60,17 +76,15 @@ class EasyOCR(Extractor):
 
     def extract(self, item):
         im = np.asarray(load_rgb(item.path))
-        res = self.r.readtext(im)  # [(box, text, conf)]
-        text = _norm(" ".join(t for _, t, _ in res))
-        conf = round(float(np.mean([c for *_, c in res])), 3) if res else None
-        blocks = [{"text": t, "conf": round(float(c), 3),
+        res = self.r.readtext(im, paragraph=True)  # [(box, text)] - akapity, bez pewności
+        text = _norm(" ".join(t for _, t in res))
+        blocks = [{"text": t,
                    "bbox_xyxy": [int(min(p[0] for p in b)), int(min(p[1] for p in b)),
                                  int(max(p[0] for p in b)), int(max(p[1] for p in b))]}
-                  for b, t, c in res]
+                  for b, t in res]
         return [Out("ocr.text", text),
-                Out("ocr.confidence", conf),
                 Out("ocr.blocks", blocks),
-                Out("ocr.urls", find_urls(text), family="infrastructure")]
+                _urls(text)]
 
 
 EXTRACTORS = [Tesseract(), EasyOCR()]

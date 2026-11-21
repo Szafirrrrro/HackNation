@@ -10,6 +10,7 @@ TEMPLATE = "Ten tekst dotyczy: {}."
 
 
 class Embed(Extractor):
+    # E5-small domyślnie; BGE-M3 dopiero po wykazaniu powtarzalnego błędu mniejszego modelu
     use_case = "text_embedding"
     family = "text"
     modality = "text"
@@ -17,10 +18,13 @@ class Embed(Extractor):
     license = "MIT"
     consumes_derived_text = True
 
-    def __init__(self, hf_id, prefix, notes):
+    def __init__(self, hf_id, prefix, notes, stage, decision):
         self.hf_id, self.prefix, self.notes = hf_id, prefix, notes
+        self.stage, self.decision = stage, decision
         self.name = hf_id.split("/")[-1]
         self.version = f"hf:{hf_id}"
+        self.hf_repo = hf_id
+        self.params = {"prefix": prefix, "normalize": True}
 
     def load(self, threads):
         from sentence_transformers import SentenceTransformer
@@ -32,6 +36,9 @@ class Embed(Extractor):
 
 
 class ZeroShot(Extractor):
+    stage = "deferred"
+    decision = ("Odłożone: zestaw zwraca jedną z zadanych kategorii także dla tekstu spoza listy; "
+                "dwie różne kampanie mogą reklamować leki.")
     use_case = "text_topic"
     family = "text"
     modality = "text"
@@ -43,6 +50,8 @@ class ZeroShot(Extractor):
         self.hf_id, self.notes = hf_id, notes
         self.name = hf_id.split("/")[-1]
         self.version = f"hf:{hf_id}"
+        self.hf_repo = hf_id
+        self.params = {"labels": LABELS, "template": TEMPLATE, "multi_label": False}
 
     def load(self, threads):
         from transformers import pipeline
@@ -56,8 +65,11 @@ class ZeroShot(Extractor):
 
 
 EXTRACTORS = [
-    Embed("intfloat/multilingual-e5-small", "query: ", "118M param, 384d, lekki"),
-    Embed("BAAI/bge-m3", "", "568M param, 1024d, najmocniejszy wielojęzyczny"),
+    Embed("intfloat/multilingual-e5-small", "query: ", "118M param, 384d, lekki", "candidate",
+          "Kandydat (przegląd 2026-11-21): na parafrazach hit@3 jak TF-IDF (7/7); przewaga MRR z jednego "
+          "zapytania dopasowanego po temacie, nie kampanii. Domyślnie TF-IDF char_wb 3-5 (features_lib)."),
+    Embed("BAAI/bge-m3", "", "568M param, 1024d, najmocniejszy wielojęzyczny", "deferred",
+          "Odłożone: ma sens po wykazaniu powtarzalnego błędu E5-small."),
     ZeroShot("MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli", "107M param, szybki"),
     ZeroShot("MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7", "278M param, dokładniejszy"),
 ]

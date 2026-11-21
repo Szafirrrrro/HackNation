@@ -10,6 +10,9 @@ RUN pip install scipy PyWavelets scikit-learn \
 COPY common/dl.py /app/common/dl.py
 COPY containers/ai_generated/download.py /app/uc/download.py
 RUN python /app/uc/download.py
+# kontrola kompletności wag (osobna warstwa - nie unieważnia pobranych wag)
+COPY common/ensure_weights.py /app/common/ensure_weights.py
+RUN python /app/common/ensure_weights.py
 # kod po pobraniu modeli -> zmiany kodu nie unieważniają warstwy z wagami
 COPY common /app/common
 COPY containers/ai_generated /app/uc

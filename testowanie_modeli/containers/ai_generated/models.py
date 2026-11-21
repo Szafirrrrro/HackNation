@@ -20,6 +20,8 @@ RSID_LIC = ("reverse-SynthID Research License: niekomercyjnie, atrybucja "
 
 
 class SynthIDv3(Extractor):
+    stage = "excluded"
+    decision = "Pominięte w grupowaniu: ten sam generator może służyć niezależnym kampaniom."
     name = "reverse-synthid-v3"
     use_case = "ai_generated"
     family = "visual"
@@ -42,6 +44,8 @@ class SynthIDv3(Extractor):
 
 
 class SynthIDv4(Extractor):
+    stage = "excluded"
+    decision = "Pominięte w grupowaniu: jak v3."
     name = "reverse-synthid-v4"
     use_case = "ai_generated"
     family = "visual"
@@ -68,12 +72,15 @@ class SynthIDv4(Extractor):
 
 
 class SigLIPDetector(Extractor):
+    stage = "excluded"
+    decision = "Pominięte w grupowaniu: jak reverse-SynthID."
     name = "ai-vs-human-siglip"
     use_case = "ai_generated"
     family = "visual"
     modality = "image"
     primary_field = "ai.generated"
     version = "hf:Ateeqq/ai-vs-human-image-detector"
+    hf_repo = "Ateeqq/ai-vs-human-image-detector"
     license = "Apache-2.0"
     notes = "SigLIP fine-tune, ogólny AI-vs-real"
 
