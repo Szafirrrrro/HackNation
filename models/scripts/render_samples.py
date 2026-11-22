@@ -4,8 +4,6 @@
 - images/*.png|jpg     kreacje reklamowe: tekst + twarze (zdjęcie testowe insightface t1.jpg)
                         + warianty (crop/resize/JPEG) do testu near-duplicate
 - faces/*.jpg          zdjęcia z twarzami
-- ai_generated/        obrazy Gemini (z watermarkiem) i 'cleaned' z repo reverse-SynthID
-                        kopiowane osobno przez make_samples.sh
 """
 import os
 import sys

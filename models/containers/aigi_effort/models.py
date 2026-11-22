@@ -1,7 +1,7 @@
 """Effort: wykrywanie obrazów generowanych przez AI (CLIP ViT-L/14 + ortogonalna dekompozycja SVD).
 
 Używa tych samych funkcji co `python3 training/demo.py` (load_detector, infer_single_image),
-więc wynik ekstrakcji = wynik komendy z README projektu Effort. Status `excluded`: ocena
+więc wynik ekstrakcji = wynik komendy z README projektu Effort. Poza grupowaniem (`grouping = False`): ocena
 „czy obraz jest fake” dla każdej reklamy, NIE dowód powiązania kampanii (decyzja zespołu
 i użytkownika 2026-11-21: pochodzenie obrazu poza grupowaniem).
 """
@@ -21,7 +21,8 @@ class EffortAIGI(Extractor):
     family = "visual"
     modality = "image"
     primary_field = "ai.effort"
-    stage = "excluded"
+    stage = "on_demand"
+    grouping = False
     decision = ("Wyłączone z grupowania (zgoda użytkownika 2026-11-21): ocena „czy to fake” per reklama; "
                 "ten sam generator może służyć niezależnym kampaniom.")
     license = "CC BY-NC 4.0 (kod i wagi Effort); CLIP ViT-L/14 MIT"
@@ -30,7 +31,7 @@ class EffortAIGI(Extractor):
 
     @property
     def weights(self) -> Path:
-        return WEIGHTS_DIR / os.environ.get("EFFORT_WEIGHTS", "effort_clip_L14_trainOn_sdv14.pth")
+        return WEIGHTS_DIR / (os.environ.get("EFFORT_WEIGHTS") or "effort_clip_L14_trainOn_sdv14.pth")
 
     @property
     def version(self):
@@ -51,7 +52,16 @@ class EffortAIGI(Extractor):
         sys.path.insert(0, str(EFFORT / "training"))
         import demo
         self.demo = demo
-        model = demo.load_detector("training/config/detector/effort.yaml", str(self.weights))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from fast_load import FastLoadError, load_fast
+        cfg = "training/config/detector/effort.yaml"
+        try:  # bez wczytywania CLIP i bez SVD: ok. 2 s zamiast ponad 2 min, wynik identyczny
+            self.model = load_fast(cfg, str(self.weights))
+            self.matched = f"{self.model.checkpoint_keys}/{self.model.checkpoint_keys}"
+            return
+        except Exception as e:  # noqa: BLE001 - każdy błąd szybkiej ścieżki -> oryginalny loader
+            print(f"effort: szybkie ładowanie niedostępne ({e}); używam demo.load_detector", file=sys.stderr)
+        model = demo.load_detector(cfg, str(self.weights))
         # demo.py ładuje wagi z strict=False - sprawdzamy, czy klucze faktycznie weszły
         ckpt = torch.load(str(self.weights), map_location="cpu")
         state = {k.replace("module.", ""): v for k, v in ckpt.get("state_dict", ckpt).items()}
@@ -63,8 +73,9 @@ class EffortAIGI(Extractor):
         self.model = model
 
     def extract(self, item):
-        cls, prob = self.demo.infer_single_image(load_bgr(item.path), None, None, self.model)
-        return [Out("ai.effort", {"fake_prob": round(float(prob), 4), "label": int(cls),
+        # infer_single_image zwraca logity obu klas (kształt [2]), a nie etykietę 0/1
+        logits, prob = self.demo.infer_single_image(load_bgr(item.path), None, None, self.model)
+        return [Out("ai.effort", {"fake_prob": round(float(prob), 4), "label": int(logits.argmax()),
                                   "label_meaning": "0=real, 1=fake", "weights_keys_matched": self.matched})]
 
 

@@ -1,6 +1,6 @@
 # Wspólne ustawienia skryptów (source).
 # Kolejność ma znaczenie dla extract: ocr i asr przed text (text czyta ocr.text / asr.text).
-ALL_UC=(face ocr asr image_embedding object_detection ai_generated aigi_effort text)
+ALL_UC=(face ocr asr image_embedding object_detection aigi_effort text)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Wybrane kontenery zawsze w kolejności ALL_UC; nieznana nazwa = błąd.

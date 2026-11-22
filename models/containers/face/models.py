@@ -5,47 +5,10 @@ import numpy as np
 from extractor import Extractor, Out, l2, load_bgr
 
 
-class InsightFace(Extractor):
-    stage = "deferred"
-    decision = "Odłożone: test powiązań wymaga uprawnionej bazy referencyjnej, weryfikacji wag i różnych kampanii z tą samą osobą."
-    name = "insightface-buffalo_l"
-    use_case = "face"
-    family = "visual"
-    modality = "image"
-    primary_field = "face.count"
-    version = "insightface-0.7.3/buffalo_l"
-    license = "kod MIT; wagi buffalo_l wyłącznie do niekomercyjnych badań"
-    params = {"det_size": 640}
-    notes = "RetinaFace-10GF + ArcFace R50 WebFace600K (512d) + wiek/płeć"
-
-    def load(self, threads):
-        import onnxruntime as ort
-        from insightface.app import FaceAnalysis
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = threads
-        so.inter_op_num_threads = 1
-        app = FaceAnalysis(name="buffalo_l", root="/models/insightface",
-                           providers=["CPUExecutionProvider"])
-        for m in app.models.values():  # FaceAnalysis nie przyjmuje SessionOptions
-            m.session = ort.InferenceSession(m.session._model_path, so,
-                                             providers=["CPUExecutionProvider"])
-        app.prepare(ctx_id=-1, det_size=(640, 640))
-        self.app = app
-
-    def extract(self, item):
-        faces = self.app.get(load_bgr(item.path))
-        outs = [Out("face.count", len(faces))]
-        for i, f in enumerate(faces):
-            outs.append(Out("face.embedding", {
-                "vector": l2(f.normed_embedding), "face_index": i,
-                "bbox_xyxy": [int(v) for v in f.bbox], "det_score": round(float(f.det_score), 4),
-                "age": int(f.age), "sex": f.sex}))
-        return outs
-
-
 class OpenCVFace(Extractor):
-    stage = "deferred"
-    decision = "Odłożone: jak InsightFace."
+    stage = "on_demand"
+    decision = ("Model twarzy (benchmark 2026-11-22), poza profilem domyślnym: test powiązań wymaga "
+                "uprawnionej bazy referencyjnej i różnych kampanii z tą samą osobą.")
     name = "opencv-yunet-sface"
     use_case = "face"
     family = "visual"
@@ -79,4 +42,4 @@ class OpenCVFace(Extractor):
         return outs
 
 
-EXTRACTORS = [InsightFace(), OpenCVFace()]
+EXTRACTORS = [OpenCVFace()]

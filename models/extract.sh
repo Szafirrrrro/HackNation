@@ -2,14 +2,18 @@
 # EKSTRAKCJA CECH (realne użycie). Wynik: out/features/<dataset_id>/ w formacie kontraktu
 # (docs/DATA_CONTRACT.md: Feature z ad_id, family, field, value, origin_id, method_version).
 #
-#   ./extract.sh                       # wszystkie modele na korpusie NASK
+#   ./extract.sh                       # modele domyślne na korpusie NASK
 #   ./extract.sh face ocr              # wybrane kontenery (zawsze w kolejności: ocr/asr przed text)
 #   DATA=./data/sample ./extract.sh    # inny korpus (v0 z ads.jsonl albo luźny katalog plików)
-#   MODELS=tesseract,bge-m3 ./extract.sh ocr text
+#   MODELS=tesseract,multilingual-e5-small ./extract.sh ocr text
 #
 # Zmienne: DATA (domyślnie ../data/nask-hacknation-2026), OUT (out/features),
 #          THREADS (domyślnie wszystkie rdzenie VM), MODELS (filtr nazw; ma pierwszeństwo przed profilem),
-#          PROFILE=default|eval|all (domyślnie default: modele ze statusem default), NEIGHBORS=0 wyłącza raport.
+#          PROFILE=default|all (default: modele liczone domyślnie; all: także modele na żądanie), NEIGHBORS=0 wyłącza raport,
+#          ONLY_ADS=id1,id2 (tylko te reklamy; pozostałe dostają status unavailable z powodem not_selected),
+#          DERIVED_TEXT=0 (modele tekstu liczą tylko pole text, bez ocr.text/asr.text),
+#          RESUME=1 (pomija model z udanym wynikiem dla tej samej wersji metody, korpusu i wejść;
+#          nie wykrywa zmiany kodu bez zmiany method_version).
 # Błąd kontenera lub modelu nie zatrzymuje pozostałych; skrypt kończy się wtedy kodem 1
 # i wypisuje listę nieudanych kontenerów (szczegóły w runs/<slug>.json: status, load_error).
 set -uo pipefail
@@ -29,6 +33,7 @@ for uc in $ucs; do
   # shellcheck disable=SC2046
   if ! docker run $(docker_flags "$uc") \
       -e CORPUS_HOST_PATH="$data_abs" -e MODELS="${MODELS:-}" -e THREADS="${THREADS:-}" -e PROFILE="${PROFILE:-}" \
+      -e ONLY_ADS="${ONLY_ADS:-}" -e DERIVED_TEXT="${DERIVED_TEXT:-}" -e RESUME="${RESUME:-}" -e EFFORT_WEIGHTS="${EFFORT_WEIGHTS:-}" \
       -v "$data_abs:/data:ro" -v "$out_abs:/out" \
       "tm-$uc:latest" python /app/common/main.py extract; then
     failed+=("$uc")

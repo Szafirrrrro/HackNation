@@ -155,16 +155,18 @@ class FeatureContractTest(unittest.TestCase):
     def test_profiles_select_by_stage_and_models_override(self):
         ex = self.extractor
         exts = []
-        for stage in ("default", "candidate", "deferred", "excluded"):
+        for stage in ("default", "on_demand"):
             e = ex.Extractor()
             e.name, e.stage = f"m-{stage}", stage
             exts.append(e)
+        exts[1].grouping = False
         names = lambda xs: [e.name for e in xs]
         self.assertEqual(names(self.main._select(exts, "", "default")), ["m-default"])
-        self.assertEqual(names(self.main._select(exts, "", "eval")), ["m-default", "m-candidate"])
-        self.assertEqual(len(self.main._select(exts, "", "all")), 4)
-        self.assertEqual(names(self.main._select(exts, "m-deferred", "default")), ["m-deferred"])
-        self.assertFalse(exts[3].grouping)
+        self.assertEqual(len(self.main._select(exts, "", "all")), 2)
+        self.assertEqual(names(self.main._select(exts, "m-on_demand", "default")), ["m-on_demand"])
+        with self.assertRaises(SystemExit):
+            self.main._select(exts, "", "eval")
+        self.assertFalse(exts[1].grouping)
         self.assertTrue(exts[0].grouping)
 
     def test_array_values_are_stored_and_loadable(self):
@@ -172,13 +174,13 @@ class FeatureContractTest(unittest.TestCase):
 
         class Arr(ex.Extractor):
             name, use_case, family, modality = "arr", "image_embedding", "visual", "image"
-            primary_field, version = "image.orb", "1"
+            primary_field, version = "image.keypoints", "1"
 
             def load(self, threads):
                 pass
 
             def extract(self, item):
-                return [ex.Out("image.orb", {"array": np.arange(64, dtype=np.uint8).reshape(2, 32),
+                return [ex.Out("image.keypoints", {"array": np.arange(64, dtype=np.uint8).reshape(2, 32),
                                              "n_keypoints": 2})]
 
         with TemporaryDirectory() as tmp:
@@ -188,7 +190,7 @@ class FeatureContractTest(unittest.TestCase):
             args = SimpleNamespace(data=str(data), out=str(out), threads=1)
             with patch("bench.set_threads"), patch("bench.cpu_seconds", return_value=0.0):
                 self.main.cmd_extract(args, [Arr()])
-            row = self.FeatureStore(out / "data").rows(field="image.orb")[0]
+            row = self.FeatureStore(out / "data").rows(field="image.keypoints")[0]
             self.assertEqual((row["value"]["shape"], row["value"]["dtype"], row["value"]["n_keypoints"]),
                              ([2, 32], "uint8", 2))
             arr = np.load(out / "data" / row["value"]["array"])[row["value"]["key"]]
@@ -347,7 +349,7 @@ class FeatureContractTest(unittest.TestCase):
         asr = self._asr_module()
         asr.load_audio = Mock(return_value=np.full(32000, 0.1, dtype=np.float32))
         stages = {e.name: e.stage for e in asr.EXTRACTORS if e.use_case == "asr"}
-        self.assertEqual(stages, {"faster-whisper-small-int8": "default", "faster-whisper-base-int8": "deferred"})
+        self.assertEqual(stages, {"faster-whisper-small-int8": "default", "faster-whisper-base-int8": "on_demand"})
         ext = next(e for e in asr.EXTRACTORS if e.name == "faster-whisper-small-int8")
         ext.m = Mock()
         ext.m.transcribe.return_value = (iter([]), SimpleNamespace(duration=2.0))
