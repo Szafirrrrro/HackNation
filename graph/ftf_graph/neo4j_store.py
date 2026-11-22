@@ -70,7 +70,7 @@ class Neo4jStore:
         """Czyści CAŁĄ bazę — tylko do powtarzalnych demo."""
         # CALL ... IN TRANSACTIONS działa tylko w transakcji automatycznej (session.run)
         with self.driver.session(database=self.database) as s:
-            s.run("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS").consume()
+            s.run("MATCH (n) CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS").consume()
 
     # ---------- zapis ----------
     def write(self, cards: list[Card], edges: list[Edge], res: ClusterResult,
@@ -98,7 +98,7 @@ class Neo4jStore:
                     continue
                 df = sc.df(a.key)
                 per_label[NODE_LABEL[a.kind]].append(
-                    {"ad": c.id, "value": a.value, "kind": a.kind, "ads": df, "rarity": round(sc.rarity(df), 3)})
+                    {"ad": c.id, "value": a.value, "kind": a.kind, "ads": df, "rarity": round(sc.rarity_of(a.key), 3)})
         for label, rows in per_label.items():
             self.unwind(f"""
                 UNWIND $rows AS r

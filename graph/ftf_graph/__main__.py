@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sc = Scorer(cards, Config(min_edge=a.min_edge))
     scores, edges = sc.score_all()
-    res = cluster(scores, a.min_cluster, a.min_samples)
+    res = cluster(scores, a.min_cluster, a.min_samples, min_link=a.min_edge)
     camps, label_to_id = summarize(cards, scores, res, sc)
     write_json(a.out, cards, edges, res, camps)
 

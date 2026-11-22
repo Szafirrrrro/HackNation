@@ -67,7 +67,7 @@ def analyze(raw: list[dict], min_cluster: int, min_samples: int, min_edge: float
     cards = [parse_card(r) for r in raw]
     sc = Scorer(cards, Config(min_edge=min_edge))
     scores, edges = sc.score_all()
-    res = cluster(scores, min_cluster, min_samples)
+    res = cluster(scores, min_cluster, min_samples, min_link=min_edge)
     camps, label_to_id = summarize(cards, scores, res, sc)
     camp_of = [label_to_id.get(int(lab)) if lab >= 0 else None for lab in res.labels]
     colors = {c.id: PALETTE[k % len(PALETTE)] for k, c in enumerate(camps)}

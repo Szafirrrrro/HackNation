@@ -10,6 +10,8 @@ Scenariusz testowy (wszystkie domeny w zarezerwowanej strefie .test):
                                kupione hurtem w ciągu godziny; TEŻ prezenter_A.
   * Szum                     - losowe reklamy z Cloudflare, popularnymi słowami i rozmytą
                                twarzą prezenter_A.
+Szablon (MinHash DOM): A — ten sam zestaw stron z wariacjami (Jaccard ≈ 0.8), C — prawie identyczny
+(≈ 0.94), B i szum — różne strony.
 Audio: reklamy wideo z A mają ten sam plik lektora (odcisk z drobnymi zmianami) i ten sam skrypt;
 B ma sklonowany głos prezenter_B (ten sam głos, inne nagrania); C to statyczne banery bez audio;
 część szumu ma losowe audio.
@@ -84,6 +86,18 @@ def audio(transcript, voice, voice_sigma, fp, text_emb):
             "text_embedding": text_emb}
 
 
+def rand_sig(n=128):
+    return [rng.getrandbits(32) for _ in range(n)]
+
+
+def minhash(sig, p_changed):
+    """Sygnatura MinHash wariantu szablonu: ułamek p_changed pozycji zmieniony (Jaccard dwóch
+    wariantów ≈ (1 - p_changed)²)."""
+    out = [rng.getrandbits(32) if rng.random() < p_changed else x for x in sig]
+    return {"method": "dom-shingle-minhash-v1", "k": 8, "num_perm": len(out),
+            "tokens": rng.randint(60, 400), "shingles": rng.randint(50, 380), "signature": out}
+
+
 def face(person, quality, deepfake):
     sigma = 0.03 + (1 - quality) * 0.16  # gorsza jakość -> bardziej zaszumiony wektor
     return {
@@ -97,7 +111,7 @@ def face(person, quality, deepfake):
 
 def card(ad_id, source, first_seen, status, chain, ip, asn, registrar, ns, registered,
          cert_id, san, favicon, pixel, ga, scripts, form, contacts, template, hidden,
-         ad_text, keywords, text_emb, phash, clip, faces, audio_block=None):
+         ad_text, keywords, text_emb, phash, clip, faces, audio_block=None, template_mh=None):
     for i, f in enumerate(faces):
         sim = sum(a * b for a, b in zip(f["embedding"], PERSON[f["person"]]))
         f["similarity"] = round(sim, 3)
@@ -126,6 +140,7 @@ def card(ad_id, source, first_seen, status, chain, ip, asn, registrar, ns, regis
             "form_endpoint": form,
             "contacts": contacts,
             "dom_template_hash": template,
+            "dom_template_minhash": template_mh,
             "hidden_text_hash": hidden,
         },
         "text": {"ad_text": ad_text, "ocr_text": "", "keywords": keywords, "embedding": text_emb},
@@ -138,6 +153,7 @@ def card(ad_id, source, first_seen, status, chain, ip, asn, registrar, ns, regis
 # ---------------- Kampania A ----------------
 txtA, visA = rand_vec(), rand_vec()
 fpA = rand_fp()
+sigA = rand_sig()
 finalsA = ["inwestuj-teraz.test", "zysk-orlen.test", "pasywny-dochod.test"]
 for i in range(8):
     fs = T0 + timedelta(days=i * 1.5)
@@ -154,7 +170,8 @@ for i in range(8):
         [face("prezenter_A", rng.uniform(0.6, 0.9), rng.uniform(0.5, 0.9))] if i % 2 == 0 else [],
         audio("Prezes Orlenu zdradza sekret pasywnego dochodu. Zarejestruj się dziś!", "lektor_A", 0.04,
               fp_variant(fpA, rng.randint(0, 4), rng.randint(5, 30)), near(txtA, 0.06))
-        if i % 2 == 0 else None))
+        if i % 2 == 0 else None,
+        minhash(sigA, 0.10)))
 
 # ---------------- Kampania B ----------------
 txtB, visB, phB = rand_vec(), rand_vec(), rand_phash()
@@ -171,10 +188,12 @@ for i in range(7):
         f"Znany prezenter: ten trik zmienił moje życie (wariant {i})", ["sekret", "bogactwo", "prezenter"],
         near(txtB, 0.07), phash_near(phB, rng.randint(2, 6)), near(visB, 0.06),
         [face("prezenter_B", rng.uniform(0.75, 0.95), rng.uniform(0.6, 0.95))],
-        audio(f"Ten jeden trik zmienił moje życie, wariant {i}", "glos_B", 0.05, rand_fp(), near(txtB, 0.07))))
+        audio(f"Ten jeden trik zmienił moje życie, wariant {i}", "glos_B", 0.05, rand_fp(), near(txtB, 0.07)),
+        minhash(rand_sig(), 0)))
 
 # ---------------- Kampania C ----------------
 txtC, visC, phC = rand_vec(), rand_vec(), rand_phash()
+sigC = rand_sig()
 domsC = [f"krypto-bot-{i}.test" for i in range(6)]
 bulk = T0 + timedelta(days=10, hours=14)
 for i in range(6):
@@ -187,7 +206,8 @@ for i in range(6):
         {"phones": [], "telegram": ["@krypto_wsparcie"], "crypto": []}, "dom:template-C", "hid:seo-C",
         f"Bot AI zarabia za Ciebie {500 + i * 100} zł dziennie", ["inwestycja", "bitcoin", "bot ai"],
         near(txtC, 0.06), phash_near(phC, rng.randint(3, 8)), near(visC, 0.08),
-        [face("prezenter_A", rng.uniform(0.7, 0.9), rng.uniform(0.3, 0.7))]))
+        [face("prezenter_A", rng.uniform(0.7, 0.9), rng.uniform(0.3, 0.7))],
+        None, minhash(sigC, 0.03)))
 
 # ---------------- Szum ----------------
 for i in range(6):
@@ -202,7 +222,8 @@ for i in range(6):
         {"phones": [], "telegram": [], "crypto": []}, f"dom:{rng.getrandbits(40):x}", None,
         f"Promocja dnia {i}", ["inwestycja", "promocja"], rand_vec(), rand_phash(), rand_vec(),
         [face("prezenter_A", rng.uniform(0.15, 0.35), rng.uniform(0.0, 0.4))] if i % 2 else [],
-        audio(f"Promocja dnia {i}, tylko teraz", None, 0, rand_fp(), rand_vec()) if i % 3 == 0 else None))
+        audio(f"Promocja dnia {i}, tylko teraz", None, 0, rand_fp(), rand_vec()) if i % 3 == 0 else None,
+        minhash(rand_sig(), 0) if i % 2 == 0 else None))
 
 with open("data/sample_cards.jsonl", "w", encoding="utf-8") as f:
     for c in cards:
@@ -212,6 +233,8 @@ with open("data/sample_cards.jsonl", "w", encoding="utf-8") as f:
 ex = json.loads(json.dumps(cards[0]))
 ex["text"]["embedding"] = ex["text"]["embedding"][:4] + ["..."]
 ex["visual"]["clip_embedding"] = ex["visual"]["clip_embedding"][:4] + ["..."]
+if ex["page"].get("dom_template_minhash"):
+    ex["page"]["dom_template_minhash"]["signature"] = ex["page"]["dom_template_minhash"]["signature"][:4] + ["..."]
 for fc in ex["faces"]:
     fc["embedding"] = fc["embedding"][:4] + ["..."]
 with open("data/example_card.json", "w", encoding="utf-8") as f:

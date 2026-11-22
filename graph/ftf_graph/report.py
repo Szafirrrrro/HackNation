@@ -50,7 +50,7 @@ def summarize(cards: list[Card], scores: np.ndarray, res: ClusterResult, sc: Sco
         c.sources = sorted({cards[i].source for i in mem if cards[i].source})
         c.final_domains = sorted({cards[i].final_domain for i in mem if cards[i].final_domain})
         c.persons = sorted({f.person for i in mem for f in cards[i].faces if f.person})
-        cnt = Counter(a.key for i in mem for a in cards[i].artifacts if sc.rarity(sc.df(a.key)) > 0)
+        cnt = Counter(a.key for i in mem for a in cards[i].artifacts if sc.rarity_of(a.key) > 0)
         c.shared = [(k, v) for k, v in cnt.most_common() if v >= 2]
         out.append(c)
     return out, label_to_id
