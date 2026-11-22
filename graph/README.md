@@ -329,7 +329,7 @@ Trafienia są zapisywane w `Card.trusted_hits` i `Ad.trusted_domains`. Lista **n
 
 Moduł `ftf_graph.trusted` buduje listę bezpośrednio w pamięci:
 
-1. wszystkie domeny z rankingu **Tranco**, bez limitu pozycji (`data/tranco_46YVX.csv`, format `pozycja,domena`),
+1. domeny z pierwszych **10 000** pozycji rankingu **Tranco** (`data/tranco_46YVX.csv`, format `pozycja,domena`),
 2. dodaje `data/trusted_manual.txt` (ręczne uzupełnienia: CDN-y, trackery, polskie serwisy),
 3. **usuwa platformy z treściami użytkowników** — wpisy z sekcji PRIVATE DOMAINS listy Public Suffix List
    (z pakietu `publicsuffixlist`) i każdą domenę, pod którą leży taki wpis (np. `s3.amazonaws.com` usuwa
@@ -341,9 +341,11 @@ Opcjonalny plik `data/cert_domains.txt` można dostarczyć lokalnie. Zależnoś�
 
 Nie tworzymy `data/trusted_domains.txt`. Wynik jest współdzielonym zbiorem
 w pamięci, odświeżanym po zmianie CSV, wpisów ręcznych, CERT lub PSL. Dla
-obecnych źródeł zawiera 998 855 domen po wykluczeniu 1146 platform; lokalny plik
-CERT nie jest dostępny. Własną listę tekstową można nadal podać przez
-`FTF_TRUSTED_DOMAINS=ścieżka`.
+obecnych źródeł ma mniej niż 10 000 wpisów po wykluczeniach. Wspólna polityka
+`ftf_graph.domain_policy` dodatkowo wyklucza skracacze, formularze, komunikatory,
+hosting i serwisy publikowania treści/plików użytkowników (także filesdl.top).
+Wykluczenia hosta mają pierwszeństwo przed zaufanym rodzicem, również dla listy
+podanej przez `FTF_TRUSTED_DOMAINS`. Popularność nie stanowi oceny bezpieczeństwa.
 
 Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytorium:
 
@@ -351,12 +353,9 @@ Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytor
 python tools/build_trusted_list.py --out /tmp/trusted_domains.txt
 ```
 
-Ręczny formularz URL sprawdza tę listę przed pobraniem strony. Dla domeny lub
-jej subdomeny pokazuje komunikat „Domena … jest uznawana za bezpieczną na podstawie
-listy zaufanych. Pominięto skanowanie.” Nie uruchamia scrapera, ekstrakcji ani
-nowego zapytania grafu. To klasyfikacja według lokalnej listy zaufanych.
-Sprawdzenie obejmuje wprowadzony URL; scheduler nadal używa swojej osobnej bazy
-`trusted_domains`.
+Ręczny formularz URL zawsze pobiera stronę na jawne żądanie analityka,
+niezależnie od rankingu. Nie pokazuje komunikatu o bezpieczeństwie na jego podstawie.
+Scheduler zachowuje własne reguły automatycznego pomijania pobrań.
 
 ---
 
@@ -438,10 +437,14 @@ W Browserze kliknij etykietę `Ad` w wyniku i ustaw *Caption* na `id`, żeby wid
 
 `streamlit run app.py` (zależności: `requirements-app.txt`).
 
-- **Nowa reklama:** wgranie `.json` (jedna karta albo lista kart) lub `.jsonl`, albo wybór z `data/new_ad_*.json`.
+- **Nowy materiał:** URL albo zdjęcie PNG/JPEG/WebP przez osobne formularze.
+  Wgrywanie kart JSON i wybór `data/new_ad_*.json` nie są obecnie dostępne w GUI.
   Duplikat `ad_id` dostaje przyrostek (`-2`, `-3`…). Silnik przelicza cały korpus razem z nową reklamą
   i pokazuje jej kampanię albo informację, że nie pasuje, oraz 5 najsilniejszych powiązań z listą śladów.
-  Przycisk **„Dopisz do korpusu”** dokleja kartę na koniec pliku JSONL; bez niego nic nie jest zapisywane.
+  Przycisk **„Dopisz … do prywatnego korpusu”** zapisuje kartę w ignorowanym przez Git
+  `.private-discovery/analyst/corpora/`. Źródłowy JSONL (w tym demo) pozostaje tylko
+  do odczytu. Prywatne dodatki są osobne dla każdej ścieżki korpusu i wczytują się
+  ponownie po restarcie; zapisane materiały są deduplikowane jak pozostałe rekordy.
 - **Graf** (pyvis): ◆ kampanie, ● reklamy w kolorze kampanii (szare = szum), ★ czerwona = nowa reklama.
   Krawędź ciągła = jest co najmniej jeden ślad twardy, przerywana = tylko miękkie; grubość rośnie ze score.
   Dymki pokazują szczegóły i uzasadnienie.
@@ -505,8 +508,7 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 - **Pamięć i czas:** pełna macierz N×N i HDBSCAN na niej (ok. 200 MB przy 5000 reklam); porównanie odcisków audio to pętla po parach w Pythonie, a MinHash szablonów liczy F×F porównań.
 - **Pola nieużywane w wyniku:** `favicon.phash`, `text.ocr_text`, `faces[].deepfake_score`, `cert.san`
   (tylko w Neo4j), segmenty audio. Odcisk audio musi być w `fingerprint.array` — sam `key` nie jest obsługiwany.
-- **Zaufane domeny działają na poziomie domeny.** Gdy `google.com` jest zaufane, strona na `sites.google.com`
-  nie daje śladu domenowego (inne ślady, np. `form_endpoint` ze ścieżką, nadal działają). Popularność w rankingu nie oznacza bezpieczeństwa.
+- **Zaufane domeny działają na poziomie domeny.** Hosty UGC, np. `sites.google.com`, zachowują ślad domenowy także przy zaufanym rodzicu `google.com`. Popularność w rankingu nie oznacza bezpieczeństwa.
 - **Numery kampanii** (`CMP-n`) zmieniają się między przebiegami.
 - **Brak oceny ryzyka pojedynczej reklamy** (świeża domena, Lista Ostrzeżeń CERT, deepfake) — szum HDBSCAN-a to nie to samo.
 

@@ -9,6 +9,13 @@ from unittest.mock import patch
 @unittest.skipUnless(all(find_spec(name) for name in ("streamlit", "pyvis", "plotly")),
                      "Requires graph/requirements-app.txt")
 class URLFormTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        private = patch("scamgraph.analyst_store.PRIVATE_ROOT", Path(temp.name) / "private")
+        private.start()
+        self.addCleanup(private.stop)
+
     def test_existing_url_is_highlighted_without_fetch_or_duplicate_even_when_noise_hidden(self):
         import json
         import re
@@ -65,7 +72,9 @@ class URLFormTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(int(app.metric[0].value), count + 1)
             fetch.assert_called_once()
-            rows = [json.loads(line) for line in corpus.read_text().splitlines()]
+            from scamgraph.analyst_store import private_corpus_path
+            self.assertEqual(corpus.read_bytes(), (app_file.parent / "data/sample_cards.jsonl").read_bytes())
+            rows = [json.loads(line) for line in private_corpus_path(corpus).read_text().splitlines()]
             self.assertEqual(sum(row["ad_id"].startswith("page:") for row in rows), 1)
 
     def test_page_menu_stays_in_details_and_not_in_graph_tooltip(self):
@@ -110,31 +119,19 @@ class URLFormTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertTrue(any("Brak PSL" in error.value for error in app.error))
 
-    def test_safe_domain_shows_message_and_clears_previous_query_without_fetching(self):
+    def test_popular_url_fetches_without_safety_claim(self):
         from streamlit.testing.v1 import AppTest
 
         app_file = Path(__file__).resolve().parents[1] / "graph/app.py"
-        with tempfile.TemporaryDirectory() as tmp, patch("scamgraph.url_capture.visit") as visit, patch(
-                "scamgraph.url_capture.capture") as extract:
+        with tempfile.TemporaryDirectory() as tmp, patch("scamgraph.url_capture.visit",
+                return_value={"page_id": "fixture", "status": "failed"}) as visit, patch(
+                "scamgraph.url_capture.capture", side_effect=OSError("fixture")):
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
-            count = int(app.metric[0].value)
-            app.session_state["url_capture"] = {
-                "report": {"status": "success", "content_status": "usable"}, "archive": tmp,
-                "card": {"ad_id": "page:previous", "infra": {"final_domain": "own.example"}}}
-            app.run()
-            self.assertEqual(int(app.metric[0].value), count + 1)
-            app.text_input[0].set_value("https://www.mbank.pl/")
+            app.text_input[0].set_value("https://bit.ly/x")
             app.button[0].click().run()
             self.assertFalse(app.exception)
-            self.assertTrue(any("uznawana za bezpieczną" in s.value and "www.mbank.pl" in s.value
-                                for s in app.success))
-            self.assertFalse(app.warning)
-            self.assertEqual(int(app.metric[0].value), count)
-            app.run()
-            self.assertFalse(app.exception)
-            self.assertTrue(app.success)
-            visit.assert_not_called()
-            extract.assert_not_called()
+            self.assertFalse(any("bezpieczn" in s.value for s in app.success))
+            visit.assert_called_once()
 
     def test_capture_automatically_enters_graph_alongside_separate_image_form(self):
         from streamlit.testing.v1 import AppTest

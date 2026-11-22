@@ -2,7 +2,7 @@
 """Opcjonalnie eksportuje listę TXT — listę zaufanych domen, które NIE tworzą śladów ani węzłów w grafie.
 
 Źródła i reguły:
-  1. cały ranking Tranco (https://tranco-list.eu), plik CSV "pozycja,domena", bez limitu;
+  1. pierwsze 10 000 pozycji rankingu Tranco (https://tranco-list.eu), plik CSV "pozycja,domena", limit pozycji: 10 000;
   2. ręczne uzupełnienia z data/trusted_manual.txt (CDN-y, trackery, polskie serwisy);
   3. WYKLUCZAMY platformy, na których każdy może założyć własną subdomenę (blogspot.com, github.io,
      amazonaws.com, wixsite.com...). Bierzemy je z sekcji PRIVATE DOMAINS listy Public Suffix List
@@ -53,7 +53,7 @@ def main() -> int:
     header = [
         "# WYGENEROWANE przez tools/build_trusted_list.py — nie edytuj ręcznie (zmiany w trusted_manual.txt).",
         f"# data: {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
-        f"# źródło: {Path(a.tranco).name}, cały ranking (bez limitu)  +  {Path(a.manual).name}",
+        f"# źródło: {Path(a.tranco).name}, ranking (limit pozycji: 10 000)  +  {Path(a.manual).name}",
         f"# wykluczone platformy z treściami użytkowników (Public Suffix List, private): {len(excluded_hosting)}",
         f"# wykluczone z Listy Ostrzeżeń CERT: {len(excluded_cert)}"
         + ("" if cert else "  (brak pliku CERT — pominięto)"),

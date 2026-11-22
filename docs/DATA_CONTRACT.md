@@ -208,17 +208,18 @@ host/ścieżkę dopasowujemy przy braku query i redakcji ścieżki, bez rozróż
 HTTP/HTTPS. Sama zgodność domeny nie wystarcza. Po zapisie znika aktywne zapytanie,
 a wyróżniony zostaje zapisany rekord. Nie zmienia to deduplikacji emisji silnika.
 
-Przed ręczną wizytą `capture_url` sprawdza współdzieloną listę
-`ftf_graph.trusted`: cały ranking `graph/data/tranco_46YVX.csv` bez limitu,
-ręczne wpisy i dotychczasowe wykluczenia PSL/CERT. Zbiór powstaje w pamięci
-i odświeża się po zmianie źródeł, bez zapisu wygenerowanego TXT. Jawny plik
-`FTF_TRUSTED_DOMAINS` pozostaje opcjonalnym nadpisaniem. Normalizacja hosta obejmuje
-IDNA, wielkość liter i końcową kropkę; dopasowanie obejmuje subdomeny z granicą
-etykiety DNS. Trafienie zwraca `report.status = trusted_domain`,
-`content_status = skipped`, `reason_code = trusted_domain` i `trusted_domain`
-z hostem. `archive`, `capture` i `card` mają wartość `null`. Nie powstaje wizyta
-ani zapytanie; UI pokazuje komunikat o klasyfikacji według listy zaufanych.
-Sprawdzenie dotyczy początkowego URL. Polityka bazy schedulera pozostaje osobna.
+Korekta decyzji zespołu 2026-11-22: ręczne żądanie analityka zawsze uruchamia
+pobranie, niezależnie od rankingu domen. Nie zwracamy klasyfikacji bezpieczeństwa
+na podstawie popularności. Polityka automatycznego schedulera pozostaje osobna.
+Graf ogranicza ranking do pozycji 10 000 i używa wspólnych ze schedulerem wykluczeń
+platform UGC, skracaczy, formularzy i plików oraz dotychczasowych wykluczeń PSL/CERT.
+Wykluczenia hostów mają pierwszeństwo także przed zaufanym rodzicem domeny.
+
+Korekta zapisu: przycisk **Dopisz** nigdy nie zmienia wybranego źródłowego JSONL.
+Dodaje materiał do `.private-discovery/analyst/corpora/<klucz-ścieżki-korpusu>.jsonl`,
+ignorowanego przez Git. Ten prywatny dodatek jest odczytywany z wybraną referencją
+również po restarcie. Klucz rozdziela dodatki dla różnych ścieżek korpusów.
+Pełny tekst, OCR i lokalne ścieżki pozostają prywatne, tak samo jak zapis pobrania.
 
 ### Zapytanie zdjęcia w ekranie grafu (decyzja zespołu 2026-11-22)
 

@@ -1,4 +1,4 @@
-"""Generate the full trust list while preserving existing exclusions."""
+"""Generate the limited trust list while preserving existing exclusions."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,7 +16,7 @@ class TrustedListTests(unittest.TestCase):
             manual = root / "trusted_manual.txt"
             cert = root / "cert_domains.txt"
             psl = root / "psl.dat"
-            ranking.write_text("22710,mbank.pl\n1000001,last.example\n")
+            ranking.write_text("2710,mbank.pl\n9999,last.example\n")
             manual.write_text("manual.example\n")
             psl.write_text("// ===BEGIN PRIVATE DOMAINS===\n// ===END PRIVATE DOMAINS===\n")
             with patch("graph.ftf_graph.trusted.DATA", root), patch(
@@ -25,7 +25,7 @@ class TrustedListTests(unittest.TestCase):
                 first = load_trusted()
                 self.assertEqual(first, {"mbank.pl", "last.example", "manual.example"})
                 self.assertIs(first, load_trusted())
-                ranking.write_text(ranking.read_text() + "2000000,new.example\n")
+                ranking.write_text(ranking.read_text() + "9998,new.example\n")
                 self.assertIn("new.example", load_trusted())
                 manual.write_text("manual.example\nother.example\n")
                 self.assertIn("other.example", load_trusted())
@@ -49,13 +49,13 @@ class TrustedListTests(unittest.TestCase):
             with patch.dict("os.environ", {"FTF_TRUSTED_DOMAINS": str(path)}):
                 self.assertIn("mbank.pl", load_trusted())
 
-    def test_entire_ranking_with_hosting_and_cert_exclusions(self):
+    def test_limited_ranking_with_hosting_and_cert_exclusions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "tranco.csv").write_text(
                 "rank,domain\n1,first.example\n10001,beyond-limit.example\n"
-                "22710,mbank.pl\n50000,hosting.example\n80000,blocked.example\n"
-                "1000001,last.example\n")
+                "2710,mbank.pl\n50000,hosting.example\n80000,blocked.example\n"
+                "9999,last.example\n")
             (root / "manual.txt").write_text("manual.example\nblocked.example\n")
             (root / "cert.txt").write_text("blocked.example\n")
             (root / "psl.dat").write_text(
@@ -67,5 +67,27 @@ class TrustedListTests(unittest.TestCase):
             with patch("sys.argv", args):
                 self.assertEqual(main(), 0)
             domains = {line for line in output.read_text().splitlines() if line and not line.startswith("#")}
-            self.assertEqual(domains, {"first.example", "beyond-limit.example", "mbank.pl",
+            self.assertEqual(domains, {"first.example", "mbank.pl",
                                        "last.example", "manual.example"})
+
+class UnsafePopularityRegressionTests(unittest.TestCase):
+    def test_reported_hosts_remain_domain_evidence_even_under_parent_override(self):
+        from graph.ftf_graph.card import is_trusted, parse_card
+        hosts = ["bit.ly", "t.me", "docs.google.com", "forms.gle", "x.weebly.com",
+                 "x.tilda.ws", "pastebin.com"]
+        trusted = frozenset(hosts + ["google.com", "weebly.com", "tilda.ws"])
+        for host in hosts:
+            with self.subTest(host=host):
+                self.assertFalse(is_trusted(host, trusted))
+                card = parse_card({"ad_id": host, "infra": {"final_domain": host}}, trusted=trusted)
+                self.assertTrue(any(a.kind == "domain_final" for a in card.artifacts))
+                self.assertFalse(card.trusted_hits)
+
+    def test_actual_sources_are_limited_and_do_not_suppress_reported_hosts(self):
+        from graph.ftf_graph.card import is_trusted
+        with patch.dict("os.environ", {"FTF_TRUSTED_DOMAINS": ""}):
+            trusted = load_trusted()
+        self.assertLess(len(trusted), 11_000)
+        for host in ["bit.ly", "t.me", "docs.google.com", "x.weebly.com", "x.tilda.ws",
+                     "pastebin.com", "filesdl.top"]:
+            self.assertFalse(is_trusted(host, trusted), host)

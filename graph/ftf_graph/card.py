@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterator
 
+from .domain_policy import MULTI_TENANT_HOSTS, NEVER_TRUST_BY_RANK
 from .trusted import load_trusted
 
 
@@ -107,6 +108,9 @@ SIGNAL_KINDS = 8  # liczba rodzajów w Card.signals()
 
 def is_trusted(host: str, trusted: frozenset[str]) -> bool:
     """host = domena z listy albo jej subdomena (m.youtube.com -> youtube.com)."""
+    host = host.lower().rstrip(".")
+    if any(host == d or host.endswith("." + d) for d in MULTI_TENANT_HOSTS | NEVER_TRUST_BY_RANK):
+        return False
     parts = host.split(".")
     return any(".".join(parts[k:]) in trusted for k in range(len(parts) - 1))
 

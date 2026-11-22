@@ -21,28 +21,22 @@ class URLCaptureTests(unittest.TestCase):
         self.assertEqual(existing_url_ids("https://OWN.example/old", cards), {"old"})
         self.assertEqual(existing_url_ids("https://own.example/ad", cards), {"ad"})
 
-    def test_trusted_domain_is_skipped_before_visit_and_extraction(self):
-        for url, host in (("https://mbank.pl/", "mbank.pl"),
-                          ("https://WWW.MBANK.PL./login", "www.mbank.pl")):
-            with self.subTest(url=url), patch("scamgraph.url_capture.visit") as visit, patch(
-                    "scamgraph.url_capture.capture") as extract:
-                result = capture_url(url)
-                self.assertEqual(result["report"]["status"], "trusted_domain")
-                self.assertEqual(result["report"]["trusted_domain"], host)
-                self.assertIsNone(result["archive"])
-                self.assertIsNone(result["card"])
-                visit.assert_not_called()
-                extract.assert_not_called()
-
-    def test_trust_uses_dns_boundaries_and_idna(self):
-        with patch("scamgraph.url_capture.load_trusted", return_value=frozenset({"mbank.pl", "xn--bcher-kva.example"})), patch(
-                "scamgraph.url_capture.visit", return_value={"page_id": "untrusted", "status": "failed"}) as visit, patch(
-                "scamgraph.url_capture.capture", side_effect=OSError("fixture")):
-            self.assertEqual(capture_url("https://BÜCHER.example/")["report"]["status"], "trusted_domain")
-            visit.assert_not_called()
-            for url in ("https://mbank.pl.evil.example/", "https://fake-mbank.pl/", "https://own.example/"):
-                self.assertEqual(capture_url(url)["report"]["status"], "failed")
-            self.assertEqual(visit.call_count, 3)
+    def test_explicit_url_always_visits_including_popular_and_ugc_hosts(self):
+        urls = ["https://mbank.pl/", "https://WWW.MBANK.PL./login", "https://bit.ly/x",
+                "https://t.me/x", "https://docs.google.com/forms/d/x", "https://forms.gle/x",
+                "https://x.weebly.com/", "https://x.tilda.ws/", "https://pastebin.com/x",
+                "https://filesdl.top/", "https://BÜCHER.example/"]
+        with tempfile.TemporaryDirectory() as tmp, patch(
+                "scamgraph.url_capture.visit", return_value={"page_id": "fixture", "status": "failed"}) as visit, patch(
+                "scamgraph.url_capture.capture", side_effect=OSError("fixture")) as extract:
+            for url in urls:
+                with self.subTest(url=url):
+                    result = capture_url(url, Path(tmp))
+                    self.assertEqual(result["report"]["status"], "failed")
+                    self.assertIsNotNone(result["archive"])
+                    self.assertIsNone(result["card"])
+            self.assertEqual(visit.call_count, len(urls))
+            self.assertEqual(extract.call_count, len(urls))
 
     def test_page_projection_uses_observed_pixels_and_saved_scripts(self):
         from scamgraph.capture import capture, read_json, write_json

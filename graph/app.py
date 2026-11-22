@@ -21,10 +21,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pyvis.network import Network
 
-# Share the same trusted-domain cache with the URL adapter in both launch modes.
+# Make repository adapters available in both launch modes.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from scamgraph.analyst_store import private_corpus_path, append_private_card
 
 from graph.ftf_graph.card import SIGNAL_KINDS, parse_card
 from graph.ftf_graph.cluster import cluster
@@ -168,6 +170,14 @@ with st.sidebar:
 corpus = (read_jsonl(corpus_path, Path(corpus_path).stat().st_mtime)
           if Path(corpus_path).is_file() else [])
 
+try:
+    private_path = private_corpus_path(corpus_path)
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+if private_path.is_file():
+    corpus += read_jsonl(str(private_path), private_path.stat().st_mtime)
+
 st.subheader("Przechwyć stronę z linku")
 st.caption("Wklej adres strony. Po pobraniu dane automatycznie trafią do analizy i na graf.")
 with st.form("capture-url"):
@@ -194,8 +204,8 @@ if fetch_page:
 if result := st.session_state.get("url_capture"):
     report = result["report"]
     if report.get("status") == "trusted_domain":
-        st.success(f"Domena {report['trusted_domain']} jest uznawana za bezpieczną "
-                   "na podstawie listy zaufanych. Pominięto skanowanie.")
+        st.warning("Pobranie zostało pominięte przez wcześniejszą wersję aplikacji. "
+                   "Wyślij URL ponownie. Ranking domen nie potwierdza bezpieczeństwa strony.")
     else:
         if report.get("status") == "success" and report.get("content_status") == "usable":
             st.success("Strona została przechwycona.")
@@ -386,12 +396,15 @@ for nid in sorted(new_ids):
         st.caption("Ten URL już jest w bazie danych.")
     elif nid == existing_image_id:
         st.caption("To zdjęcie jest już zapisane w korpusie; ponowny import nie dodaje kopii.")
-    elif st.button(f"Dopisz {nid} do korpusu ({corpus_path})", key=f"save-{nid}"):
+    elif st.button(f"Dopisz {nid} do prywatnego korpusu", key=f"save-{nid}"):
         saved = dict(next(c for c in new_raw if c["ad_id"] == nid))
         if saved.get("provenance", {}).get("record_kind") == "image_query":
             saved["provenance"] = {**saved["provenance"], "record_kind": "image_reference"}
-        with open(corpus_path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(saved, ensure_ascii=False) + "\n")
+        try:
+            append_private_card(corpus_path, saved)
+        except (OSError, ValueError) as exc:
+            st.error(f"Nie zapisano materiału: {exc}")
+            st.stop()
         st.toast(f"Dopisano {nid}. Martwych reklam nie usuwamy — korpus tylko rośnie.")
         if image_result.get("card") and cards[i].image_sha256:
             st.session_state.pop("image_analysis", None)

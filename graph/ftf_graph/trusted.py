@@ -1,10 +1,14 @@
-"""Trusted domains derived in memory from the complete local Tranco ranking."""
+"""Trusted domains derived in memory from the limited local Tranco ranking."""
 from __future__ import annotations
 
 import csv
 import os
 from functools import lru_cache
 from pathlib import Path
+
+from .domain_policy import MULTI_TENANT_HOSTS, NEVER_TRUST_BY_RANK
+
+MAX_RANK = 10_000
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -22,7 +26,8 @@ def read_tranco(path: Path) -> list[str]:
         for row in csv.reader(fh):
             if len(row) < 2 or not row[0].strip().isdigit():
                 continue  # nagłówek albo pusty wiersz
-            out.append(row[1].strip().lower())
+            if 0 < int(row[0]) <= MAX_RANK:
+                out.append(row[1].strip().lower())
     return out
 
 
@@ -60,7 +65,11 @@ def ancestors(domains: set[str]) -> set[str]:
 
 def build_trusted(tranco: Path, manual: Path, cert: Path, psl: Path | None = None) -> frozenset[str]:
     candidates = set(read_tranco(tranco)) | set(read_list(manual))
-    return frozenset(candidates - ancestors(psl_private(psl)) - set(read_list(cert)))
+    excluded = ancestors(psl_private(psl) | MULTI_TENANT_HOSTS | NEVER_TRUST_BY_RANK)
+    blocked = set(read_list(cert))
+    excluded |= blocked
+    return frozenset(d for d in candidates if not any(
+        ".".join(d.split(".")[k:]) in excluded for k in range(len(d.split(".")) - 1)))
 
 
 def _stamp(path: Path):

@@ -15,6 +15,9 @@ class ImageFormTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        private = patch("scamgraph.analyst_store.PRIVATE_ROOT", self.root / "private-corpora")
+        private.start()
+        self.addCleanup(private.stop)
         self.refs = self.root / "references"
         self.refs.mkdir()
         (self.refs / "source.png").write_bytes(picture())
@@ -79,7 +82,9 @@ class ImageFormTests(unittest.TestCase):
         save = next(b for b in self.app.button if b.label.startswith("Dopisz image:"))
         save.click().run()
         self.assertFalse(self.app.exception)
-        rows = [json.loads(line) for line in corpus_file.read_text().splitlines()]
+        from scamgraph.analyst_store import private_corpus_path
+        self.assertEqual(corpus_file.read_bytes(), sample.read_bytes())
+        rows = [json.loads(line) for line in private_corpus_path(corpus_file).read_text().splitlines()]
         self.assertEqual(sum(r["ad_id"].startswith("image:") for r in rows), 1)
         self.assertFalse(any(b.label.startswith("Dopisz image:") for b in self.app.button))
         self.submit(picture())
