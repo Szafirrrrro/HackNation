@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 # Domyślna ścieżka do listy rankingowej (np. Tranco) w projekcie.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RANKING_LIST_PATH = PROJECT_ROOT / "data" / "tranco_top.csv"
-DEFAULT_RANKING_MAX_RANK = 100_000
+DEFAULT_RANKING_MAX_RANK = 5_000
 
 # Platformy hostingowe / UGC / kreatorzy stron, gdzie wysoka pozycja eTLD+1 w rankingu
 # dotyczy samej platformy, a nie pojedynczej strony/subdomeny użytkownika.
