@@ -163,10 +163,37 @@ Testy: `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_db`. Ka
 - `card` i `raw_record` dostają nowy wiersz przy każdej nowej obserwacji reklamy, bo karta zawiera `last_seen` i `provenance`. To zamierzona historia.
 - Jedna baza obsługuje jeden katalog stanu. Dwa katalogi z tym samym trybem (np. `scripts/e2e_pipeline.py` z produkcyjnym `DATABASE_URL`) nadpisują sobie `ad`, `feed_export` i `latest_run`. Testy i e2e uruchamiaj na osobnej bazie.
 
+### Zegar scrapera i Streamlit na bazie
+
+Zegar (`python -m scamgraph.discovery --config <plik> timer`, z ustawionym `DATABASE_URL`) ma dwa niezależne interwały:
+
+| Interwał | Co robi | Ustawienie |
+| --- | --- | --- |
+| scrapowanie | Przebieg każdego źródła. Po zakończeniu przebiegu (i po każdej wizycie strony) zegar od razu eksportuje karty do `graph/<tryb>.jsonl` i do `card_current`. | `interval_seconds` w konfiguracji albo `control --scrape-minutes` (nadpisuje też wartości per źródło) |
+| graf | Pełna przebudowa: eksport i `update_campaigns`, czyli nowy `engine_run`. Identyczne wejście nie tworzy nowego przebiegu. | `graph_interval_seconds` w konfiguracji (domyślnie 3 s, jak dotąd) albo `control --graph-minutes` |
+
+Pauza wstrzymuje nowe przebiegi źródeł i wizyty stron. Trwające przebiegi kończą się normalnie, a przebudowa grafu działa dalej. Ustawienia operatora leżą w `<state_dir>/timer-control.json`, a zegar odczytuje je co takt (ok. 0,35 s). Stan zegara zapisuje w `<state_dir>/timer-status.json`.
+
+```bash
+python -m scamgraph.discovery --config discovery.json control --scrape-minutes 5 --graph-minutes 6
+python -m scamgraph.discovery --config discovery.json control --pause      # stop
+python -m scamgraph.discovery --config discovery.json control --resume     # start
+python -m scamgraph.discovery --config discovery.json control --graph-now  # przebuduj graf teraz
+```
+
+W `graph/app.py` wybierz źródło „Baza PostgreSQL (scraper)”. Jest ono domyślne, gdy ustawiono `DATABASE_URL`. Aplikacja czyta karty wybranego trybu z `card_current` z tymi samymi kontrolami co plik JSONL. Graf liczy na żywo według suwaków, a w panelu bocznym pokazuje ostatni eksport i ostatni przebieg silnika. Auto-odświeżanie sprawdza rewizję zbioru (`feed_export`, ostatni `engine_run`) i przeładowuje stronę po zmianie. Panel „Zegar scrapera” ma przyciski Start i Stop, interwały oraz „Przebuduj graf teraz”. Panel nie uruchamia procesu zegara. Gdy zegar nie działa, pokazuje polecenie do uruchomienia. Plik konfiguracji domyślnie wskazuje `SCAMGRAPH_DISCOVERY_CONFIG` albo `discovery.json`. W trybie bazy nie ma dopisywania do prywatnego korpusu, bo bazę zasila scraper.
+
+```bash
+DATABASE_URL=postgresql://... python -m scamgraph.discovery --config discovery.json timer
+DATABASE_URL=postgresql://... SCAMGRAPH_DISCOVERY_CONFIG=discovery.json streamlit run graph/app.py
+```
+
+Testy: `tests.test_timer_control` (bez bazy) i `tests.test_database_source_app` (z `TEST_DATABASE_URL`).
+
 ### Jeszcze niezrobione
 
 - `page_capture` istnieje, ale nie jest zapełniana. Zapisy stron trafiają do bazy tylko przez kartę.
-- Główne wejścia panelu i CLI korzystają z plików. Podłączenie `latest_run` i przechowywanie zamrożonej referencji oraz odpowiedzi na zapytania w PostgreSQL pozostają do wdrożenia.
+- Panel schedulera i CLI korzystają z plików. Podłączenie `latest_run` i przechowywanie zamrożonej referencji oraz odpowiedzi na zapytania w PostgreSQL pozostają do wdrożenia.
 - Wyszukiwanie wektorowe pgvector i tabele `feature` oraz `embedding` pozostają po MVP.
 
 ## Otwarte decyzje

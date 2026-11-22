@@ -22,6 +22,7 @@ from scamgraph.analyst_store import private_corpus_path, append_private_card, re
 from scamgraph.analyst_corpus import AnalystCorpus, identify_corpus, load_analyst_corpus, source_stamp
 from scamgraph.analyst_timeline import card_events, event
 from scamgraph import image_query
+from scamgraph import db as pgdb
 from models.common.import_rows import deduplicate_rows
 
 from graph.ftf_graph.card import parse_card
@@ -29,12 +30,14 @@ from graph.ftf_graph.matching import build_reference
 from graph.ftf_graph.presentation import card_tooltip
 from graph.ftf_graph.scoring import Config
 from graph.ftf_graph.trusted import load_trusted
+from graph import database_source
 
 PALETTE = ["#1F77B4", "#2CA02C", "#9467BD", "#FF7F0E", "#17BECF", "#8C564B",
            "#E377C2", "#BCBD22", "#393B79", "#637939", "#8C6D31", "#7B4173"]
 NOISE_COLOR = "#B8B8B8"
 NEW_COLOR = "#E8112D"
 NOISE_LABEL = "bez kampanii"
+DB_SOURCE = "Baza PostgreSQL (scraper)"
 BOOTSTRAP_TAGS = re.compile(
     r'<link\b[^>]*\bhref="https://cdn\.jsdelivr\.net/npm/bootstrap@[^\"]*"[^>]*>'
     r'|<script\b[^>]*\bsrc="https://cdn\.jsdelivr\.net/npm/bootstrap@[^\"]*"[^>]*>\s*</script>'
@@ -248,8 +251,27 @@ st.title("Follow the Fake — mapa kampanii")
 
 with st.sidebar:
     st.header("Korpus")
-    source_mode = st.radio("Źródło referencji", ["Demo syntetyczne", "Korpus organizatora NASK", "Korpus lokalny"])
-    if source_mode == "Korpus lokalny":
+    source_modes = ["Demo syntetyczne", "Korpus organizatora NASK", "Korpus lokalny", DB_SOURCE]
+    source_mode = st.radio("Źródło referencji", source_modes, index=3 if pgdb.enabled() else 0,
+                           help="Baza: karty, które scraper zapisuje do PostgreSQL (DATABASE_URL).")
+    dataset = None
+    if source_mode == DB_SOURCE:
+        selected = ""
+        if not pgdb.enabled():
+            st.error("Ustaw DATABASE_URL przed uruchomieniem Streamlit, np. "
+                     "postgresql://scamgraph:haslo@127.0.0.1:5432/scamgraph")
+        else:
+            try:
+                available = dict(database_source.datasets())
+            except Exception as exc:  # brak bazy, zły adres, brak uprawnień
+                st.error(f"Nie mogę połączyć się z bazą: {type(exc).__name__}: {exc}")
+                available = None
+            if available:
+                dataset = st.selectbox("Tryb scrapera (dataset)", list(available),
+                                       format_func=lambda d: f"{d} ({available[d]} kart)")
+            elif available is not None:
+                st.warning("Baza nie ma jeszcze kart. Uruchom zegar scrapera z ustawionym DATABASE_URL.")
+    elif source_mode == "Korpus lokalny":
         selected = st.text_input("Ścieżka korpusu", placeholder="Katalog, manifest.json, ads.jsonl, pages.jsonl lub karty JSONL")
     elif source_mode == "Korpus organizatora NASK":
         selected = str(image_query.DEFAULT_REFERENCES)
@@ -258,7 +280,7 @@ with st.sidebar:
     if selected:
         st.caption(str(Path(selected).expanduser()))
 
-selection_key = (source_mode, selected)
+selection_key = (source_mode, selected, dataset)
 if st.session_state.get("reference_selection", selection_key) != selection_key:
     for key in ("image_analysis", "url_capture", "url_lookup", "corpus_import", "engine_reference"):
         st.session_state.pop(key, None)
@@ -266,7 +288,14 @@ st.session_state["reference_selection"] = selection_key
 
 imported = AnalystCorpus("bez referencji")
 corpus_path = None
-if selected.strip():
+if dataset:
+    try:
+        imported = database_source.load_corpus(dataset)
+    except Exception as exc:
+        st.error(f"Nie udało się wczytać kart z bazy: {type(exc).__name__}: {exc}")
+elif source_mode == DB_SOURCE:
+    st.info("Wybierz zbiór z bazy PostgreSQL w panelu bocznym.")
+elif selected.strip():
     try:
         source = identify_corpus(Path(selected).expanduser())
         stamp = source_stamp(source)
@@ -294,6 +323,19 @@ with st.sidebar:
             st.warning(f"Problemy importu: {len(problems)}")
         with st.expander(f"Raport importu · powtórzenia: {len(duplicates)}"):
             st.json(imported.report)
+    if dataset:
+        try:
+            if caption := database_source.last_run_caption(dataset):
+                st.caption(caption + ". Graf poniżej silnik liczy na żywo z suwaków.")
+        except Exception as exc:
+            st.caption(f"Brak informacji o przebiegu: {type(exc).__name__}")
+        refresh = st.toggle("Auto-odświeżanie z bazy", True, key="database-refresh")
+        if refresh:
+            every = st.number_input("Sprawdzaj bazę co (s)", 5, 3600, 30, 5, key="database-refresh-seconds")
+            database_source.watch(dataset, int(every))
+    if source_mode == DB_SOURCE:
+        with st.expander("Zegar scrapera (start/stop, interwały)", expanded=False):
+            database_source.scraper_controls()
 
 try:
     private_path = private_corpus_path(corpus_path) if corpus_path else None
