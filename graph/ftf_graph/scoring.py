@@ -8,7 +8,7 @@ Intuicja: każdy wspólny ślad to niezależna "szansa", że dwie reklamy mają 
 Wynik jest zawsze w [0, 1], a każdy składnik s_i trafia do listy uzasadnień krawędzi.
 
 Ślad TWARDY  = ta sama wartość (wspólny węzeł-artefakt). Siła = waga rodzaju × rzadkość.
-Ślad MIĘKKI  = podobieństwo w stopniu 0..1 (wektory, pHash, bliskość dat rejestracji,
+Ślad MIĘKKI  = podobieństwo w stopniu 0..1 (wektory, pHash, MinHash szablonu, bliskość dat rejestracji,
                głos lektora, przybliżone porównanie odcisku audio).
 
 Pary-kandydaci są wybierane wektorowo (numpy): wspólny nie-hubowy artefakt (indeks odwrotny)
@@ -50,7 +50,8 @@ KIND_LABEL_PL = {
 # "text" łączy narrację z tekstu reklamy i z lektora (to ta sama informacja: o czym mówi reklama).
 GROUP = {"domain_hop": "domain", "domain_final": "domain",
          "phone": "contact", "telegram": "contact", "crypto": "contact",
-         "transcript": "text", "audio_text": "text"}
+         "transcript": "text", "audio_text": "text",
+         "template": "template", "template_sim": "template"}
 
 
 @dataclass
@@ -68,6 +69,10 @@ class Config:
         "person": 0.0,  # osoba łączy się MIĘKKO przez embedding twarzy (z wagą jakości)
     })
     max_df_frac: float = 0.30  # artefakt w >30% reklam to "hub" (Cloudflare, Google Fonts) -> ignoruj
+    # Ślady tożsamościowe należą do jednego operatora bez względu na to, w ilu reklamach występują:
+    # nie podlegają karze za popularność ani progowi huba (rzadkość = 1, gdy df >= 2).
+    identity_kinds: frozenset[str] = frozenset(
+        {"tracking_id", "form_endpoint", "phone", "telegram", "crypto", "audio_fp"})
 
     # ramp(x, lo, hi) = 0 poniżej lo, 1 powyżej hi, liniowo pomiędzy
     w_text: float = 0.60; text_lo: float = 0.75; text_hi: float = 0.95
@@ -75,6 +80,8 @@ class Config:
     w_phash: float = 0.60; phash_good: int = 4; phash_bad: int = 12     # bity różnicy z 64
     w_face: float = 0.50; face_lo: float = 0.45; face_hi: float = 0.85  # × min(jakość) -> twarz sama ≤ 0.5
     w_regburst: float = 0.50; regburst_window_h: float = 2.0            # hurtowa rejestracja domen
+    # podobny szablon strony: szacowany Jaccard z sygnatur MinHash (odsetek zgodnych pozycji)
+    w_template_sim: float = 0.55; tmpl_lo: float = 0.50; tmpl_hi: float = 0.90
     # audio
     w_audio_text: float = 0.60                                           # progi jak dla tekstu (text_lo/hi)
     w_voice: float = 0.45; voice_lo: float = 0.55; voice_hi: float = 0.80  # głos sam ≤ 0.45 (klony głosu celebrytów)
@@ -156,8 +163,16 @@ class Scorer:
     def df(self, key: str) -> int:
         return len(self.index.get(key, ()))
 
+    def rarity_of(self, key: str) -> float:
+        """Rzadkość artefaktu o danym kluczu "rodzaj|wartość" z uwzględnieniem śladów tożsamościowych."""
+        kind = key.split("|", 1)[0]
+        df = self.df(key)
+        if kind in self.cfg.identity_kinds:
+            return 1.0 if df >= 2 else 0.0
+        return self.rarity(df)
+
     def rarity(self, df: int) -> float:
-        """0..1: artefakt w 2 reklamach ≈ 1, hub albo unikat = 0."""
+        """0..1: artefakt w 2 reklamach ≈ 1, hub albo unikat = 0 (dla rodzajów nie-tożsamościowych)."""
         n = self.n
         if df <= 1 or n <= 2 or df > self.cfg.max_df_frac * n:
             return 0.0
@@ -172,7 +187,7 @@ class Scorer:
         # --- TWARDE: indeks odwrotny, tylko artefakty nie-hubowe ---
         for key, ads in self.index.items():
             kind, value = key.split("|", 1)
-            s = cfg.base.get(kind, 0.2) * self.rarity(len(ads))
+            s = cfg.base.get(kind, 0.2) * self.rarity_of(key)
             if s <= 0.005:
                 continue
             det = f"{KIND_LABEL_PL.get(kind, kind)}: {value} (występuje w {len(ads)} reklamach)"
@@ -250,6 +265,30 @@ class Scorer:
                     best[pair] = (s, f"ta sama twarz{who}, cos={S[x, y]:.2f}, jakość min={q[x, y]:.2f}")
             for pair, (s, det) in best.items():
                 reasons[pair].append(Reason("face", "face", False, s, det))
+
+        # podobny szablon strony (MinHash): Jaccard ≈ odsetek zgodnych pozycji sygnatury.
+        # "Hubowy" szablon (prawie identyczny z ponad max_df_frac korpusu, np. domyślny motyw kreatora
+        # stron) nie jest dowodem — tak jak hubowy artefakt.
+        by_scheme: dict[str, list[int]] = defaultdict(list)
+        for i, c in enumerate(self.cards):
+            if c.template_minhash:
+                by_scheme[c.template_minhash_scheme].append(i)
+        for ads in by_scheme.values():
+            if len(ads) < 2:
+                continue
+            M = np.array([self.cards[i].template_minhash for i in ads], dtype=np.uint32)
+            J = np.zeros((len(ads), len(ads)))
+            for x in range(len(ads)):  # wiersz po wierszu, żeby nie budować tablicy F×F×num_perm
+                J[x] = (M == M[x]).mean(axis=1)
+            near_copies = (J >= cfg.tmpl_hi).sum(axis=1) - 1
+            hub = near_copies > cfg.max_df_frac * n
+            for x, y in zip(*np.nonzero(np.triu(J > cfg.tmpl_lo, k=1))):
+                if hub[x] or hub[y]:
+                    continue
+                i, j = ads[x], ads[y]
+                reasons[(i, j)].append(Reason(
+                    "template", "template_sim", False, cfg.w_template_sim * float(ramp(J[x, y], cfg.tmpl_lo, cfg.tmpl_hi)),
+                    f"podobny szablon strony (MinHash, Jaccard≈{J[x, y]:.2f})"))
 
         # hurtowa rejestracja: ten sam rejestrator i bliskie daty
         by_reg: dict[str, list[int]] = defaultdict(list)

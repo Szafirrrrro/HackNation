@@ -11,6 +11,9 @@ nic o sobie nie mówią.
 Zaufane domeny (data/trusted_domains.txt, np. youtube.com) nie tworzą artefaktów: wspólne przejście
 przez YouTube niczego nie dowodzi. Lista trafionych zaufanych domen zostaje w karcie (trusted_hits).
 
+Szablon strony: dom_template_hash (identyczny szablon) to artefakt; dom_template_minhash (sygnatura MinHash
+shingli DOM) służy do śladu miękkiego "podobny szablon" — ten sam zestaw do budowy stron z drobnymi zmianami.
+
 Audio (opcjonalne pole "audio"): odcisk audio i transkrypcja to artefakty (węzły :AudioFingerprint,
 :Transcript); embedding głosu, embedding transkrypcji i sam odcisk (porównanie przybliżone) to ślady miękkie.
 """
@@ -72,6 +75,9 @@ class Card:
     speaker_emb: list[float] = field(default_factory=list)
     audio_fp: list[int] = field(default_factory=list)  # odcisk audio (np. Chromaprint), wartości jako uint32
     audio_duration: float | None = None
+    # --- szablon strony: MinHash shingli DOM (podobny, nie identyczny szablon) ---
+    template_minhash: list[int] = field(default_factory=list)
+    template_minhash_scheme: str = ""  # "metoda|k|num_perm" — porównujemy tylko sygnatury tego samego schematu
     trusted_hits: list[str] = field(default_factory=list)  # zaufane domeny pominięte jako ślady
     artifacts: list[Artifact] = field(default_factory=list)  # posortowane, bez duplikatów
     raw: dict[str, Any] = field(default_factory=dict)
@@ -83,7 +89,8 @@ class Card:
         checks = {
             "domeny": bool(kinds & {"domain_hop", "domain_final"}),
             "infrastruktura": bool(kinds & {"ip", "cert", "nameserver", "favicon"}),
-            "śledzenie/skrypty": bool(kinds & {"tracking_id", "script", "form_endpoint", "template", "hidden_text"}),
+            "śledzenie/skrypty": bool(kinds & {"tracking_id", "script", "form_endpoint", "template", "hidden_text"})
+                                 or bool(self.template_minhash),
             "kontakty": bool(kinds & {"phone", "telegram", "crypto"}),
             "tekst": bool(self.text_emb),
             "wygląd": bool(self.clip_emb) or self.phash is not None,
@@ -132,8 +139,14 @@ def _strs(obj: dict, key: str) -> list[str]:
 
 
 def _vec(obj: dict, key: str) -> list[float]:
+    """Wektor liczb. Jeśli zawiera cokolwiek innego (np. skrót "..." z plików podglądowych),
+    jest traktowany jako brak wektora — inaczej powstałby krótszy wektor o złym wymiarze."""
     v = obj.get(key)
-    return [float(x) for x in v if isinstance(x, (int, float))] if isinstance(v, list) else []
+    if not isinstance(v, list) or not v:
+        return []
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+        return []
+    return [float(x) for x in v]
 
 
 def _num(obj: dict, key: str, default: float = 0.0) -> float:
@@ -254,6 +267,13 @@ def parse_card(j: dict, trusted: frozenset[str] | None = None) -> Card:
     for v in _strs(contacts, "crypto"):
         add("crypto", v)
     add("template", _s(page, "dom_template_hash"))
+    mh = _d(page, "dom_template_minhash")
+    sig = mh.get("signature")
+    if isinstance(sig, list) and sig and all(isinstance(x, int) and not isinstance(x, bool) for x in sig):
+        num_perm = mh.get("num_perm")
+        if not isinstance(num_perm, int) or num_perm == len(sig):
+            c.template_minhash = [x & 0xFFFFFFFF for x in sig]
+            c.template_minhash_scheme = f"{_s(mh, 'method')}|{mh.get('k')}|{len(sig)}"
     add("hidden_text", _s(page, "hidden_text_hash"))
 
     # --- treść i obraz ---

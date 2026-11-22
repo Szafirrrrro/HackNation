@@ -51,6 +51,8 @@ u["infra"]["rdap"] = {"registered": "2026-11-17T09:00:00Z", "registrar": "Regist
 u["infra"]["cert"] = {"id": "crt-usmiech-nowy", "san": [dom]}
 u["infra"]["favicon"]["mmh3"] = 99887766
 u["page"].update(form_endpoint=f"{dom}/form.php", dom_template_hash="dom:nowy", script_hashes=["sha:nowy"])
+if u["page"].get("dom_template_minhash"):  # inna strona -> inna sygnatura szablonu
+    u["page"]["dom_template_minhash"]["signature"] = [rng.getrandbits(32) for _ in range(128)]
 u["text"]["ad_text"] = "Prezenter wyznaje: ten sekret dał mi niezależność"
 u["text"]["embedding"] = jitter(u["text"]["embedding"])
 u["visual"]["clip_embedding"] = jitter(u["visual"]["clip_embedding"])
@@ -73,6 +75,7 @@ n["infra"].update(redirect_chain=[dom], final_domain=dom)
 n["infra"]["dns"] = {"ip": "203.0.113.7", "asn": "AS64500"}
 n["infra"]["cert"] = {"id": "crt-inna", "san": [dom]}
 n["page"]["form_endpoint"] = f"{dom}/kontakt"
+n["page"]["dom_template_minhash"] = None
 n["text"]["ad_text"] = "Wyprzedaż rowerów"
 n["text"]["embedding"] = jitter([rng.gauss(0, 1) for _ in n["text"]["embedding"]], 0)
 n["visual"]["clip_embedding"] = jitter([rng.gauss(0, 1) for _ in n["visual"]["clip_embedding"]], 0)

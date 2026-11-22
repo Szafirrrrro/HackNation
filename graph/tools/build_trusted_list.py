@@ -4,8 +4,13 @@
 Źródła i reguły:
   1. ranking Tranco (https://tranco-list.eu), plik CSV "pozycja,domena" — bierzemy czołówkę (--top);
   2. ręczne uzupełnienia z data/trusted_manual.txt (CDN-y, trackery, polskie serwisy);
-  3. WYKLUCZAMY platformy, na których każdy może założyć własną subdomenę (blogspot.com, github.io,amazonaws.com, wixsite.com...). Bierzemy je z sekcji PRIVATE DOMAINS listy Public Suffix List(https://publicsuffix.org, plik dołączony do pakietu `publicsuffixlist`). Domena jest wykluczona,jeśli sama jest na tej liście albo jakikolwiek wpis z listy leży pod nią (np. s3.amazonaws.comwyklucza amazonaws.com). Na takich platformach nazwa subdomeny jest śladem oszusta;
-  4. WYKLUCZAMY domeny z Listy Ostrzeżeń CERT Polska (--cert, plik domains.txt), jeśli jest podany.Pobierz:  curl -o data/cert_domains.txt https://hole.cert.pl/domains/v2/domains.txt
+  3. WYKLUCZAMY platformy, na których każdy może założyć własną subdomenę (blogspot.com, github.io,
+     amazonaws.com, wixsite.com...). Bierzemy je z sekcji PRIVATE DOMAINS listy Public Suffix List
+     (https://publicsuffix.org, plik dołączony do pakietu `publicsuffixlist`). Domena jest wykluczona,
+     jeśli sama jest na tej liście albo jakikolwiek wpis z listy leży pod nią (np. s3.amazonaws.com
+     wyklucza amazonaws.com). Na takich platformach nazwa subdomeny jest śladem oszusta;
+  4. WYKLUCZAMY domeny z Listy Ostrzeżeń CERT Polska (--cert, plik domains.txt), jeśli jest podany.
+     Pobierz:  curl -o data/cert_domains.txt https://hole.cert.pl/domains/v2/domains.txt
 
 Użycie:
   python tools/build_trusted_list.py                                   # domyślne ścieżki, top 10 000

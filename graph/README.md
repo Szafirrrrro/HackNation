@@ -103,8 +103,9 @@ Legenda: **T** = artefakt, z którego powstaje ślad twardy (i węzeł w Neo4j) 
 | `page.contacts.phones[]` | **T** `phone` | normalizacja: `+48 123-456-789` → `+48123456789` |
 | `page.contacts.telegram[]` | **T** `telegram` | normalizacja: `https://t.me/X`, `t.me/X`, `@X` → `@x` |
 | `page.contacts.crypto[]` | **T** `crypto` | bez normalizacji |
-| `page.dom_template_hash` | **T** `template` | |
-| `page.dom_template_minhash` | — | odcisk `dom-shingle-minhash-v1` z `scamgraph` (podobieństwo szablonu, nie równość); scorer go jeszcze nie czyta — zachowany w `Card.raw`, zob. [kontrakt](../docs/DATA_CONTRACT.md) |
+| `page.dom_template_hash` | **T** `template` | identyczny szablon |
+| `page.dom_template_minhash.signature` | **M** `template_sim` | podobny szablon; porównywane tylko sygnatury tego samego schematu (`method`, `k`, liczba pozycji); gdy `num_perm` jest podane, musi być równe długości sygnatury |
+| `page.dom_template_minhash.tokens`, `.shingles` | — | |
 | `page.hidden_text_hash` | **T** `hidden_text` | |
 | `text.keywords[]` | **T** `keyword` | małe litery |
 | `text.embedding` | **M** `text` | |
@@ -124,7 +125,8 @@ Legenda: **T** = artefakt, z którego powstaje ślad twardy (i węzeł w Neo4j) 
 | `extensions`, `extraction` | — | zachowane w `Card.raw` |
 
 Wszystkie wektory jednego rodzaju (np. każdy `speaker_embedding` w korpusie) muszą mieć ten sam wymiar,
-inaczej analiza kończy się błędem `embeddingi mają różne wymiary`.
+inaczej analiza kończy się błędem `embeddingi mają różne wymiary`. Wektor, w którym jest cokolwiek poza
+liczbami (np. skrót `"..."` z plików podglądowych jak `example_card.json`), jest traktowany jak brak wektora.
 
 ---
 
@@ -138,7 +140,16 @@ rzadkość(df) = log(N/df) / log(N/2)         N  = liczba reklam w korpusie
 rzadkość = 0, gdy df ≤ 1, N ≤ 2 albo df > 0.30·N  ("hub", Config.max_df_frac)
 ```
 
-Artefakt w 2 reklamach ma rzadkość 1.0, w ponad 30% korpusu — 0. Ślady o sile ≤ 0.005 są pomijane.
+Artefakt w 2 reklamach ma rzadkość 1.0, w ponad 30% korpusu — 0. Chroni to przed wspólnymi „dworcami”
+(IP Cloudflare'a, popularne słowa kluczowe).
+
+**Wyjątek — ślady tożsamościowe** (`Config.identity_kinds`: `tracking_id`, `form_endpoint`, `phone`, `telegram`,
+`crypto`, `audio_fp`) mają rzadkość 1.0 dla df ≥ 2, bez kary za popularność i bez progu huba. Należą do
+jednego operatora bez względu na to, w ilu reklamach występują. Bez tego wyjątku kampania obejmująca ponad
+30% korpusu traciła własny piksel i telefon (sprawdzone: 9. reklama z pikselem kampanii A łączyła się
+tylko z 5 z 8 reklam).
+
+Ślady o sile ≤ 0.005 są pomijane.
 
 | Rodzaj | Waga | | Rodzaj | Waga |
 |---|---|---|---|---|
@@ -168,6 +179,7 @@ Artefakt w 2 reklamach ma rzadkość 1.0, w ponad 30% korpusu — 0. Ślady o si
 | `voice` | `voice` | `0.45 × ramp(cos, 0.55, 0.80)` | oba `speaker_embedding` |
 | `audio_fp_sim` | `audio_fp` | `0.80 × ramp(1 − BER, 0.65, 0.85)` | BER = odsetek różnych bitów odcisku, najlepszy z przesunięć ±8 ramek, nakładka ≥ połowa krótszego |
 | `regburst` | `regburst` | `0.50 × (1 − Δh / 2)` | ten sam `registrar` i daty rejestracji różne o mniej niż 2 h |
+| `template_sim` | `template` | `0.55 × ramp(J, 0.50, 0.90)` | J = odsetek zgodnych pozycji sygnatur MinHash (szacowany Jaccard); pomijane, gdy któraś strona jest prawie identyczna (J ≥ 0.90) z ponad 30% korpusu — taki szablon to „hub”, np. domyślny motyw kreatora stron |
 
 Twarz daje najwyżej 0.5, a głos najwyżej 0.45. Ten sam wizerunek lub sklonowany głos celebryty pojawia się
 w wielu niezależnych kampaniach, więc sam nie może skleić dwóch reklam.
@@ -183,6 +195,7 @@ Pozostałe są dopisywane w opisie jako `[+N podobnych śladów w tej grupie]`. 
 | `contact` | `phone`, `telegram`, `crypto` |
 | `text` | `text`, `audio_text`, `transcript` |
 | `audio_fp` | `audio_fp` (twardy), `audio_fp_sim` (miękki) |
+| `template` | `template` (twardy), `template_sim` (miękki) |
 
 Każdy inny rodzaj jest swoją własną grupą. Siły najsilniejszych śladów z różnych grup łączymy wzorem noisy-OR:
 
@@ -266,7 +279,7 @@ docelowych, reklamy, osoby i 5 najczęstszych wspólnych artefaktów; lista rekl
 
 ```json
 {"a": "A00", "b": "A02", "score": 1.0,
- "reasons": [{"kind": "audio_fp_sim", "hard": false, "strength": 0.8, "detail": "bardzo podobne nagranie audio (2% różnych bitów odcisku)"}, ...]}
+ "reasons": [{"kind": "form_endpoint", "hard": true, "strength": 0.9, "detail": "formularz wysyła dane pod ten sam adres: api.leadbox-a.test/submit (występuje w 8 reklamach)"}, ...]}
 ```
 
 **`out/campaigns.json`** — `campaigns` (dla każdej: `campaign`, `size`, `mean_edge_score`, `first_seen`,
@@ -346,14 +359,14 @@ W Browserze kliknij etykietę `Ad` w wyniku i ustaw *Caption* na `id`, żeby wid
 
 | Grupa | Reklamy | Co je łączy |
 |---|---|---|
-| A | 8 | różne domeny frontowe → wspólny pośrednik `track-hub.test`; wspólny piksel, endpoint formularza, telefon, skrypt; co druga ma twarz `prezenter_A` oraz to samo nagranie lektora (odcisk z drobnymi zmianami) i ten sam skrypt |
+| A | 8 | różne domeny frontowe → wspólny pośrednik `track-hub.test`; wspólny piksel, endpoint formularza, telefon, skrypt; podobny szablon (MinHash, J ≈ 0.8); co druga ma twarz `prezenter_A` oraz to samo nagranie lektora (odcisk z drobnymi zmianami) i ten sam skrypt |
 | B | 7 | **brak wspólnej infrastruktury**; ta sama twarz `prezenter_B`, podobny tekst, grafika (pHash, CLIP) i sklonowany głos |
-| C | 6 | wspólny certyfikat, favicon, szablon, ukryty tekst, GA, skrypt, Telegram, serwery nazw; domeny zarejestrowane w odstępach 7 min; twarz `prezenter_A`; bez audio |
+| C | 6 | wspólny certyfikat, favicon, szablon (identyczny hash i MinHash J ≈ 0.94), ukryty tekst, GA, skrypt, Telegram, serwery nazw; domeny zarejestrowane w odstępach 7 min; twarz `prezenter_A`; bez audio |
 | N | 6 | szum: wspólny IP Cloudflare z grupą A, popularne słowa, losowe treści; część z rozmytą twarzą `prezenter_A`, część z losowym audio |
 
 Wynik (`python -m ftf_graph data/sample_cards.jsonl`): **3 kampanie** (A, B, C), **6 reklam szumu**,
-88 krawędzi. Między A i C są 24 krawędzie oparte **wyłącznie na twarzy** (score do 0.40), a wewnątrz kampanii
-średnio 0.96 (A), 0.90 (B) i 1.00 (C), więc HDBSCAN ich nie skleja.
+88 krawędzi; ten sam wynik daje `hdbscan` i `sklearn`. Między A i C są 24 krawędzie oparte **wyłącznie na
+twarzy** (score do 0.44), a wewnątrz kampanii średnio 1.00 (A), 0.93 (B) i 1.00 (C), więc HDBSCAN ich nie skleja.
 
 `tools/make_new_ad_examples.py` tworzy 3 nowe reklamy: `new_ad_krypto.json` trafia do kampanii C (favicon,
 szablon, Telegram), `new_ad_usmiech.json` do kampanii B (twarz, głos, tekst, bez wspólnej infrastruktury),
@@ -384,9 +397,11 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 ## Znane ograniczenia
 
 - **Wagi i progi są dobrane ręcznie.** Lepiej je wyuczyć (np. regresją logistyczną na ręcznie oznaczonych parach reklam).
-- **Rzadkość karze też ślady tożsamościowe.** Piksel wspólny dla 8 z 27 reklam dostaje tylko 0.9 × 0.47 ≈ 0.42,
-  a kampania obejmująca ponad 30% korpusu straciłaby wszystkie swoje ślady twarde (próg huba).
-- **Pamięć i czas:** pełna macierz N×N i HDBSCAN na niej (ok. 200 MB przy 5000 reklam); porównanie odcisków audio to pętla po parach w Pythonie.
+- **Próg huba nadal dotyczy śladów nie-tożsamościowych.** Kampania obejmująca ponad 30% korpusu traci wspólne
+  IP, favicon, szablon czy certyfikat (piksel, telefon, endpoint itp. zostają dzięki wyjątkowi).
+- **Wyjątek tożsamościowy ma koszt:** jeśli niezwiązane reklamy podają ten sam publiczny numer (np. infolinię banku),
+  zostaną mocno połączone. Takie wartości trzeba wtedy wykluczyć ręcznie.
+- **Pamięć i czas:** pełna macierz N×N i HDBSCAN na niej (ok. 200 MB przy 5000 reklam); porównanie odcisków audio to pętla po parach w Pythonie, a MinHash szablonów liczy F×F porównań.
 - **Pola nieużywane w wyniku:** `favicon.phash`, `text.ocr_text`, `faces[].deepfake_score`, `cert.san`
   (tylko w Neo4j), segmenty audio. Odcisk audio musi być w `fingerprint.array` — sam `key` nie jest obsługiwany.
 - **Zaufane domeny działają na poziomie domeny.** Gdy `google.com` jest zaufane, strona na `sites.google.com`

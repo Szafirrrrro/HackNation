@@ -9,20 +9,5 @@ services:
     volumes:
       - neo4j_data:/data
 
-  # Baza ScamGraph (docs/BAZA_DANYCH.md). Schemat zakłada scamgraph.db przy pierwszym połączeniu.
-  # Domyślne hasło wystarcza lokalnie (port tylko na 127.0.0.1); inne ustaw w graph/.env: POSTGRES_PASSWORD=...
-  # Potem: export DATABASE_URL=postgresql://scamgraph:scamgraph@localhost:5432/scamgraph
-  postgres:
-    image: pgvector/pgvector:pg17
-    ports:
-      - "127.0.0.1:5432:5432"   # tylko lokalnie
-    environment:
-      POSTGRES_USER: scamgraph
-      POSTGRES_DB: scamgraph
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scamgraph}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
 volumes:
   neo4j_data:
-  postgres_data:
