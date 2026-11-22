@@ -1,0 +1,107 @@
+<style>
+    body { margin: 0; color: #ededeb; background: #161616; }
+    h1:empty { display: none; }
+    #mynetwork {
+        border: 0;
+        background-image: radial-gradient(circle, #393939 0.75px, transparent 1px),
+                          radial-gradient(ellipse at 30% 70%, #202923 0%, transparent 65%),
+                          radial-gradient(ellipse at 82% 12%, #242329 0%, transparent 60%);
+        background-size: 23px 23px, auto, auto;
+    }
+    div.vis-tooltip, #popup {
+        background: #222; color: #ededeb; border: 1px solid #535353;
+        border-radius: 8px; padding: 9px 11px; font: 12px/1.5 "Segoe UI", sans-serif;
+        white-space: pre-wrap; max-width: min(28rem, 80vw); overflow-wrap: anywhere;
+    }
+    body:has(.node-inspector article:not([hidden])) :is(div.vis-tooltip, #popup) { display: none; }
+    .node-inspector {
+        position: absolute; z-index: 2; inset: 12px 12px auto auto;
+        width: min(19rem, calc(100% - 24px)); pointer-events: none;
+        font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+    }
+    .node-inspector :is(select, button, article) { pointer-events: auto; }
+    .node-inspector select {
+        display: block; margin-left: auto; max-width: 100%;
+        padding: 7px 10px; border: 1px solid #4b4b4b; border-radius: 8px;
+        background: #202020; color: #ededeb; color-scheme: dark; font: inherit;
+    }
+    .node-inspector article {
+        margin-top: 8px; padding: 14px 15px; max-height: min(19rem, calc(100vh - 82px)); overflow: auto;
+        border: 1px solid #454545; border-top: 2px solid var(--node-accent, #5cf2ca);
+        border-radius: 12px; background: linear-gradient(160deg, #2c2e2d, #1b1b1b 66%);
+        box-shadow: 0 8px 28px #101010cc; overflow-wrap: anywhere;
+    }
+    .node-inspector header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .node-inspector button {
+        border: 1px solid #505050; border-radius: 7px;
+        padding: 3px 8px; color: #ededeb; background: #252525; font: inherit; cursor: pointer;
+    }
+    .node-inspector :is(button, select):focus-visible { outline: 2px solid #5cf2ca; outline-offset: 2px; }
+    #node-kind { color: var(--node-accent); font-size: 12px; }
+    #node-title { margin: 7px 0; font-size: 16px; }
+    #node-details { margin: 0; color: #c9c9c6; white-space: pre-line; }
+</style>
+<aside class="node-inspector" aria-label="Inspektor grafu" hidden>
+    <select id="node-picker" aria-label="Wybierz węzeł grafu">
+        <option value="">Wybierz węzeł</option>
+    </select>
+    <article aria-labelledby="node-title" hidden>
+        <header>
+            <span id="node-kind"></span>
+            <button type="button" id="node-close" aria-label="Zamknij szczegóły węzła">×</button>
+        </header>
+        <div aria-live="polite">
+            <h2 id="node-title"></h2>
+            <p id="node-details"></p>
+        </div>
+    </article>
+</aside>
+<script>
+    (() => {
+        const inspector = document.querySelector(".node-inspector");
+        const picker = document.getElementById("node-picker");
+        const card = inspector.querySelector("article");
+        let activeNode = null;
+        if (!network || nodes.length === 0) return;
+
+        for (const node of nodes.get()) {
+            picker.add(new Option(node.label.split("\n")[0], node.id));
+        }
+        inspector.hidden = false;
+
+        function showNode(id) {
+            const node = id === null ? null : nodes.get(id);
+            activeNode = node ? node.id : null;
+            picker.value = activeNode ?? "";
+            card.hidden = !node;
+            if (!node) return;
+
+            const [title, ...details] = node.title.split("\n");
+            card.style.setProperty("--node-accent", node.detailColor);
+            document.getElementById("node-kind").textContent = node.detailKind;
+            document.getElementById("node-title").textContent = title;
+            document.getElementById("node-details").textContent = details.join("\n");
+            card.scrollTop = 0;
+        }
+
+        function closeCard() {
+            network.unselectAll();
+            showNode(null);
+            picker.focus();
+        }
+
+        picker.addEventListener("change", () => {
+            if (picker.value === "") {
+                closeCard();
+                return;
+            }
+            network.selectNodes([picker.value]);
+            showNode(picker.value);
+        });
+        network.on("click", ({nodes: selected}) => showNode(selected[0] ?? null));
+        document.getElementById("node-close").addEventListener("click", closeCard);
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && activeNode !== null) closeCard();
+        });
+    })();
+</script>

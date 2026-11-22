@@ -51,7 +51,7 @@ python -m pip install -r graph/requirements-app.txt
 python -m streamlit run graph/app.py
 ```
 
-W polu **Adres strony (HTTP lub HTTPS)** wklej publiczny URL i kliknij
+Otwórz **Dodaj materiał** i wybierz kartę **Przechwyć stronę**. W polu **Adres strony (HTTP lub HTTPS)** wklej publiczny URL i kliknij
 **Przechwyć stronę**. Formularz wywołuje `scamgraph.url_capture.capture_url`,
 który korzysta z tego samego `landing_visit.visit` co wyszukiwanie live,
 a następnie z istniejącej ekstrakcji `capture`. Nie potrzebuje schedulera ani tokenu Meta.
@@ -65,9 +65,9 @@ Oryginalny zapis trafia do `.private-discovery/analyst/pages/<id>/`,
 a pakiet do dalszej analizy do `.private-discovery/analyst/captures/<capture_id>/`.
 Ekran pokazuje screenshot i raport. JSON z ekstrakcji jest automatycznie
 przekształcany w kartę zapytania i przekazywany do tego samego silnika co korpus.
-Przy analizie URL nie trzeba wgrywać pliku. Zdjęcia mają osobny formularz poniżej.
+Przy analizie URL nie trzeba wgrywać pliku. Formularz zdjęć znajduje się obok, w karcie **Nowa reklama**.
 Źródłowe pliki nadal są zachowane w prywatnym katalogu.
-Podpowiedź węzła na grafie pokazuje tytuł, domenę, krótki fragment treści bez
+Po kliknięciu węzła karta szczegółów pokazuje tytuł, domenę, krótki fragment treści bez
 nawigacji oraz sygnały. Fragment ma limit 180 znaków i zawijane wiersze. Pełny
 tekst nowej strony jest dostępny w rozwijanych szczegółach „Pełny tekst strony”.
 To skrót prezentacji; treść źródłowa i dane dopasowania pozostają bez zmian.
@@ -88,7 +88,7 @@ w [zadaniu NASK, pkt 3](../docs/NASK_ZADANIE.md).
 
 Formularz przyjmuje pojedynczy PNG, JPEG lub WebP do 20 MiB i 32 mln pikseli. SHA-256 identyfikuje plik, pHash64 opisuje wygląd po korekcji EXIF. OCR korzysta z Windows.Media.Ocr albo lokalnego Tesseract z językiem polskim lub angielskim. Przy niedostępnym OCR pozostaje porównanie obrazu. Zapis prywatny przechowuje oryginalne bajty i lokalizatory cech.
 
-Wskaż w panelu bocznym zbiór odniesienia. Wbudowane demo zawiera wyłącznie przykłady syntetyczne. Korpus NASK i pliki lokalne analizuje się po ich wyborze. Wgraj zdjęcie lub podaj tekst, opcjonalnie wskaż znany adres celu, a następnie wybierz **Porównaj reklamę**. Wynik pokazuje osobno kopie pliku, decyzję o kampanii, dostępne porównania i brakujące rodzaje danych. Zapis przyciskiem **Dopisz** tworzy prywatny dodatek do wybranego korpusu, poza plikami źródłowymi.
+Wskaż w panelu bocznym zbiór odniesienia i otwórz **Dodaj materiał**. W karcie **Nowa reklama** wgraj wymagane zdjęcie i w razie potrzeby dodaj tekst, wskaż jego pochodzenie lub podaj znany adres celu. Kliknij **Porównaj reklamę**. Wynik pokazuje kopie pliku, decyzję o kampanii, dostępne porównania i brakujące rodzaje danych. Po użyciu **Wróć do przeglądu** na grafie widać zgłoszenie na tle referencji. Zapis przyciskiem **Dopisz** tworzy prywatny dodatek do wybranego korpusu, poza plikami źródłowymi.
 
 Testy dla tego wejścia: `python -m unittest discover -s tests -p 'test_image_query*.py'` z katalogu głównego.
 

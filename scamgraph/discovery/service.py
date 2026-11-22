@@ -16,7 +16,6 @@ from ..media import AUDIO, IMAGES, VIDEO
 from .control import apply_control
 from .types import SourceError
 
-from .cta import PLATFORM_HOSTS, caption_url, destination, own_text, target_identity//
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "discovery.json"
 
 

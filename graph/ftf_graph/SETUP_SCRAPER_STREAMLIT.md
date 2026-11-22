@@ -29,7 +29,7 @@ export POSTGRES_PASSWORD='HackNation123'
 docker compose -f graph/docker-compose.yml up -d postgres
 ```
 
-- Błąd `address already in use` dla portu 5432 oznacza, że w systemie działa już inny Postgres. W `graph/docker-compose.yml` zmień `127.0.0.1:5432:5432` na `127.0.0.1:5433:5432` i użyj portu 5433 poniżej.
+- Compose udostępnia PostgreSQL lokalnie na porcie 5433. Gdy ten port jest zajęty, zmień port hosta w `graph/docker-compose.yml` oraz w `DATABASE_URL`.
 - `password authentication failed` oznacza, że baza powstała wcześniej z innym hasłem. Załóż ją od nowa, co usuwa jej dane: `docker compose -f graph/docker-compose.yml down -v`, a potem powtórz krok 2.
 
 Sprawdzenie:

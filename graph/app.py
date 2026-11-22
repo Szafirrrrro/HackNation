@@ -1,14 +1,17 @@
-"""Follow the Fake — lokalny demonstrator dla analityka (Streamlit)."""
+"""ScamGraph — lokalny demonstrator dla analityka (Streamlit)."""
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from dataclasses import replace
 import hashlib
+from html import escape
+from itertools import accumulate
 from pathlib import Path
 import re
 import sys
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 from pyvis.network import Network
@@ -32,18 +35,32 @@ from graph.ftf_graph.scoring import Config
 from graph.ftf_graph.trusted import load_trusted
 from graph import database_source
 
-PALETTE = ["#1F77B4", "#2CA02C", "#9467BD", "#FF7F0E", "#17BECF", "#8C564B",
-           "#E377C2", "#BCBD22", "#393B79", "#637939", "#8C6D31", "#7B4173"]
-NOISE_COLOR = "#B8B8B8"
-NEW_COLOR = "#E8112D"
+PALETTE = ["#5CF2CA", "#85A7FF", "#FBC46B", "#D69BFF", "#F98ABB", "#F7A389",
+           "#40CEDF", "#BDD773", "#E8888D", "#84D284", "#9F9CFF", "#EBA6CC"]
+NOISE_COLOR = "#9DA9B8"
+NEW_COLOR = "#FF92B5"
+PAGE_COLOR = "#52D9F5"
 NOISE_LABEL = "bez kampanii"
 DB_SOURCE = "Baza PostgreSQL (scraper)"
+PAGE_LABEL = "Zapis strony"
+TIMELINE_STEPS = (
+    ("triangle-up", "▲", "Publikacja", ("Publikacja",)),
+    ("square", "■", "Pozyskanie lub zapis strony", ("Pozyskanie", "Obserwacja strony",
+     "Obserwacja powiązanej strony", "Obserwacja w schedulerze")),
+    ("circle", "●", "Pierwsza obserwacja lub wykrycie", ("Pierwsza obserwacja", "Pierwsze wykrycie")),
+    ("circle-open", "○", "Ostatnia obserwacja lub wykrycie", ("Ostatnia obserwacja", "Ostatnie wykrycie")),
+    ("cross", "✚", "Ekstrakcja", ("Ekstrakcja",)),
+    ("diamond", "◆", "Różne rodzaje zdarzeń tego samego dnia", ()),
+)
+EVENT_SYMBOL = {kind: symbol for symbol, _, _, kinds in TIMELINE_STEPS for kind in kinds}
+GRAPH_INSPECTOR = Path(__file__).with_name("node-inspector.html").read_text(encoding="utf-8")
 BOOTSTRAP_TAGS = re.compile(
     r'<link\b[^>]*\bhref="https://cdn\.jsdelivr\.net/npm/bootstrap@[^\"]*"[^>]*>'
     r'|<script\b[^>]*\bsrc="https://cdn\.jsdelivr\.net/npm/bootstrap@[^\"]*"[^>]*>\s*</script>'
 )
 
-st.set_page_config(page_title="Follow the Fake — kampanie", layout="wide")
+st.set_page_config(page_title="ScamGraph · Mapa kampanii", layout="wide")
+st.html(Path(__file__).with_name("analyst.css"))
 
 
 def with_unique_ids(new: list[dict], taken: set[str]) -> list[dict]:
@@ -65,19 +82,43 @@ def standalone_page(raw):
     return raw.get("provenance", {}).get("record_kind") == "page_capture"
 
 
+def save_material(corpus_path, raw):
+    saved = dict(raw)
+    provenance = saved.get("provenance", {})
+    if provenance.get("record_kind") == "image_query":
+        saved["provenance"] = {**provenance, "record_kind": "image_reference"}
+    try:
+        append_private_card(corpus_path, saved)
+    except (OSError, ValueError) as exc:
+        st.session_state["analyst_save_error"] = (
+            provenance.get("record_kind"), f"Nie zapisano materiału: {exc}"
+        )
+        return
+    st.toast(f"Dopisano {saved['ad_id']} do prywatnego korpusu.")
+    if provenance.get("source") == "upload":
+        st.session_state.pop("image_analysis", None)
+    if provenance.get("record_kind") == "page_capture":
+        st.session_state.pop("url_capture", None)
+
+
 # ---------------------------------------------------------------- graf
 def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar, show_noise, height,
                      hidden: set[str] = frozenset()) -> str:
-    net = Network(height=f"{height}px", width="100%", bgcolor="#FFFFFF", cdn_resources="in_line")
-    net.barnes_hut(gravity=-6000, central_gravity=0.3, spring_length=110, spring_strength=0.03)
+    net = Network(height=f"{height}px", width="100%", bgcolor="#161616", cdn_resources="in_line")
+    net.barnes_hut(gravity=-2200, central_gravity=0.55, spring_length=110, spring_strength=0.04,
+                   overlap=0.65)
+    net.set_edge_smooth("continuous")
     present: set[str] = set()
 
     for c in camps:
         nid = f"camp:{c.id}"
-        net.add_node(nid, label=f"{c.id}\n{len(c.members)} reklam", shape="diamond", size=34,
-                     color=colors[c.id], font={"size": 18, "bold": True},
-                     title=(f"{c.id}: {len(c.members)} reklam\n"
-                            f"aktywne {c.alive} / martwe {c.dead}\nwizerunek: {', '.join(c.persons) or '—'}"))
+        color = colors[c.id]
+        net.add_node(nid, label=f"{c.id}\n{len(c.members)} reklam", shape="diamond", size=29,
+                     color=color, detailColor=color, detailKind="Kampania",
+                     shadow={"enabled": True, "color": color + "66", "size": 17, "x": 0, "y": 0},
+                     font={"color": "#ECECEA", "face": "Segoe UI, sans-serif", "size": 18},
+                     title=(f"{c.id}\n{len(c.members)} reklam\n"
+                            f"Aktywne: {c.alive} · martwe: {c.dead}\nWizerunek: {', '.join(c.persons) or '—'}"))
         present.add(nid)
 
     for i, card in enumerate(cards):
@@ -85,13 +126,20 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
         is_page = standalone_page(card.raw)
         if card.id in hidden or (cid is None and not show_noise and not (is_new or is_page)):
             continue
-        color = "#008279" if is_page else colors.get(cid, NOISE_COLOR)
+        color = PAGE_COLOR if is_page else colors.get(cid, NOISE_COLOR)
+        kind = PAGE_LABEL if is_page else "Reklama"
+        accent = NEW_COLOR if is_new else color
         net.add_node(card.id, label=("★ " if is_new else "") + card.id,
-                     shape="star" if is_new else ("square" if is_page else "dot"), size=30 if is_new else 14,
-                     color={"background": color, "border": NEW_COLOR if is_new else color},
-                     borderWidth=4 if is_new else 1,
-                     font={"color": NEW_COLOR if is_new else "#333333", "size": 16 if is_new else 12},
-                     title=card_tooltip(card, "Zapis strony" if is_page else cid or NOISE_LABEL))
+                     shape="star" if is_new else ("square" if is_page else "dot"), size=26 if is_new else 12,
+                     color={"background": accent, "border": accent,
+                            "highlight": {"background": accent, "border": "#F4F9FF"}},
+                     detailColor=accent, detailKind=f"Zgłoszenie · {kind.lower()}" if is_new else kind,
+                     shadow={"enabled": bool(is_new or cid or is_page), "color": accent + "77",
+                             "size": 11, "x": 0, "y": 0},
+                     borderWidth=2 if is_new else 1,
+                     font={"color": NEW_COLOR if is_new else "#D3DEE9",
+                           "face": "Segoe UI, sans-serif", "size": 16 if is_new else 13},
+                     title=card_tooltip(card, PAGE_LABEL if is_page else cid or NOISE_LABEL))
         present.add(card.id)
         if cid:
             net.add_edge(card.id, f"camp:{cid}", color=color, width=1.5, dashes=is_new,
@@ -105,10 +153,12 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
         if not (show_similar or touches_new):
             continue
         reasons = "\n".join(f"{'[TWARDY]' if r.hard else '[MIĘKKI]'} +{r.strength:.2f} {r.detail}" for r in e.reasons)
-        net.add_edge(a, b, width=1 + 5 * e.score, dashes=not e.has_hard,
-                     color=NEW_COLOR if touches_new else "#9A9A9A",
+        net.add_edge(a, b, width=1 + 2.5 * e.score, dashes=not e.has_hard,
+                     color=NEW_COLOR if touches_new else "#536476",
+                     physics=camp_of[e.a] == camp_of[e.b],
                      title=f"SIMILAR {a} – {b}: score {e.score:.2f}\n{reasons}")
     html = BOOTSTRAP_TAGS.sub("", net.generate_html())
+    html = html.replace("</body>", GRAPH_INSPECTOR + "\n</body>", 1)
     # pyvis switches to a custom HTML popup when any title contains "href".
     # Captured titles remain text in that template too, including literal markup.
     return html.replace("popup.innerHTML = nodeData[0].title;", "popup.innerText = nodeData[0].title;").replace(
@@ -119,10 +169,19 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
 # ---------------------------------------------------------------- oś czasu
 def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, hidden):
     scope = st.selectbox("Kampania na osi czasu", ["Wszystkie kampanie", *(c.id for c in camps)])
+    with st.expander("Jak czytać oś czasu"):
+        st.markdown(
+            "1. Wybierz kampanię z listy. Każda linia pokazuje, ile zdarzeń odnotowano do danego dnia UTC.\n"
+            "2. Najedź na oznaczony krok, aby zobaczyć liczbę zdarzeń i ich rodzaje.\n"
+            "3. Otwórz tabelę **Zdarzenia i źródła dat**, aby odczytać dokładne wartości i ich pochodzenie."
+        )
+        steps = "".join(f'<li><span aria-hidden="true">{glyph}</span>{label}</li>'
+                        for _, glyph, label, _ in TIMELINE_STEPS)
+        st.html(f'<ul class="analyst-step-guide" aria-label="Ikony zdarzeń">{steps}</ul>')
     camp_by_id, seen = {}, []
     missing, missing_publication = [], []
     for i, card in enumerate(cards):
-        cid = "Zapis strony" if standalone_page(card.raw) else camp_of[i] or NOISE_LABEL
+        cid = PAGE_LABEL if standalone_page(card.raw) else camp_of[i] or NOISE_LABEL
         if card.id in hidden or (cid == NOISE_LABEL and not show_noise and card.id not in new_ids):
             continue
         if scope != "Wszystkie kampanie" and scope != cid:
@@ -139,29 +198,62 @@ def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, h
         for page in pages:
             label = f"Strona · {page.id}"
             value, source = page.captured_at
-            camp_by_id[label] = "Zapis strony"
+            camp_by_id[label] = PAGE_LABEL
             if item := event(label, "Obserwacja strony", value, source):
                 seen.append(item)
             else:
                 missing.append(label)
-    dated = [{"materiał": row.record_id, "rodzaj": row.kind, "czas UTC": row.instant,
-              "wartość źródłowa": row.value, "źródło": row.source, "kampania": camp_by_id[row.record_id]}
-             for row in seen if row.instant is not None]
-    if dated:
-        frame = pd.DataFrame(dated).sort_values("czas UTC")
-        fig = px.scatter(frame, x="czas UTC", y="materiał", color="kampania", symbol="rodzaj",
-                         color_discrete_map={**colors, NOISE_LABEL: NOISE_COLOR, "Zapis strony": "#008279"},
-                         hover_data={"czas UTC": False, "wartość źródłowa": True, "źródło": True})
-        fig.update_traces(marker={"size": 10})
-        fig.update_layout(height=max(320, 19 * len(camp_by_id) + 140), margin={"l": 10, "r": 10, "t": 30, "b": 10})
-        st.plotly_chart(fig, width="stretch")
+    daily = defaultdict(lambda: defaultdict(Counter))
+    for row in seen:
+        if row.instant is not None:
+            daily[camp_by_id[row.record_id]][row.instant.date()][row.kind] += 1
+    if daily:
+        st.caption("Łączna liczba zdarzeń narastająco. Dokładne daty i pola źródłowe znajdziesz pod wykresem.")
+        fig = go.Figure()
+        days = sorted({day for counts in daily.values() for day in counts})
+        for name, color in {**colors, PAGE_LABEL: PAGE_COLOR, NOISE_LABEL: NOISE_COLOR}.items():
+            if name not in daily:
+                continue
+            events = [daily[name].get(day, {}) for day in days]
+            counts = [sum(kinds.values()) for kinds in events]
+            symbols = [EVENT_SYMBOL.get(next(iter(kinds)), "diamond") if len(kinds) == 1 else "diamond"
+                       for kinds in events]
+            breakdowns = ["<br>".join(f"{count} × {kind}" for kind, count in sorted(kinds.items()))
+                          for kinds in events]
+            rgb = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+            fig.add_scatter(
+                name=name, x=[day.isoformat() for day in days], y=list(accumulate(counts)),
+                mode="lines+markers",
+                line={"color": color, "width": 2.6, "shape": "hv"},
+                marker={"color": color, "symbol": symbols, "size": [8 if count else 0 for count in counts]},
+                fill="tozeroy", fillcolor=f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.08)",
+                customdata=list(zip(counts, breakdowns)),
+                hovertemplate=("%{y} łącznie · %{customdata[0]} w tym dniu<br>"
+                               "%{customdata[1]}<extra>%{fullData.name}</extra>"),
+            )
+        fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                          font={"color": "#BDBDB9", "family": "Segoe UI, sans-serif"},
+                          legend={"orientation": "h", "y": -0.24, "title_text": ""},
+                          hovermode="x unified", height=320, margin={"l": 10, "r": 12, "t": 12, "b": 24})
+        fig.update_xaxes(type="date", gridcolor="#303030", tickformat="%d.%m.%Y", nticks=5,
+                         title_text="Dzień (UTC)", automargin=True)
+        fig.update_yaxes(gridcolor="#303030", rangemode="tozero", dtick=1 if len(seen) < 8 else None,
+                         title_text="Zdarzenia łącznie", automargin=True)
+        st.plotly_chart(fig, width="stretch", theme=None, config={"displayModeBar": False})
     else:
         st.info("Brak zdarzeń z czasem i strefą do naniesienia na oś.")
     if seen:
         with st.expander("Zdarzenia i źródła dat", expanded=any(row.instant is None for row in seen)):
-            st.dataframe(pd.DataFrame([{"materiał": row.record_id, "rodzaj": row.kind, "data": row.value,
-                                       "precyzja": row.precision, "źródło": row.source}
-                                      for row in seen]), width="stretch", hide_index=True)
+            labels = ("Materiał", "Zdarzenie", "Data źródłowa", "Precyzja", "Źródło")
+            headings = "".join(f'<th scope="col">{label}</th>' for label in labels)
+            rows = []
+            for row in seen:
+                values = (row.record_id, row.kind, row.value, row.precision, row.source)
+                cells = "".join(f"<td>{escape(str(value))}</td>" for value in values)
+                rows.append(f"<tr>{cells}</tr>")
+            table = f"<table><thead><tr>{headings}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+            st.html(f'<div class="analyst-evidence-table" tabindex="0" role="region" '
+                    f'aria-label="Daty i źródła zdarzeń">{table}</div>')
     if missing:
         st.caption("Brak dat obserwacji: " + ", ".join(missing))
     if missing_publication:
@@ -246,11 +338,120 @@ def render_pages(pages, report):
             column.json(page.record, expanded=False)
 
 
+def render_url_capture(corpus):
+    with st.form("capture-url"):
+        st.subheader("Przechwyć stronę z linku", anchor=False)
+        st.caption("Wklej adres strony. Po pobraniu dane automatycznie trafią do analizy i na graf.")
+        page_url = st.text_input("Adres strony (HTTP lub HTTPS)", placeholder="https://…")
+        fetch_page = st.form_submit_button("Przechwyć stronę", type="primary")
+    if fetch_page:
+        st.session_state.pop("url_capture", None)
+        st.session_state.pop("url_lookup", None)
+        try:
+            from scamgraph.url_capture import capture_url, existing_url_ids, url_key
+            known = existing_url_ids(page_url, corpus)
+            st.session_state["url_lookup"] = page_url
+            if not known:
+                with st.spinner("Pobieranie strony i przygotowywanie danych…"):
+                    captured = capture_url(page_url)
+                    if captured.get("card"):
+                        captured["card"].setdefault("provenance", {})["url_key"] = url_key(page_url)
+                    st.session_state["url_capture"] = captured
+        except ImportError:
+            st.error("Brakuje zależności scrapera. Zainstaluj requirements-capture.txt z katalogu projektu.")
+        except (ValueError, OSError, RuntimeError) as exc:
+            st.error(f"Nie udało się przechwycić strony ({type(exc).__name__}): {exc}")
+
+    if result := st.session_state.get("url_capture"):
+        report = result["report"]
+        if report.get("status") == "trusted_domain":
+            st.warning("Pobranie zostało pominięte przez wcześniejszą wersję aplikacji. "
+                       "Wyślij URL ponownie. Ranking domen nie potwierdza bezpieczeństwa strony.")
+        else:
+            if report.get("status") == "success" and report.get("content_status") == "usable":
+                st.success("Strona została przechwycona.")
+            else:
+                st.warning("Zapis niepełny lub treść niedostępna. Sprawdź raport pobrania.")
+            st.caption(f"Zapis lokalny: {result['archive']}")
+            with st.expander("Raport pobrania", expanded=report.get("status") != "success"):
+                st.json(report)
+            if result.get("extraction_error"):
+                st.warning(result["extraction_error"])
+            archive = Path(result["archive"])
+            screenshot = archive / "screenshot.png"
+            if screenshot.is_file():
+                st.image(str(screenshot), caption="Zrzut przechwyconej strony", width=700)
+            if result.get("card"):
+                st.success("Dane strony zostały automatycznie wczytane do analizy.")
+                st.caption("Porównujesz obserwację strony. Wynik nie potwierdza jej związku z konkretną reklamą.")
+            else:
+                st.warning("Brak użytecznej strony do analizy. Spróbuj innego adresu.")
+
+
+def render_image_query():
+    with st.container(key="analyst-ad-form"):
+        with st.form("analyze-image", border=False):
+            upload, metadata = st.columns(2, gap="medium")
+            with upload.container(key="ad-upload"):
+                st.subheader("Kreacja reklamy", anchor=False)
+                st.caption("Wybierz lub upuść jedno zdjęcie reklamy. PNG, JPEG lub WebP do 20 MiB.")
+                uploaded_image = st.file_uploader("Zdjęcie reklamy (wymagane)", type=["png", "jpg", "jpeg", "webp"])
+            with metadata.container(key="ad-optional"):
+                st.subheader("Dane opcjonalne", anchor=False)
+                description = st.text_area("Tekst reklamy (opcjonalnie)", height=112, max_chars=10000,
+                                           placeholder="Wklej treść reklamy…")
+                text_origin = st.toggle("Tekst z oryginalnego opisu (opcjonalnie)")
+                st.caption("Zaznacz, jeśli wpisany tekst pochodzi spoza zrzutu.")
+                known_target = st.text_input("Znany adres celu reklamy (opcjonalnie)", placeholder="https://…")
+            submit_image = st.form_submit_button("Porównaj reklamę", type="primary")
+        if submit_image:
+            st.session_state.pop("image_analysis", None)
+            if uploaded_image is None:
+                st.error("Dodaj zdjęcie reklamy, aby rozpocząć porównanie.")
+            else:
+                try:
+                    with st.spinner("Odczyt zdjęcia i przygotowywanie porównania…"):
+                        card = image_query.analyze_image(uploaded_image.getvalue())["card"]
+                        card = image_query.supplement_query(card, description, known_target, text_origin)
+                    st.session_state["image_analysis"] = {"card": card}
+                except (ImportError, ValueError, OSError, RuntimeError) as exc:
+                    st.error(f"Nie udało się przeanalizować reklamy: {exc}")
+
+
+def set_intake_page(open_page: bool):
+    if open_page:
+        st.query_params["view"] = "nowa-reklama"
+    else:
+        st.query_params.pop("view", None)
+
+
 # ---------------------------------------------------------------- UI
-st.title("Follow the Fake — mapa kampanii")
+intake_page = st.query_params.get("view") == "nowa-reklama"
+if intake_page:
+    st.title("Dodaj materiał", anchor=False)
+else:
+    st.html('<div class="analyst-breadcrumb"><span aria-hidden="true">▦</span> Przegląd</div>')
+    st.title("Mapa kampanii", anchor="przeglad")
 
 with st.sidebar:
-    st.header("Korpus")
+    st.html('<div class="analyst-brand"><span class="analyst-mark" aria-hidden="true"></span>ScamGraph</div>')
+    with st.container(key="analyst-navigation"):
+        st.html('<span class="analyst-nav-label">Nawigacja</span>')
+        if intake_page:
+            st.button("Wróć do przeglądu", icon=":material/dashboard:", width="stretch",
+                      key="nav-overview", on_click=set_intake_page, args=(False,))
+            st.html('<span class="analyst-current-page" aria-current="page">Dodaj materiał</span>')
+        else:
+            st.html("""
+                <nav class="analyst-nav" aria-label="Sekcje przeglądu">
+                    <a href="#przeglad"><span aria-hidden="true">▦</span>Przegląd</a>
+                    <a href="#graf-kampanii"><span aria-hidden="true">◇</span>Graf kampanii</a>
+                    <a href="#os-czasu"><span aria-hidden="true">◷</span>Oś czasu</a>
+                </nav>
+            """)
+            st.button("Dodaj materiał", icon=":material/add_circle:", width="stretch",
+                      key="nav-ad", on_click=set_intake_page, args=(True,))
+    st.subheader("Korpus", anchor=False)
     source_modes = ["Demo syntetyczne", "Korpus organizatora NASK", "Korpus lokalny", DB_SOURCE]
     source_mode = st.radio("Źródło referencji", source_modes, index=3 if pgdb.enabled() else 0,
                            help="Baza: karty, które scraper zapisuje do PostgreSQL (DATABASE_URL).")
@@ -259,7 +460,7 @@ with st.sidebar:
         selected = ""
         if not pgdb.enabled():
             st.error("Ustaw DATABASE_URL przed uruchomieniem Streamlit, np. "
-                     "postgresql://scamgraph:haslo@127.0.0.1:5432/scamgraph")
+                     "postgresql://scamgraph:haslo@127.0.0.1:5433/scamgraph")
         else:
             try:
                 available = dict(database_source.datasets())
@@ -368,108 +569,31 @@ if private_path and private_path.is_file():
             with st.expander("Powtórzenia i konflikty w prywatnym korpusie"):
                 st.json({"errors": overlay_errors, "duplicates": duplicates})
 
-st.subheader("Przechwyć stronę z linku")
-st.caption("Wklej adres strony. Po pobraniu dane automatycznie trafią do analizy i na graf.")
-with st.form("capture-url"):
-    page_url = st.text_input("Adres strony (HTTP lub HTTPS)", placeholder="https://…")
-    fetch_page = st.form_submit_button("Przechwyć stronę")
-if fetch_page:
-    st.session_state.pop("url_capture", None)
-    st.session_state.pop("url_lookup", None)
-    try:
-        from scamgraph.url_capture import capture_url, existing_url_ids, url_key
-        known = existing_url_ids(page_url, corpus)
-        st.session_state["url_lookup"] = page_url
-        if not known:
-            with st.spinner("Pobieranie strony i przygotowywanie danych…"):
-                captured = capture_url(page_url)
-                if captured.get("card"):
-                    captured["card"].setdefault("provenance", {})["url_key"] = url_key(page_url)
-                st.session_state["url_capture"] = captured
-    except ImportError:
-        st.error("Brakuje zależności scrapera. Zainstaluj requirements-capture.txt z katalogu projektu.")
-    except (ValueError, OSError, RuntimeError) as exc:
-        st.error(f"Nie udało się przechwycić strony ({type(exc).__name__}): {exc}")
-
-if result := st.session_state.get("url_capture"):
-    report = result["report"]
-    if report.get("status") == "trusted_domain":
-        st.warning("Pobranie zostało pominięte przez wcześniejszą wersję aplikacji. "
-                   "Wyślij URL ponownie. Ranking domen nie potwierdza bezpieczeństwa strony.")
-    else:
-        if report.get("status") == "success" and report.get("content_status") == "usable":
-            st.success("Strona została przechwycona.")
-        else:
-            st.warning("Zapis niepełny lub treść niedostępna. Sprawdź raport pobrania.")
-        st.caption(f"Zapis lokalny: {result['archive']}")
-        with st.expander("Raport pobrania", expanded=report.get("status") != "success"):
-            st.json(report)
-        if result.get("extraction_error"):
-            st.warning(result["extraction_error"])
-        archive = Path(result["archive"])
-        screenshot = archive / "screenshot.png"
-        if screenshot.is_file():
-            st.image(str(screenshot), caption="Zrzut przechwyconej strony", width=700)
-        if result.get("card"):
-            st.success("Dane strony zostały automatycznie wczytane do analizy.")
-            st.caption("Porównujesz obserwację strony. Wynik nie potwierdza jej związku z konkretną reklamą.")
-        else:
-            st.warning("Brak użytecznej strony do analizy. Spróbuj innego adresu.")
-
-st.subheader("Porównaj nową reklamę")
-st.caption(f"Porównanie z wybraną referencją: {source_mode}.")
-with st.form("analyze-image"):
-    uploaded_image = st.file_uploader("Zdjęcie reklamy (PNG, JPEG, WebP)",
-                                     type=["png", "jpg", "jpeg", "webp"])
-    description = st.text_area("Tekst reklamy", max_chars=10000)
-    text_origin = st.toggle("Tekst pochodzi z oryginalnego opisu reklamy", help="Włącz, jeśli tekst pochodzi spoza zrzutu.")
-    known_target = st.text_input("Znany adres celu reklamy", placeholder="https://…")
-    submit_image = st.form_submit_button("Porównaj reklamę")
-if submit_image:
-    st.session_state.pop("image_analysis", None)
-    card, image_error = None, None
-    if uploaded_image is not None:
-        try:
-            with st.spinner("Odczyt zdjęcia i przygotowywanie porównania…"):
-                card = image_query.analyze_image(uploaded_image.getvalue())["card"]
-        except (ImportError, ValueError, OSError, RuntimeError) as exc:
-            image_error = f"Nie udało się przeanalizować zdjęcia: {exc}"
-    try:
-        card = image_query.supplement_query(card, description, known_target, text_origin)
-        if card is None:
-            st.error(image_error or "Dodaj zdjęcie, tekst lub znany adres celu reklamy.")
-        else:
-            if image_error:
-                card["extraction"]["warnings"].append(image_error)
-            st.session_state["image_analysis"] = {"card": card}
-    except (ImportError, ValueError, OSError, RuntimeError) as exc:
-        st.error(str(exc))
-if image_result := st.session_state.get("image_analysis"):
-    image_card = image_result["card"]
-    if image_path := image_card["provenance"].get("image_path"):
-        st.image(image_path, caption="Przesłane zdjęcie", width=600)
-        st.caption("OCR i obraz stanowią wspólne źródło dowodu. Adresy z OCR pozostają tekstem.")
-    for warning in image_card.get("extraction", {}).get("warnings", []):
-        st.warning(warning)
-    with st.expander("Tekst i raport ekstrakcji"):
-        st.text(image_card.get("text", {}).get("ad_text") or "Brak tekstu.")
-        st.json(image_card.get("extraction", {}))
-    if st.button("Wyczyść zgłoszenie", key="clear-image"):
-        st.session_state.pop("image_analysis", None)
-        st.rerun()
+dashboard = None if intake_page else st.container()
+if intake_page:
+    with st.container(key="analyst-intake"):
+        st.caption(f"Zbiór odniesienia · {source_mode}")
+        ad_tab, capture_tab = st.tabs(["Nowa reklama", "Przechwyć stronę"])
+        with ad_tab:
+            render_image_query()
+            ad_results = st.container()
+        with capture_tab:
+            with st.container(key="analyst-capture-form"):
+                render_url_capture(corpus)
+            capture_results = st.container()
 
 with st.sidebar:
-    st.header("Parametry")
-    min_cluster = st.slider("min. reklam w kampanii", 2, 10, 3)
-    min_edge = st.slider("min. score krawędzi w grafie", 0.05, 0.9, 0.25, 0.05)
-    st.header("Widok")
-    show_similar = st.checkbox("pokaż krawędzie SIMILAR", True)
-    show_noise = st.checkbox("pokaż reklamy bez kampanii", True)
-    hide_trusted = st.checkbox("ukryj reklamy prowadzące na wspólne lub popularne hosty", False,
-                               help="Domyślnie wyłączone: popularność nie świadczy o bezpieczeństwie. Po włączeniu "
-                                    "nie rysujemy reklam bez kampanii, których cel to wspólny lub popularny host "
-                                    "(np. youtube.com). Reklama powiązana z kampanią (np. tą samą twarzą lub głosem) zostaje.")
-    graph_height = st.slider("wysokość grafu", 400, 1000, 650, 50)
+    with st.expander("Ustawienia analizy"):
+        min_cluster = st.slider("min. reklam w kampanii", 2, 10, 3)
+        min_edge = st.slider("min. score krawędzi w grafie", 0.05, 0.9, 0.25, 0.05)
+    with st.expander("Ustawienia grafu"):
+        show_similar = st.checkbox("pokaż krawędzie SIMILAR", True)
+        show_noise = st.checkbox("pokaż reklamy bez kampanii", True)
+        hide_trusted = st.checkbox("ukryj reklamy prowadzące na wspólne lub popularne hosty", False,
+                                   help="Domyślnie wyłączone: popularność nie świadczy o bezpieczeństwie. Po włączeniu "
+                                        "nie rysujemy reklam bez kampanii, których cel to wspólny lub popularny host "
+                                        "(np. youtube.com). Reklama powiązana z kampanią (np. tą samą twarzą lub głosem) zostaje.")
+        graph_height = st.slider("wysokość grafu", 400, 1000, 500, 50)
 
 image_result = st.session_state.get("image_analysis") or {}
 by_id = {card["ad_id"]: card for card in corpus}
@@ -481,7 +605,8 @@ if lookup := st.session_state.get("url_lookup"):
     from scamgraph.url_capture import existing_url_ids
     existing_page_ids = existing_url_ids(lookup, corpus)
 if existing_page_ids:
-    st.info("Ten URL już jest w bazie danych. Podświetlono istniejący materiał na grafie.")
+    notice = capture_results if intake_page else st
+    notice.info("Ten URL już jest w bazie danych. Podświetlono istniejący materiał na grafie.")
 new_raw = [result["card"]] if result.get("card") and not existing_page_ids else []
 existing_ad_id = None
 if image_result.get("card"):
@@ -528,113 +653,147 @@ hidden = ({c.id for i, c in enumerate(cards) if c.id in lands_trusted and camp_o
            and c.id not in new_ids and not standalone_page(c.raw)}
           if hide_trusted else set())
 
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("materiały", len(cards))
-m2.metric("kampanie", len(camps))
-m3.metric("krawędzie SIMILAR", len(edges))
-m4.metric("reklamy bez kampanii", sum(cid is None and not standalone_page(card.raw)
-                                    for cid, card in zip(camp_of, reference.cards)))
-m5.metric("ukryte (wspólne hosty)", len(hidden))
-page_count = sum(standalone_page(card.raw) for card in reference.cards)
-st.caption(f"Referencja {reference.fingerprint[:16]} · emisje: {len(reference.cards) - page_count} · "
-           f"zapisy stron: {page_count + len(imported.pages)} · zgłoszenia: {len(decisions)} · "
-           f"próg kampanii {config.min_campaign:.2f}")
-card_warnings = {card.id: card.warnings for card in reference.cards if card.warnings}
-unavailable = {card.id: card.raw["unavailable"] for card in reference.cards if "unavailable" in card.raw}
-if reference.scorer.warnings or card_warnings or unavailable:
-    with st.expander("Braki i ostrzeżenia referencji"):
-        st.json({"porównanie": reference.scorer.warnings, "materiały": card_warnings,
-                 "niedostępne_pakiety": unavailable})
+if dashboard is not None:
+    with dashboard:
+        with st.container(key="analyst-metrics"):
+            m1, m2, m3, m4, m5 = st.columns(5, gap="small")
+            m1.metric("Materiały", len(cards))
+            m2.metric("Kampanie", len(camps))
+            m3.metric("Podobne pary", len(edges))
+            m4.metric("Bez kampanii", sum(cid is None and not standalone_page(card.raw)
+                                         for cid, card in zip(camp_of, reference.cards)))
+            m5.metric("Ukryte reklamy", len(hidden))
+        page_count = sum(standalone_page(card.raw) for card in reference.cards)
+        st.caption(f"Referencja {reference.fingerprint[:16]} · emisje: {len(reference.cards) - page_count} · "
+                   f"zapisy stron: {page_count + len(imported.pages)} · zgłoszenia: {len(decisions)} · "
+                   f"próg kampanii {config.min_campaign:.2f}")
+        card_warnings = {card.id: card.warnings for card in reference.cards if card.warnings}
+        unavailable = {card.id: card.raw["unavailable"] for card in reference.cards if "unavailable" in card.raw}
+        if reference.scorer.warnings or card_warnings or unavailable:
+            with st.expander("Braki i ostrzeżenia referencji"):
+                st.json({"porównanie": reference.scorer.warnings, "materiały": card_warnings,
+                         "niedostępne_pakiety": unavailable})
 
-STATUS_LABELS = {"probable_match": "Prawdopodobne dopasowanie", "review_needed": "Do przeglądu",
-                 "insufficient_evidence": "Niewystarczające dane", "no_match": "Możliwy nowy wzorzec"}
-idx = {c.id: i for i, c in enumerate(cards)}
-for nid in sorted(new_ids):
-    i = idx[nid]
-    mine = sorted((e for e in edges if i in (e.a, e.b)), key=lambda e: -e.score)
-    if decision := decisions.get(nid):
-        headline = f"**{nid} · {STATUS_LABELS[decision.status]}**"
-        if decision.status == "probable_match":
-            st.success(f"{headline} · **{decision.campaign_id}** · najsłabsze powiązanie do członka {decision.strength:.2f}")
-        else:
-            st.warning(headline)
-        if decision.exact_copies:
-            copies = ", ".join(cards[index].id for index in decision.exact_copies)
-            st.info(f"Identyczny plik obrazu (SHA-256) w referencji: {copies}.")
-        if decision.similar_materials:
-            st.caption("Podobne materiały: " + ", ".join(cards[index].id for index in decision.similar_materials[:3]))
-        if decision.candidate_campaigns:
-            st.caption("Kampanie do sprawdzenia: " + ", ".join(decision.candidate_campaigns[:3]))
-        hidden_support = [replace(edge, a=i) for edge in decision.supporting_edges if edge.score < min_edge]
-        if hidden_support:
-            with st.expander(f"Dowody przypisania poniżej progu widoku · {nid}"):
-                for edge in hidden_support:
-                    render_pair(edge, cards)
-        comparable = ", ".join(decision.comparable) or "brak porównywalnych rodzin"
-        st.caption(f"Zakres porównania z referencją: {comparable}.")
-        with st.expander(f"Braki i ograniczenia · {nid}", expanded=decision.status == "insufficient_evidence"):
-            for message in (*decision.missing, *decision.warnings):
-                st.write(message)
-            if not decision.missing and not decision.warnings:
-                st.write("Silnik nie zgłosił braków porównania.")
-    if cards[i].raw.get("provenance", {}).get("record_kind") == "page_capture":
-        with st.expander(f"Pełny tekst strony — {cards[i].final_domain or nid}"):
-            st.text_area("Tekst z pobranej strony", value=cards[i].ad_text,
-                         height=320, disabled=True, key=f"page-text-{nid}")
-    if cards[i].trusted_hits:
-        st.caption(f"Wspólne lub popularne hosty pominięte w ocenie domen: {', '.join(cards[i].trusted_hits)}")
-    if mine:
-        with st.expander(f"Najsilniejsze powiązania · {nid}"):
-            for edge in mine[:3]:
-                render_pair(edge, cards)
-    if nid in existing_page_ids:
-        st.caption("Ten URL już jest w bazie danych.")
-    elif nid == existing_ad_id:
-        if cards[i].image_sha256:
-            st.info("Identyczny plik obrazu (SHA-256) jest już zapisany w prywatnym korpusie.")
-        else:
-            st.info("To zgłoszenie jest już zapisane w prywatnym korpusie.")
-    elif corpus_path and st.button(f"Dopisz {nid} do prywatnego korpusu", key=f"save-{nid}"):
-        saved = dict(next(c for c in new_raw if c["ad_id"] == nid))
-        if saved.get("provenance", {}).get("record_kind") == "image_query":
-            saved["provenance"] = {**saved["provenance"], "record_kind": "image_reference"}
-        try:
-            append_private_card(corpus_path, saved)
-        except (OSError, ValueError) as exc:
-            st.error(f"Nie zapisano materiału: {exc}")
-            st.stop()
-        st.toast(f"Dopisano {nid} do prywatnego korpusu.")
-        if image_result.get("card") and saved.get("provenance", {}).get("source") == "upload":
-            st.session_state.pop("image_analysis", None)
-        if saved.get("provenance", {}).get("record_kind") == "page_capture":
-            st.session_state.pop("url_capture", None)
-        st.rerun()
+ad_ids = {raw["ad_id"] for raw in new_raw if raw.get("provenance", {}).get("source") == "upload"}
+if existing_ad_id:
+    ad_ids.add(existing_ad_id)
+if intake_page:
+    for panel, result_ids in ((ad_results, ad_ids), (capture_results, new_ids - ad_ids)):
+        if result_ids:
+            panel.subheader("Wyniki analizy", anchor=False)
+    if save_error := st.session_state.pop("analyst_save_error", None):
+        kind, message = save_error
+        panel = capture_results if kind == "page_capture" else ad_results
+        panel.error(message)
 
-# --- graf ---
-st.subheader("Graf kampanii")
-st.caption("◆ kampania · ● reklama (kolor = kampania, szary = bez kampanii) · ■ zapis strony · ★ zgłoszenie · "
-           "linia ciągła = jest ślad twardy, przerywana = tylko miękkie · grubość = score · "
-           "najedź na węzeł/krawędź, żeby zobaczyć szczegóły i uzasadnienie")
-components.html(build_graph_html(cards, edges, camps, camp_of, colors, new_ids,
-                                 show_similar, show_noise, graph_height, hidden),
-                height=graph_height + 20, scrolling=False)
-if edges:
-    with st.expander("Dowody par · otwórz oba źródła"):
-        by_pair = {f"{cards[edge.a].id} ↔ {cards[edge.b].id}": edge for edge in edges}
-        pair = st.selectbox("Wybierz parę z grafu", list(by_pair), index=None, placeholder="Wybierz parę")
-        if pair is not None:
-            render_pair(by_pair[pair], cards)
+    STATUS_LABELS = {"probable_match": "Prawdopodobne dopasowanie", "review_needed": "Do przeglądu",
+                     "insufficient_evidence": "Niewystarczające dane", "no_match": "Możliwy nowy wzorzec"}
+    idx = {c.id: i for i, c in enumerate(cards)}
+    for nid in sorted(new_ids):
+        with (ad_results if nid in ad_ids else capture_results):
+            i = idx[nid]
+            mine = sorted((e for e in edges if i in (e.a, e.b)), key=lambda e: -e.score)
+            if decision := decisions.get(nid):
+                headline = f"**{nid} · {STATUS_LABELS[decision.status]}**"
+                if decision.status == "probable_match":
+                    st.success(f"{headline} · **{decision.campaign_id}** · najsłabsze powiązanie do członka {decision.strength:.2f}")
+                else:
+                    st.warning(headline)
+                if decision.exact_copies:
+                    copies = ", ".join(cards[index].id for index in decision.exact_copies)
+                    st.info(f"Identyczny plik obrazu (SHA-256) w referencji: {copies}.")
+                if decision.similar_materials:
+                    st.caption("Podobne materiały: " + ", ".join(cards[index].id for index in decision.similar_materials[:3]))
+                if decision.candidate_campaigns:
+                    st.caption("Kampanie do sprawdzenia: " + ", ".join(decision.candidate_campaigns[:3]))
+                hidden_support = [replace(edge, a=i) for edge in decision.supporting_edges if edge.score < min_edge]
+                if hidden_support:
+                    with st.expander(f"Dowody przypisania poniżej progu widoku · {nid}"):
+                        for edge in hidden_support:
+                            render_pair(edge, cards)
+                comparable = ", ".join(decision.comparable) or "brak porównywalnych rodzin"
+                st.caption(f"Zakres porównania z referencją: {comparable}.")
+                with st.expander(f"Braki i ograniczenia · {nid}", expanded=decision.status == "insufficient_evidence"):
+                    for message in (*decision.missing, *decision.warnings):
+                        st.write(message)
+                    if not decision.missing and not decision.warnings:
+                        st.write("Silnik nie zgłosił braków porównania.")
+            if cards[i].raw.get("provenance", {}).get("record_kind") == "page_capture":
+                with st.expander(f"Pełny tekst strony — {cards[i].final_domain or nid}"):
+                    st.text_area("Tekst z pobranej strony", value=cards[i].ad_text,
+                                 height=320, disabled=True, key=f"page-text-{nid}")
+            if cards[i].trusted_hits:
+                st.caption(f"Wspólne lub popularne hosty pominięte w ocenie domen: {', '.join(cards[i].trusted_hits)}")
+            if mine:
+                with st.expander(f"Najsilniejsze powiązania · {nid}"):
+                    for edge in mine[:3]:
+                        render_pair(edge, cards)
+            if nid in existing_page_ids:
+                st.caption("Ten URL już jest w bazie danych.")
+            elif nid == existing_ad_id:
+                if cards[i].image_sha256:
+                    st.info("Identyczny plik obrazu (SHA-256) jest już zapisany w prywatnym korpusie.")
+                else:
+                    st.info("To zgłoszenie jest już zapisane w prywatnym korpusie.")
+            elif corpus_path:
+                raw = next(c for c in new_raw if c["ad_id"] == nid)
+                st.button(f"Dopisz {nid} do prywatnego korpusu", key=f"save-{nid}",
+                          on_click=save_material, args=(corpus_path, raw))
 
-render_pages(imported.pages, imported.report)
+if intake_page and image_result:
+    with ad_results:
+        image_card = image_result["card"]
+        for warning in image_card.get("extraction", {}).get("warnings", []):
+            st.warning(warning)
+        with st.expander("Zdjęcie i raport ekstrakcji"):
+            if image_path := image_card["provenance"].get("image_path"):
+                st.image(image_path, caption="Przesłane zdjęcie", width=400)
+                st.caption("OCR i obraz stanowią wspólne źródło dowodu. Adresy z OCR pozostają tekstem.")
+            st.text(image_card.get("text", {}).get("ad_text") or "Brak tekstu.")
+            st.json(image_card.get("extraction", {}))
+        overview, clear = st.columns(2, gap="small")
+        overview.button("Wróć do przeglądu", icon=":material/arrow_back:", key="return-from-ad",
+                        on_click=set_intake_page, args=(False,))
+        clear.button("Wyczyść zgłoszenie", key="clear-image",
+                     on_click=st.session_state.pop, args=("image_analysis", None))
 
-# --- oś czasu ---
-st.subheader("Oś czasu kampanii")
-render_timeline(cards, imported.pages, camps, camp_of, colors, new_ids, show_noise, hidden)
+if intake_page and new_ids - ad_ids:
+    capture_results.button("Wróć do przeglądu", icon=":material/arrow_back:", key="return-from-capture",
+                           on_click=set_intake_page, args=(False,))
 
-with st.expander("Kampanie — podsumowanie"):
-    st.dataframe(pd.DataFrame([{
-        "kampania": c.id, "reklamy": len(c.members),
-        "aktywne": c.alive, "martwe": c.dead, "domeny docelowe": len(c.final_domains),
-        "wizerunek": ", ".join(c.persons), "śr. score": round(c.mean_edge, 2),
-        "wspólne ślady": ", ".join(f"{k} ×{v}" for k, v in c.shared[:4]),
-    } for c in camps]), width="stretch", hide_index=True)
+if dashboard is not None:
+    with dashboard:
+        with st.container(key="analyst-graph"):
+            st.header("Graf kampanii", anchor="graf-kampanii")
+            st.html("""
+                <ul class="analyst-legend" aria-label="Legenda grafu">
+                    <li><span class="legend-campaign" aria-hidden="true">◆</span>Kampania</li>
+                    <li><span aria-hidden="true">●</span>Reklama</li>
+                    <li><span class="legend-page" aria-hidden="true">■</span>Zapis strony</li>
+                    <li><span class="legend-query" aria-hidden="true">★</span>Zgłoszenie</li>
+                </ul>
+            """)
+            st.caption("Kliknij węzeł lub wybierz go z listy, aby otworzyć szczegóły. Kolor wskazuje kampanię, "
+                       "szary oznacza brak grupy. Linie ciągłe oznaczają twarde ślady, a przerywane tylko miękkie.")
+            components.html(build_graph_html(cards, edges, camps, camp_of, colors, new_ids,
+                                             show_similar, show_noise, graph_height, hidden),
+                            height=graph_height, scrolling=False, tab_index=0)
+            if edges:
+                with st.expander("Dowody par · otwórz oba źródła"):
+                    by_pair = {f"{cards[edge.a].id} ↔ {cards[edge.b].id}": edge for edge in edges}
+                    pair = st.selectbox("Wybierz parę z grafu", list(by_pair), index=None, placeholder="Wybierz parę")
+                    if pair is not None:
+                        render_pair(by_pair[pair], cards)
+
+        with st.container(key="analyst-timeline"):
+            st.header("Oś czasu kampanii", anchor="os-czasu")
+            render_timeline(cards, imported.pages, camps, camp_of, colors, new_ids, show_noise, hidden)
+
+        render_pages(imported.pages, imported.report)
+        with st.expander("Kampanie — podsumowanie"):
+            st.dataframe(pd.DataFrame([{
+                "kampania": c.id, "reklamy": len(c.members),
+                "aktywne": c.alive, "martwe": c.dead, "domeny docelowe": len(c.final_domains),
+                "wizerunek": ", ".join(c.persons), "śr. score": round(c.mean_edge, 2),
+                "wspólne ślady": ", ".join(f"{k} ×{v}" for k, v in c.shared[:4]),
+            } for c in camps]), width="stretch", hide_index=True)

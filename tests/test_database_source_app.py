@@ -56,9 +56,9 @@ class DatabaseSourceApp(unittest.TestCase):
         self.assertEqual(app.sidebar.radio[0].value, "Baza PostgreSQL (scraper)")
         self.assertEqual(app.sidebar.selectbox[0].value, "live")
         metrics = {m.label: m.value for m in app.metric}
-        self.assertEqual(metrics["materiały"], "3")
-        self.assertEqual(metrics["kampanie"], "0")  # min. 3 reklamy w kampanii; para 81-82 ma krawędź
-        self.assertEqual(metrics["krawędzie SIMILAR"], "1")
+        self.assertEqual(metrics["Materiały"], "3")
+        self.assertEqual(metrics["Kampanie"], "0")  # min. 3 reklamy w kampanii; para 81-82 ma krawędź
+        self.assertEqual(metrics["Podobne pary"], "1")
         captions = " ".join(c.value for c in app.sidebar.caption)
         self.assertIn("postgres:live", captions)
         self.assertIn("przebieg silnika", captions)

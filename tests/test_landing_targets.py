@@ -38,15 +38,16 @@ class LandingTargets(unittest.TestCase):
         return result, folder, http, render
 
     def test_unlabelled_preview_and_ambiguous_targets(self):
-        preview = f'<a href="{FB}/l.php?u={quote(WEB, safe="")}"><img alt="Offer"></a>'
+        web = "https://shop.example.com/diet"
+        preview = f'<a href="{FB}/l.php?u={quote(web, safe="")}"><img alt="Offer"></a>'
         nav = '<nav><a href="https://other.example"><img alt="Profile"></a></nav>'
         result = card_cta(Document(preview + nav).root)
         self.assertEqual(result["cta_basis"], "preview")
-        self.assertEqual(result["landing_candidates"], [{"url": WEB, "kind": "web", "element": 1, "attribute": "href"}])
+        self.assertEqual(result["landing_candidates"], [{"url": web, "kind": "web", "element": 1, "attribute": "href"}])
         result = card_cta(Document(preview + '<a href="https://example.org/another">Link</a>').root)
         self.assertNotIn("cta_element", result)
         self.assertEqual(len(result["landing_candidates"]), 2)
-        result = card_cta(Document(preview + f'<a href="{WEB}/other">Link</a>').root)
+        result = card_cta(Document(preview + f'<a href="{web}/other">Link</a>').root)
         self.assertEqual((result["cta_basis"], result["cta_element"]), ("dominant_domain", 1))
         self.assertEqual(card_cta(Document(f'<footer><a href="{WEB}">Kup teraz</a></footer>').root)["cta_basis"], "label")
         self.assertNotIn("cta_element", card_cta(Document(f'<a href="{WEB}"><img alt="Logotyp profilu"></a>').root))

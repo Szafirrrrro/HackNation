@@ -133,7 +133,7 @@ Nowe relacje `REDIRECTS_TO` i `COVERS` mają `ad_id` powiązanej emisji. Relacje
 ```bash
 export POSTGRES_PASSWORD='ustaw-własne-długie-hasło'
 docker compose -f graph/docker-compose.yml up -d postgres
-export DATABASE_URL="$(python -c 'import os; from urllib.parse import quote; print("postgresql://scamgraph:" + quote(os.environ["POSTGRES_PASSWORD"], safe="") + "@127.0.0.1:5432/scamgraph")')"
+export DATABASE_URL="$(python -c 'import os; from urllib.parse import quote; print("postgresql://scamgraph:" + quote(os.environ["POSTGRES_PASSWORD"], safe="") + "@127.0.0.1:5433/scamgraph")')"
 ```
 
 W PowerShell ustaw zmienne przez `$env:POSTGRES_PASSWORD` i `$env:DATABASE_URL`. `POSTGRES_PASSWORD` ustala hasło podczas inicjalizacji nowego woluminu PostgreSQL. Przy istniejącym woluminie użyj aktualnego hasła użytkownika `scamgraph`. Usługi Compose słuchają na `127.0.0.1`. Zależność `psycopg[binary]` jest w `requirements-capture.txt`.
