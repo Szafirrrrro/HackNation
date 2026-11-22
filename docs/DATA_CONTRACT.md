@@ -96,7 +96,7 @@ Rozszerzeniem jest osobny, opcjonalny plik `observations/ad_page_links.jsonl`. W
 
 Zespół przyjmuje regułę zaimplementowaną w `graph/ftf_graph` (`scoring.py`, `cluster.py`) zamiast oceny `strong`/`similar`/`none` z grupowaniem complete-link. Kryteria NASK „jakość metody korelacji i grupowania” oraz „czytelność i interpretowalność prezentowanych powiązań” (pkt 9 zadania) obsługują `reasons` każdej krawędzi i profil kampanii. Wagi i progi poniżej są punktami startowymi zespołu, nie wynikiem pomiaru. Aktualne wartości są w `Config` w `scoring.py` i opisie w [README silnika](../graph/README.md).
 
-**Ślady twarde.** Artefakt to dyskretna, znormalizowana wartość, która może powtórzyć się w innej reklamie: domena z łańcucha przekierowań lub docelowa, identyfikator śledzący, endpoint formularza, kontakt, certyfikat, favicona, szablon DOM, skrypt, IP, serwer nazw, rejestrator, słowo kluczowe, odcisk audio, transkrypcja. Wspólna wartość daje siłę `waga_rodzaju × rzadkość`, gdzie `rzadkość = log(N/df) / log(N/2)`. Artefakt obecny w jednej reklamie albo w ponad `max_df_frac` (30%) korpusu ma rzadkość 0.
+**Ślady twarde.** Artefakt to dyskretna, znormalizowana wartość, która może powtórzyć się w innej reklamie: domena z łańcucha przekierowań lub docelowa, o ile nie jest hostem wspólnym, identyfikator śledzący, endpoint formularza, kontakt, certyfikat, favicona, szablon DOM, skrypt, IP, serwer nazw, o ile nie jest hostem wspólnym, rejestrator, słowo kluczowe, odcisk audio, transkrypcja. Wspólna wartość daje siłę `waga_rodzaju × rzadkość`, gdzie `rzadkość = log(N/df) / log(N/2)`. Artefakt obecny w jednej reklamie albo w ponad `max_df_frac` (30%) korpusu ma rzadkość 0.
 
 **Ślady miękkie.** Podobieństwo w stopniu: embedding tekstu, embedding obrazu, odległość pHash, twarz ważona gorszą z dwóch jakości, hurtowa rejestracja domen, narracja lektora, głos lektora i przybliżony odcisk audio. Siła to `waga × ramp(miara, próg_dolny, próg_górny)`. Twarz sama daje najwyżej 0.5, a głos najwyżej 0.45, bo wizerunek i sklonowany głos celebryty występują w niezależnych kampaniach.
 
@@ -211,9 +211,13 @@ a wyróżniony zostaje zapisany rekord. Nie zmienia to deduplikacji emisji silni
 Korekta decyzji zespołu 2026-11-22: ręczne żądanie analityka zawsze uruchamia
 pobranie, niezależnie od rankingu domen. Nie zwracamy klasyfikacji bezpieczeństwa
 na podstawie popularności. Polityka automatycznego schedulera pozostaje osobna.
-Graf ogranicza ranking do pozycji 10 000 i używa wspólnych ze schedulerem wykluczeń
-platform UGC, skracaczy, formularzy i plików oraz dotychczasowych wykluczeń PSL/CERT.
-Wykluczenia hostów mają pierwszeństwo także przed zaufanym rodzicem domeny.
+Pobranie i ślad w grafie to osobne decyzje. Host wspólny nie jest śladem, co nie
+oznacza, że jest bezpieczny. Kolejność: blokada CERT zawsze daje ślad. Dalej
+rozstrzyga najdłuższy sufiks: platforma nie jest śladem, a jej subdomena jest,
+host wspólny i domena z top 10 000 lub listy ręcznej nie są śladem razem
+z subdomenami. Platformy wyznaczają `TENANT_PARENTS` i prywatna sekcja PSL
+w przypiętej wersji. Reguła dotyczy przekierowań, celu i serwerów nazw,
+nie certyfikatu, IP ani skryptów.
 
 Korekta zapisu: przycisk **Dopisz** nigdy nie zmienia wybranego źródłowego JSONL.
 Dodaje materiał do `.private-discovery/analyst/corpora/<klucz-ścieżki-korpusu>.jsonl`,
