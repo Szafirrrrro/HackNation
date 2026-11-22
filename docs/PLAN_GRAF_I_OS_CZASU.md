@@ -2,6 +2,8 @@
 
 Analityk ma móc przejść od zdania „ten post przypomina kampanię” do dwóch materiałów, które może samodzielnie porównać. Na planowanym ekranie **graf odpowiada na pytanie „co jest powiązane?”, panel z prawej „na jakiej podstawie?”, a oś pod grafem „kiedy to zaobserwowano?”**. Właścicielem ekranu jest para C. Źródłem wyników jest silnik opisany w [kontrakcie danych](DATA_CONTRACT.md).
 
+Poniżej zachowano projekt interakcji zespołu. W dostarczonej wersji analityk wybiera parę z listy pod grafem pyvis i filtruje oś Plotly według kampanii. Dwukierunkowe klikanie między wykresami pozostaje elementem planu. [Obsługa wersji demonstracyjnej](../graph/README.md)
+
 ## Jeden przebieg pracy
 
 1. **Wczytaj zbiór.** W nagłówku wybierz lokalny korpus. Pod nazwą pokaż wersję indeksu, liczby emisji, powtórzonych plików, niezależnych zapisów stron i kampanii oraz dostęp do błędów importu. Wybór grupy w wykazie po lewej wyróżnia jej członków i zawęża oś do jej zdarzeń.

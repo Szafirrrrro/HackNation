@@ -147,8 +147,8 @@ class ECAPA(Extractor):
     family = "audio"
     modality = "audio"
     primary_field = "audio.speaker_embedding"
-    stage = "candidate"
-    decision = ("Kandydat (decyzja zespołu 2026-11-21): ten sam lektor w różnych reklamach także przy "
+    stage = "on_demand"
+    decision = ("Na żądanie (decyzja zespołu 2026-11-21): ten sam lektor w różnych reklamach także przy "
                 "innym tekście. Do profilu domyślnego po pomiarze na prawdziwych głosach "
                 "(ten sam vs różny mówca, muzyka w tle).")
     hf_repo = "speechbrain/spkrec-ecapa-voxceleb"
@@ -178,18 +178,18 @@ class ECAPA(Extractor):
         self.m.eval()
 
     def extract(self, item):
-        import torch
         sr = self.params["sample_rate"]
         wav = load_audio(item.path, self.params["max_seconds"])   # głos tylko z początku nagrania
         if wav.size < self.params["min_seconds"] * sr:
             raise Unavailable("audio_too_short")
+        import torch
         with torch.no_grad():
             emb = self.m.encode_batch(torch.from_numpy(wav).unsqueeze(0)).reshape(-1).numpy()
         return [Out("audio.speaker_embedding", l2(emb))]
 
 
-EXTRACTORS = [Whisper("base", "74M param", "deferred",
-                      "Odłożone (decyzja użytkownika 2026-11-21): wybrano small. Oczekiwanie, nie pomiar: "
+EXTRACTORS = [Whisper("base", "74M param", "on_demand",
+                      "Na żądanie (decyzja użytkownika 2026-11-21): wybrano small. Oczekiwanie, nie pomiar: "
                       "base gorzej radzi sobie z polskimi nazwami produktów i liczbami. Base nie był "
                       "uruchamiany na nagraniach reklam."),
               Whisper("small", "244M param", "default",

@@ -7,9 +7,13 @@ from threading import Barrier
 import time
 import unittest
 
-from scamgraph.capture import staging
-from scamgraph.discovery.engine import Engine, connection
+from scamgraph.capture import read_json, staging
+from scamgraph.discovery import nask
+from scamgraph.discovery.engine import Engine, connection, store_card, work
+from scamgraph.discovery.graph_feed import export_graph, update_campaigns
+from scamgraph.discovery.service import publish
 from scamgraph.discovery.types import Finding, SourceError
+from scamgraph.sources import digest
 
 
 def demo_fetch(options, query):
@@ -94,6 +98,46 @@ class EngineTest(unittest.TestCase):
         self.engine.run("one")
         self.assertEqual(float(budget.read_text()), 22)
 
+    def test_nask_resolves_aliases_and_conflicts_before_phrase_filter(self):
+        from scamgraph.discovery.types import Query
+
+        corpus = self.root / "organizer"
+        corpus.mkdir()
+        ads = corpus / "ads.jsonl"
+        rows = [("z-first", "7", "pierwsza fraza w oryginalnej emisji"),
+                ("a-alias", "7", "inna fraza w aliasie tej samej emisji"),
+                ("z-first", "8", "inna fraza w konflikcie tego samego lokalnego ID"),
+                ("healthy", "9", "inna fraza w innej poprawnej emisji")]
+        ads.write_text("\n".join(json.dumps({"ad_id": ident, "text": text,
+                         "source": {"provider": "provider-a", "ad_ref": ref}})
+                                  for ident, ref, text in rows) + "\n", encoding="utf8")
+        options = {"provider": "nask", "mode": "import", "path": str(corpus),
+                   "state_dir": str(self.root), "phrases": ["pierwsza", "inna"], "country": "PL", "limit": 5}
+        engine = Engine({**self.config, "sources": {"nask": options}}, {"nask": nask.fetch}, publish)
+        run_id = engine._claim({"nask"}, "cli", time.time())["nask"]
+        with self.assertLogs("scamgraph.discovery.nask", "WARNING") as messages:
+            work(engine.db_path, run_id, "nask", options, nask.fetch, publish)
+        self.assertTrue(all("wiersz 3" in msg and "pierwszy zapis w wierszu 1" in msg for msg in messages.output))
+        imported = engine.snapshot()["candidates"]
+        self.assertEqual({(row["provider"], row["ad_ref"]) for row in imported}, {("nask", "z-first"), ("nask", "healthy")})
+
+        # A historical adapter could already have archived an alias. Preserve the observation and
+        # recover its provider identity from the package to keep it from counting twice in analysis.
+        run_id = engine._claim({"nask"}, "cli", time.time())["nask"]
+        alias = Finding("a-alias", {"library_ref": "7", "text": rows[1][2]}, "Historyczna obserwacja", False,
+                        ads, "line:2", source_kind="organizer", source_sha256=digest(ads))
+        cid = publish("nask", {**options, "query_phrase": "inna", "query_country": "PL"}, alias)
+        with connection(engine.db_path, write=True) as db:
+            store_card(db, run_id, "nask", options, Query("inna", "PL", 5), alias, cid)
+        feed = export_graph(self.root, "import")
+        projected = [json.loads(line) for line in feed.read_text(encoding="utf8").splitlines()]
+        self.assertEqual(len(projected), 3)
+        identities = [p["provenance"]["original_ad_ref"] for p in projected]
+        self.assertCountEqual(identities, ["7", "7", "9"])
+        update_campaigns(feed)
+        report = read_json(feed.with_suffix(".campaigns.json"))
+        self.assertEqual(report["unassigned"], ["nask/a-alias", "nask/healthy"])
+
     def test_overdue_timer_races_click_and_reports_live_progress(self):
         options = self.config["sources"]["one"]
         options.update(wait=True, started=str(self.root / "started"), release=str(self.root / "release"))
@@ -123,10 +167,11 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(self.engine.snapshot()["candidates"]), 2)
 
     def test_timer_and_abandoned_lease_recovery(self):
-        self.config["sources"]["one"]["interval_seconds"] = .2
+        self.config["sources"]["one"]["interval_seconds"] = 180
         self.engine = self.reopen()
         self.assertEqual(self.engine.tick(), {})
-        time.sleep(.26)
+        with connection(self.engine.db_path, write=True) as db:
+            db.execute("UPDATE schedules SET next_run=? WHERE source_id='one'", (time.time() - 1,))
         self.assertEqual(set(self.engine.tick()), {"one"})
         self.assertEqual(self.state("one")["trigger"], "timer")
         self.assertEqual(self.reopen().tick(), {})

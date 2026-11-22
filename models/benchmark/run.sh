@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# UWAGA: modele odrzucone w benchmarku usunięto z kontenerów, więc skrypt liczy dziś tylko modele
+# pozostawione. Porównanie z benchmark/README.md odtwarza commit 344d525.
 # BENCHMARK WARSTWY MODELI: jakość i koszt na jednej próbie. Opis miar: benchmark/README.md.
 #
 #   benchmark/run.sh ./data/<próba>            # całość: cechy, warianty, koszt, miary
@@ -56,14 +58,14 @@ fi
 if step full; then    # modele tanie na całej próbie
   PROFILE=all NEIGHBORS=0 DATA="$DATA" ./extract.sh face image_embedding || fail=1
   MODELS=tesseract NEIGHBORS=0 DATA="$DATA" ./extract.sh ocr || fail=1
-  MODELS=multilingual-e5-small,bge-m3 NEIGHBORS=0 DERIVED_TEXT=0 DATA="$DATA" ./extract.sh text || fail=1
+  MODELS=multilingual-e5-small NEIGHBORS=0 DERIVED_TEXT=0 DATA="$DATA" ./extract.sh text || fail=1
 fi
 
 if step subset; then  # wszystkie modele na podzbiorze
   PROFILE=all NEIGHBORS=0 DERIVED_TEXT=0 DATA="$DATA-subset" ./extract.sh || fail=1
 fi
 
-if step variants; then  # kadr, róg i rekompresja obrazów podzbioru; cechy obrazu i oba OCR
+if step variants; then  # kadr, róg i rekompresja obrazów podzbioru; cechy obrazu i OCR
   mkdir -p "$VAR"
   docker run --rm --network none -v "$ROOT/scripts:/scripts:ro" -v "$(abs_dir "$DATA-subset"):/src:ro" \
     -v "$(abs_dir "$VAR"):/dst" tm-base:latest python /scripts/make_eval_corpus.py /src /dst/corpus || fail=1
@@ -71,16 +73,14 @@ if step variants; then  # kadr, róg i rekompresja obrazów podzbioru; cechy obr
   all_ids=$(variant_ads) && ocr_ids=$(variant_ads "${OCR_VARIANT_ADS:-0}") && [ -n "$all_ids" ] && [ -n "$ocr_ids" ] || {
     echo "brak listy wariantów ($VAR/corpus/variants.jsonl); przerywam" >&2; exit 1; }
   PROFILE=all NEIGHBORS=0 DATA="$VAR/corpus" ONLY_ADS="$all_ids" ./extract.sh image_embedding || fail=1
-  MODELS=tesseract NEIGHBORS=0 DATA="$VAR/corpus" ONLY_ADS="$all_ids" ./extract.sh ocr || fail=1
-  # EasyOCR jest najwolniejszy: OCR_VARIANT_ADS=N ogranicza go do wariantów N pierwszych reklam podzbioru
-  # (wg ad_id); miara odzyskiwania dla obu OCR liczy się wtedy na tych samych zapytaniach
-  MODELS=easyocr NEIGHBORS=0 DATA="$VAR/corpus" ONLY_ADS="$ocr_ids" ./extract.sh ocr || fail=1
+  # OCR_VARIANT_ADS=N ogranicza OCR do wariantów N pierwszych reklam podzbioru (wg ad_id)
+  MODELS=tesseract NEIGHBORS=0 DATA="$VAR/corpus" ONLY_ADS="$ocr_ids" ./extract.sh ocr || fail=1
 fi
 
 if step cost; then    # p50/p95 i pamięć: pierwsze MAX_ITEMS reklam podzbioru, jeden wariant wątków
   RUN="quality-$name-$(date +%Y%m%d_%H%M%S)" DATA="$DATA-subset" CPUS=${CPUS:-4} MEM=${MEM:-6g} \
     THREADS=${THREADS:-4} REPEATS=${REPEATS:-1} MAX_ITEMS=${MAX_ITEMS:-20} \
-    ./bench.sh run face ocr image_embedding object_detection ai_generated aigi_effort text || fail=1
+    ./bench.sh run face ocr image_embedding object_detection aigi_effort text || fail=1
 fi
 
 if step metrics; then

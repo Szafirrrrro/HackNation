@@ -16,16 +16,33 @@ Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live
 
 ## Od pliku do wyniku
 
+Streamlit przyjmuje też link do strony: `python -m pip install -r graph/requirements-app.txt`,
+następnie `python -m streamlit run graph/app.py`. Wklej publiczny URL i kliknij
+**Przechwyć stronę**, aby pobrać stronę i automatycznie wczytać jej dane do analizy oraz grafu. Ręcznie podany URL jest pobierany niezależnie od rankingu popularności domen. Ranking nie potwierdza bezpieczeństwa treści. Wymagany jest Google Chrome. [Zapis URL i pliki wynikowe](graph/README.md#przechwycenie-strony-przez-url)
+
+Wybierz w panelu demo syntetyczne, korpus organizatora lub własne źródło lokalne. Prześlij zdjęcie PNG/JPEG/WebP albo podaj URL. Karta wyniku pokazuje decyzję względem wybranej referencji, braki i dowody. SHA-256 rozpoznaje kopię pliku, pHash porównuje wygląd, a lokalny OCR udostępnia tekst. [Obsługa zdjęć i lokalizowanie dowodów](graph/README.md#analiza-zdjęcia-lub-zrzutu-reklamy)
+
+### Uruchomienie na CPU w Dockerze
+
+W katalogu projektu zbuduj obraz dla Linux amd64 i uruchom panel. Budowa pobiera biblioteki, Google Chrome i Tesseract z językami polskim i angielskim. Wbudowane demo i pomiar działają lokalnie po zbudowaniu obrazu.
+
+```powershell
+docker build -f graph/Dockerfile -t scamgraph-analyst .
+docker run --rm -p 127.0.0.1:8501:8501 -v scamgraph-state:/opt/scamgraph/.private-discovery scamgraph-analyst
+```
+
+Otwórz `http://127.0.0.1:8501/`. Aby odczytać własny katalog, dodaj przed nazwą obrazu opcję `--mount "type=bind,source=C:\dane\korpus,target=/korpus,readonly"`, wybierz „Korpus lokalny” i podaj `/korpus`. Do pomiaru na danych syntetycznych służy `docker run --rm --network none scamgraph-analyst python scripts/evaluate_campaigns.py`. [Metodyka i wyniki](graph/eval/README.md) · [Komponenty i licencje](docs/KOMPONENTY.md)
+
 Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.json serve`, aby otworzyć panel schedulera z lokalnymi kartami demonstracyjnymi. Domyślny profil `discovery.live.json` uruchamia Chrome przez Playwright i wyszukuje do 40 kart na frazę. Aby zachować opis uprawnienia lokalnie, skopiuj profil do `discovery.local.json`, uzupełnij `sources.meta.permission` i uruchom `python -m scamgraph.live --config discovery.local.json serve`. Panel otworzysz pod adresem http://127.0.0.1:8527/. Listą zaufanych domen dla wybranego profilu zarządza polecenie `trusted-domains`. [Instalacja i konfiguracja](docs/AD_DISCOVERY.md)
 
-| Krok | Technologia i wynik planowanego systemu | Wymaganie NASK |
+| Krok | Technologia i wynik | Wymaganie NASK |
 | --- | --- | --- |
-| 1. Wczytaj materiały | Python przyjmuje manifest i rekordy JSONL, obraz PNG/JPEG/WebP, tekst, adres lub zapisany HTML/HAR. Raport podaje przyjęte rekordy, duplikaty i braki. SHA-256 rozpoznaje kopie pliku, a ID dostawcy pozwala zachować dwie emisje tej samej kreacji. | Import, deduplikacja, obsługa niepełnych danych |
-| 2. Znajdź podobne kreacje | Pillow i pHash porównują obraz, OpenCV ORB dopasowuje punkty kadru. Tesseract odczytuje polski i angielski tekst, a znakowy TF-IDF w scikit-learn porównuje jego fragmenty. Analityk zobaczy oba kadry lub wspólną frazę. | Automatyczna ekstrakcja cech i rozpoznawanie wariantów |
+| 1. Wczytaj materiały | Panel przyjmuje katalog, manifest, emisje, obserwacje stron lub karty JSONL. Nowe zgłoszenie może zawierać zdjęcie PNG/JPEG/WebP, tekst i znany adres celu. Pobranie URL zapisuje HTML i HAR. Raport importu pokazuje błędy i duplikaty. SHA-256 rozpoznaje kopie pliku, a ID dostawcy rozróżnia emisje. | Import, deduplikacja, obsługa niepełnych danych |
+| 2. Znajdź podobne kreacje | Pillow i pHash porównują wygląd całego obrazu. ORB pozostaje metodą laboratoryjną. Tesseract odczytuje polski i angielski tekst, a znakowy TF-IDF w scikit-learn porównuje jego fragmenty. Analityk zobaczy oba kadry lub wspólną frazę. | Automatyczna ekstrakcja cech i rozpoznawanie wariantów |
 | 3. Porównaj strony | Python odczytuje hosty i ścieżki z adresów, nagłówki z zapisanych stron oraz piksele śledzące z logów HAR. Udokumentowane połączenie reklama–strona pozwala wykorzystać znalezisko przy ocenie postu. | Różnorodne ślady i możliwość wskazania źródła |
 | 4. Zbuduj grupy | Silnik ocenia pary postów. Przy scalaniu dwóch grup każda para między grupami musi mieć mocne powiązanie (*complete-link*). Pojedynczy post może pozostać poza grupą. | Korelacja i klastrowanie materiałów |
 | 5. Sprawdź nową reklamę | Nowy post jest porównywany z zamrożonym zbiorem odniesienia. Wynik obejmuje proponowaną kampanię, sugestie do przeglądu, niewystarczające dane albo możliwy nowy wzorzec. | Rozpoznawanie wariantów znanych i odrębnych kampanii |
-| 6. Otwórz dowód | W Streamlit graf Cytoscape.js pokazuje posty i grupy, a vis-timeline zdarzenia wybranej kampanii. Kliknięcie połączenia otwiera oba źródła. Kliknięcie zdarzenia wskazuje post na grafie. | Proste GUI, czytelna prezentacja i interpretacja |
+| 6. Otwórz dowód | W Streamlit graf pyvis pokazuje posty i grupy. Wybór pary otwiera jej dowody, a wykres Plotly pokazuje zdarzenia wybranej kampanii. | Proste GUI, czytelna prezentacja i interpretacja |
 
 Za korelację i grupowanie jury przyznaje 30% oceny, a za użyteczność cech i źródeł kolejne 30%. Graf i oś czasu to wybrane przez zespół sposoby prezentacji. [Pełna treść zadania NASK](docs/NASK_ZADANIE.md) · [Zakres i kryteria odbioru](docs/MVP.md)
 

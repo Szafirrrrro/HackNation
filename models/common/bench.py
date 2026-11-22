@@ -239,7 +239,7 @@ def _bench_one(ext, items, threads: int, warmup: int, repeats: int) -> dict:
 
 def bench_items(corpus, modality: str, max_items: int):
     """Wejścia benchmarku: posortowane po ad_id (w luźnym katalogu = hash treści), więc próbka
-    miesza podkatalogi zamiast brać pierwsze alfabetycznie (np. same ai_generated/)."""
+    miesza podkatalogi zamiast brać pierwsze alfabetycznie (np. z jednego podkatalogu)."""
     return sorted(corpus.items(modality), key=lambda it: it.ad_id)[:max_items]
 
 

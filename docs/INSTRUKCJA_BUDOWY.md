@@ -60,15 +60,17 @@ Druga komenda uruchamia testy laboratorium (pomiar, format cech, ewaluacja). Wyn
 
 1. Każda porównywalna para zwraca cechy, wartości z obu stron, pochodzenie, wynik metryki i braki. Odróżniaj ponowne użycie pliku, wariant kreacji i hipotezę kampanii. Przy kwalifikowaniu mocnej relacji uwzględnij niezależność obserwacji po obu stronach. Warunki i kolejność decyzji dla nowych zgłoszeń określa jedna tabela w [kontrakcie](DATA_CONTRACT.md).
 2. Zbuduj referencję z wszystkich par. Dla 13 rekordów koszt to 78 porównań. Rozpatruj mocne krawędzie w deterministycznej kolejności. Połącz grupy, jeśli każda para między nimi jest mocna (complete-link). Przy mocnym A–B i B–C oraz słabym A–C analityk powinien widzieć też relację pozostałą do sprawdzenia. Zapytanie porównaj ze wszystkimi emisjami poza samym zgłoszeniem. Referencja pozostaje stała pomiędzy zapytaniami. Przy jej zmianie oblicz odcisk danych, parametrów i metod ponownie.
-3. Ekran w Streamlit ma przyjąć katalog lub zgłoszenie, otworzyć oba źródła, pokazać wynik i przesłanki. Połącz Cytoscape.js i vis-timeline w jednym lokalnym komponencie. Wybór w grafie podświetla odpowiednie obserwacje na osi czasu i odwrotnie. Błąd odczytu lub pusty wynik ma prowadzić do następnej analizy. Po wyłączeniu sieci skrypty i style muszą nadal działać. [Interakcje i próby odbiorowe](PLAN_GRAF_I_OS_CZASU.md)
+3. W Streamlit wybierz referencję i prześlij materiał. Wybór pary pod grafem otwiera przesłanki. Filtr kampanii na osi zawęża datowane obserwacje. Interakcje docelowe opisuje [plan ekranu](PLAN_GRAF_I_OS_CZASU.md).
 
-## Planowane uruchomienie demonstratora
+## Uruchomienie demonstratora
 
-C przygotowuje jeden kontener CPU, przypina przetestowane zależności i dołącza program Tesseract oraz języki `pol` i `eng`. Kod GUI, silnika, ewaluacji i plik definicji obrazu aplikacji są do wytworzenia. **Docelowe punkty wejścia**, dostępne po dostarczeniu aplikacji, to uruchomienie testów projektu i lokalny start Streamlit w katalogu głównym. C uzupełni ostateczną instrukcję o sprawdzone na czystym stanowisku polecenia instalacji i kontenera.
+Poniższe polecenia wykonaj w środowisku Python z katalogu głównego. Aby odtworzyć instalację z przeglądarką i polskim OCR na CPU, skorzystaj z [instrukcji kontenera](../README.md#uruchomienie-na-cpu-w-dockerze).
 
 ```bash
-python -m pytest
-python -m streamlit run app.py --server.address 127.0.0.1
+python -m pip install -r graph/requirements-app.txt
+python -m unittest discover -s tests
+python scripts/evaluate_campaigns.py
+python -m streamlit run graph/app.py --server.address 127.0.0.1
 ```
 
 Zamontuj prywatny korpus tylko do odczytu. W czystym środowisku sprawdź `tesseract --list-langs`, zbuduj referencję, przeanalizuj dwa różne pliki i ponownie pierwszy z nich. Przy tej samej konfiguracji jego wynik i dowody powinny się powtórzyć. Odbierz także tryb CPU z wyłączonym GPU oraz przypadek brakującego OCR. Przedstaw p95 od przyjęcia obrazu do wyniku po zbudowaniu indeksu i liczebność pomiaru. Projektowy cel wynosi 5 s.

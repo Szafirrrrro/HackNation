@@ -15,6 +15,7 @@ from ..capture import capture, staging, write_json
 from ..media import AUDIO, IMAGES, VIDEO
 from .types import SourceError
 
+from .cta import PLATFORM_HOSTS, caption_url, destination, own_text, target_identity//
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "discovery.json"
 
 
@@ -133,6 +134,7 @@ def collect_landing(stage, options, finding, *, defer=False):
     from .trusted_domains import match_url, skip_reason
     from .verified_entity import match_verified_entity
     from .authoritive_corpora import match_authoritative_corpus
+    from .bidirectional_verify import match_bidirectional_verification
 
     index = finding.card.get("cta_element")
     candidates = finding.card.get("landing_candidates", [])
@@ -158,11 +160,21 @@ def collect_landing(stage, options, finding, *, defer=False):
         return {"status": "failed", "content_status": "error", "reason_code": "invalid_card_evidence",
                 "reason": "Brak poprawnego odnośnika we wskazanym elemencie karty."}
     database = options.get("domain_db")
-    platform = (urlsplit(url).hostname or "").lower().rstrip(".") in PLATFORM_HOSTS
-    host = None if platform else match_url(database, url)
-    verified = None if platform else match_verified_entity(url, options)
+
     timeout = options.get("landing_timeout", 22)
-    ranked_hit = None if platform else match_authoritative_corpus(url)
+    # Kolejność jak dotąd: baza zaufanych, podmiot, ranking, pętla dwustronna. Kolejny filtr liczymy tylko
+    # wtedy, gdy poprzedni nie trafił. verified_entity (DNS, TLS) i bidirectional_verify (HTTP) łączą się
+    # z podejrzanym hostem z pominięciem zabezpieczeń kolektora (prywatne IP, wspólny profil przeglądarki),
+    # więc są wyłączone, dopóki profil jawnie ich nie włączy.
+    network = options.get("mode") == "live" and options.get("network_trust_checks", False)
+    platform = (urlsplit(url).hostname or "").lower().rstrip(".") in PLATFORM_HOSTS
+    host = match_url(database, url)
+    verified = match_verified_entity(url, options) if network and not (platform or host) else None
+    # Ranking ocenia tylko zwykłe strony WWW. Posty, Marketplace i wideo Facebooka mają własną obsługę
+    # w landing_visit, a pozycja facebook.com w rankingu nie mówi nic o konkretnej treści.
+    web = target_identity(url)[0] == "web"
+    ranked_hit = None if host or verified or not web else match_authoritative_corpus(url)
+    closed_loop = match_bidirectional_verification(url) if network and not (platform or host or verified or ranked_hit) else None
 
     if platform:
         outcome = {"status": "skipped", "content_status": "skipped", "reason_code": "platform_internal",
@@ -182,7 +194,14 @@ def collect_landing(stage, options, finding, *, defer=False):
             "reason_code": code,
             "reason": reason,
         }
-
+    elif closed_loop:
+        code, reason = closed_loop
+        outcome = {
+            "status": "skipped",
+            "content_status": "skipped",
+            "reason_code": code,
+            "reason": reason,
+        }
     elif defer:
         outcome = {"status": "queued", "content_status": "pending", "reason_code": "queued",
                    "reason": "Oczekuje na odczyt strony docelowej."}

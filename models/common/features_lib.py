@@ -131,24 +131,6 @@ def tfidf_similarity(texts: dict[str, str], ngram_range=(3, 5)):
     return keys, (T @ T.T).toarray(), vec
 
 
-ORB_MATCH = {"norm": "hamming", "ratio": 0.75}   # parametry porównania ORB (część metody)
-
-
-def orb_good_matches(fs: "FeatureStore", ad_a: str, ad_b: str, ratio: float = ORB_MATCH["ratio"]):
-    """Liczba dopasowań ORB po teście Lowe'a między reklamami (kandydat, nie domyślne).
-    Wymaga OpenCV. Zwraca None, gdy któraś strona nie ma deskryptorów."""
-    import cv2
-    rows = {r["ad_id"]: r for r in fs.rows(field="image.orb") if r["ad_id"] in (ad_a, ad_b)}
-    if len(rows) < 2:
-        return None
-    des = []
-    for ad in (ad_a, ad_b):
-        v = rows[ad]["value"]
-        des.append(np.load(fs.root / v["array"])[v["key"]])
-    m = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(des[0], des[1], k=2)
-    return sum(1 for p in m if len(p) == 2 and p[0].distance < ratio * p[1].distance)
-
-
 # ok. 8 subodcisków/s: min_overlap 40 ~ 5 s. Wspólny fragment musi też obejmować min_fraction
 # krótszego nagrania - inaczej maksimum po przesunięciach wygrywają krótkie fragmenty na brzegach.
 CHROMAPRINT_MATCH = {"min_overlap": 40, "min_fraction": 0.5}

@@ -1,11 +1,6 @@
 import os
 import urllib.request
 
-from insightface.app import FaceAnalysis
-
-FaceAnalysis(name="buffalo_l", root="/models/insightface",
-             providers=["CPUExecutionProvider"]).prepare(ctx_id=-1)
-
 os.makedirs("/models/opencv", exist_ok=True)
 for url in [
     "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",

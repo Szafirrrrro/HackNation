@@ -53,8 +53,9 @@ class HarnessTest(unittest.TestCase):
             self.assertEqual([(i.path, i.origin_id) for i in corpus.items("image")],
                              [(str(v0 / "media" / "capture.png"), "a-shot")])
             self.assertEqual({a.ad_id for a in corpus.ads} - {i.ad_id for i in corpus.items("image")}, {"b"})
-            self.assertEqual(corpus.report["duplicate_ad_ids"], ["a"])
-            self.assertEqual(len(corpus.report["errors"]), 1)
+            self.assertEqual(corpus.report["duplicate_ad_ids"], [])
+            self.assertEqual(len(corpus.report["errors"]), 2)
+            self.assertTrue(any(row["error"] == "conflicting_local_record" for row in corpus.report["errors"]))
 
     def test_complete_filtered_and_partial_results(self):
         with TemporaryDirectory() as tmp:

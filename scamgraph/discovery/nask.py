@@ -1,15 +1,35 @@
 """Read-only phrase search in organizer material. The corpus has no delivery-country field."""
 import hashlib
-import json
+from io import BytesIO
+import logging
 import unicodedata
 from pathlib import Path
+
+from models.common.import_rows import deduplicate_rows, parse_jsonl
 
 from .types import Finding, Query, SourceError
 from ..sources import clean
 
+LOGGER = logging.getLogger(__name__)
+
 
 def normalized(value):
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def searchable_rows(data, path):
+    errors, rows = [], []
+    for line, row in parse_jsonl(BytesIO(data), str(path), errors):
+        if not isinstance(row.get("source"), dict) or not isinstance(row.get("text") or "", str):
+            errors.append({"line": line, "error": "invalid_source_or_text"})
+        else:
+            rows.append((line, row))
+    accepted, _ = deduplicate_rows(rows, path.parent.name, str(path), errors)
+    for issue in errors:
+        first_line = f", pierwszy zapis w wierszu {issue['first_line']}" if "first_line" in issue else ""
+        code = issue["error"].split(":", 1)[0]
+        LOGGER.warning("Pominięto ads.jsonl, wiersz %s (%s%s).", issue["line"], code, first_line)
+    return accepted
 
 
 def fetch(options: dict, query: Query):
@@ -23,19 +43,9 @@ def fetch(options: dict, query: Query):
     receipt = hashlib.sha256(data).hexdigest()
     needle = normalized(query.phrase)
     count = 0
-    for number, line in enumerate(data.splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-            ident = row["ad_id"]
-            if not isinstance(ident, str) or not ident or not isinstance(row.get("source"), dict):
-                raise ValueError()
-            body = row.get("text") or ""
-            if not isinstance(body, str):
-                raise ValueError()
-        except (TypeError, KeyError, ValueError) as exc:
-            raise SourceError(f"Niepoprawna emisja w ads.jsonl, wiersz {number}.") from exc
+    for number, row in searchable_rows(data, path):
+        ident = row["ad_id"]
+        body = row.get("text") or ""
         if needle not in normalized(body):
             continue
         source = row["source"]

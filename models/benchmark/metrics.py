@@ -8,6 +8,9 @@ Uruchamiane w kontenerze tm-text (numpy, scikit-learn, OpenCV) przez models/benc
 
 Wynik: <out>/results.json (liczby zbiorcze), <out>/pairs.jsonl i pairs_key.json (pary do oceny
 ręcznej; zawierają identyfikatory reklam, więc zostają poza Gitem).
+
+Nazwy modeli odrzuconych w benchmarku zostają w tym pliku, żeby dało się ponownie przeliczyć cechy
+zapisane przed ich usunięciem z kontenerów (commit 344d525). Model bez cech jest pomijany.
 """
 from __future__ import annotations
 
@@ -23,7 +26,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, "/app/common")
-from features_lib import ORB_MATCH, FeatureStore, tfidf_similarity  # noqa: E402
+from features_lib import FeatureStore, tfidf_similarity  # noqa: E402
+
+ORB_RATIO = 0.75   # test Lowe'a dla ORB (model odrzucony; zostaje do przeliczenia dawnych cech)
 
 LOW = -1e9
 NEAR_DUP_PHASH = 4        # reklamy o pHash bliższym niż to uznajemy za tę samą kreację
@@ -151,7 +156,7 @@ def orb(fq, q_ids, fg, g_ids):
             if dg is None or len(dg) < 2:
                 continue
             m = bf.knnMatch(dq, dg, k=2)
-            S[i, j] = sum(1 for p in m if len(p) == 2 and p[0].distance < ORB_MATCH["ratio"] * p[1].distance)
+            S[i, j] = sum(1 for p in m if len(p) == 2 and p[0].distance < ORB_RATIO * p[1].distance)
     return S
 
 
@@ -466,7 +471,7 @@ def main():
         "ai_provenance": eval_ai(subset),
         "cost": costs({"full": full, "subset": subset}),
         "params": {"seed": a.seed, "near_dup_phash": NEAR_DUP_PHASH, "max_image_queries": MAX_IMAGE_QUERIES,
-                   "pairs_per_model": PAIRS_PER_MODEL, "orb_match": ORB_MATCH},
+                   "pairs_per_model": PAIRS_PER_MODEL, "orb_match": {"norm": "hamming", "ratio": ORB_RATIO}},
     }
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

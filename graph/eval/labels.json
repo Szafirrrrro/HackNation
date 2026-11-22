@@ -1,0 +1,59 @@
+{
+  "source": "Autorskie, fikcyjne emisje napisane na potrzeby testu funkcjonalnego. Identyfikatory, kontakty i serwisy są sztuczne.",
+  "reference": {
+    "r17": "stolarnia",
+    "r04": "stolarnia",
+    "r92": "stolarnia",
+    "r31": "rzeka",
+    "r08": "rzeka",
+    "r76": "rzeka",
+    "r23": "rower",
+    "r67": "rower",
+    "r45": "rower",
+    "r88": "kino",
+    "r57": "tkaniny",
+    "r13": "statki"
+  },
+  "queries": {
+    "q65": {
+      "group": "stolarnia",
+      "expected": "probable_match"
+    },
+    "q18": {
+      "group": "stolarnia",
+      "expected": "probable_match"
+    },
+    "q93": {
+      "group": "rzeka",
+      "expected": "probable_match"
+    },
+    "q34": {
+      "group": "rower",
+      "expected": "probable_match"
+    },
+    "q82": {
+      "group": "stolarnia",
+      "expected": "review_needed"
+    },
+    "q51": {
+      "group": "szachy",
+      "expected": "no_match"
+    },
+    "q26": {
+      "group": "teatr",
+      "expected": "no_match"
+    },
+    "q44": {
+      "group": "teatr",
+      "expected": "no_match"
+    },
+    "q02": {
+      "group": null,
+      "expected": "review_needed"
+    },
+    "q79": {
+      "group": null,
+      "expected": "insufficient_evidence"
+    }
+  }
+}

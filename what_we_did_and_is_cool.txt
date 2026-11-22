@@ -1,0 +1,2 @@
+1) zaufane strony które skracją czas liczenia + nie uwzględniają ich w grafie
+2)https://publicsuffix.org 

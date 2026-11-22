@@ -1,4 +1,5 @@
 FROM tm-base:latest
+# pakiet insightface zostaje tylko dla zdjęcia testowego w scripts/render_samples.py; wag nie pobieramy
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
     && pip install onnxruntime==1.20.1 insightface==0.7.3 \
     && apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*

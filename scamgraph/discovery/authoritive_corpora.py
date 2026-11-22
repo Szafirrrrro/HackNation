@@ -3,60 +3,27 @@
 from __future__ import annotations
 
 import csv
+import functools
 import ipaddress
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
 
-# Domyślna ścieżka do listy rankingowej (np. Tranco) w projekcie.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_RANKING_LIST_PATH = PROJECT_ROOT / "data" / "tranco_top.csv"
-DEFAULT_RANKING_MAX_RANK = 100_000
+import tldextract
 
-# Platformy hostingowe / UGC / kreatorzy stron, gdzie wysoka pozycja eTLD+1 w rankingu
-# dotyczy samej platformy, a nie pojedynczej strony/subdomeny użytkownika.
-MULTI_TENANT_HOSTS = {
-    "substack.com",
-    "github.io",
-    "sites.google.com",
-    "vercel.app",
-    "myshopify.com",
-    "notion.site",
-    "webflow.io",
-    "pages.dev",
-    "herokuapp.com",
-    "blogspot.com",
-    "wordpress.com",
-    "wixsite.com",
-    "carrd.co",
-    "linktr.ee",
-    "beacons.ai",
-}
+# Lista rankingowa (Tranco top-100k) dołączona do pakietu discovery.
+DEFAULT_RANKING_LIST_PATH = Path(__file__).resolve().parent / "data" / "top-100k.csv"
+DEFAULT_RANKING_MAX_RANK = 5_000
 
-# Prosty fallback wyciągania eTLD+1 z hosta (bez zewnętrznych zależności).
-# Jeśli masz zainstalowane `tldextract`, użyjemy go automatycznie.
-_MULTI_PART_TLDS = {
-    "co.uk",
-    "org.uk",
-    "ac.uk",
-    "gov.uk",
-    "com.pl",
-    "net.pl",
-    "org.pl",
-    "gov.pl",
-    "edu.pl",
-    "com.au",
-    "net.au",
-    "org.au",
-    "gov.au",
-    "co.jp",
-    "ne.jp",
-    "or.jp",
-    "go.jp",
-}
+# Public Suffix List z sekcją prywatną, z migawki dołączonej do tldextract: bez sieci i bez cache na dysku.
+# Dzięki sekcji prywatnej xyz.s3.amazonaws.com, abc.netlify.app czy x.web.app są własną domeną użytkownika,
+# a nie domeną platformy z rankingu.
+_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True)
 
+from graph.ftf_graph.domain_policy import MULTI_TENANT_HOSTS, NEVER_TRUST_BY_RANK
 
 def extract_etld_plus_1(host: str) -> str:
+    """Domena rejestrowalna według PSL z sekcją prywatną; pusty napis dla IP, sufiksu lub nieznanego TLD."""
     clean_host = (host or "").strip(".").lower()
     if not clean_host:
         return ""
@@ -65,23 +32,10 @@ def extract_etld_plus_1(host: str) -> str:
         return ""
     except ValueError:
         pass
-
-    try:
-        import tldextract  # type: ignore
-
-        ext = tldextract.extract(clean_host)
-        if ext.domain and ext.suffix:
-            return f"{ext.domain}.{ext.suffix}".lower()
-    except Exception:
-        pass
-
-    labels = clean_host.split(".")
-    if len(labels) < 2:
-        return clean_host
-    tail2 = ".".join(labels[-2:])
-    if len(labels) >= 3 and tail2 in _MULTI_PART_TLDS:
-        return ".".join(labels[-3:])
-    return tail2
+    ext = _EXTRACT(clean_host)
+    if ext.domain and ext.suffix:
+        return f"{ext.domain}.{ext.suffix}".lower()
+    return ""
 
 
 def _normalize_domain_entry(raw: str) -> str:
@@ -102,7 +56,8 @@ def is_multi_tenant_host(
 ) -> bool:
     clean_host = (host or "").strip(".").lower()
     clean_etld1 = (etld1 or extract_etld_plus_1(clean_host)).strip(".").lower()
-    tenants = {h.strip(".").lower() for h in (multi_tenant_hosts or MULTI_TENANT_HOSTS)}
+    # Własna lista uzupełnia domyślne wykluczenia, nigdy ich nie zastępuje.
+    tenants = {h.strip(".").lower() for h in MULTI_TENANT_HOSTS | NEVER_TRUST_BY_RANK | set(multi_tenant_hosts or ())}
     if not clean_host and not clean_etld1:
         return False
     if clean_host in tenants or clean_etld1 in tenants:
@@ -113,13 +68,21 @@ def is_multi_tenant_host(
 def load_tranco_top(
     path: str | Path | None = DEFAULT_RANKING_LIST_PATH,
     max_rank: int = DEFAULT_RANKING_MAX_RANK,
-) -> set[str]:
-    """Wczytuje ranking (np. CSV `rank,domain` lub lista) i zachowuje domeny do `max_rank`."""
+) -> frozenset[str]:
+    """Wczytuje ranking (np. CSV `rank,domain` lub lista) i zachowuje domeny do `max_rank`.
+
+    Brak pliku daje pusty zbiór, czyli brak pominięć na podstawie rankingu (strona zostanie pobrana).
+    Wynik jest zapamiętywany w procesie dla pary (ścieżka, max_rank)."""
     if not path or max_rank <= 0:
-        return set()
+        return frozenset()
+    return _load_ranking(str(Path(path).resolve()), max_rank)
+
+
+@functools.lru_cache(maxsize=8)
+def _load_ranking(path: str, max_rank: int) -> frozenset[str]:
     file_path = Path(path)
     if not file_path.is_file():
-        return set()
+        return frozenset()
 
     domains: set[str] = set()
     with file_path.open("r", encoding="utf-8", newline="") as handle:
@@ -139,7 +102,7 @@ def load_tranco_top(
             norm = _normalize_domain_entry(raw_domain)
             if norm:
                 domains.add(norm)
-    return domains
+    return frozenset(domains)
 
 
 def match_authoritative_corpus(
@@ -170,11 +133,12 @@ def match_authoritative_corpus(
             try:
                 blocked = bool(has_active_blocklist_hit(host, etld1))
             except Exception:
-                blocked = False
+                blocked = True  # niepewność oznacza pobranie strony, a nie zaufanie
         if not blocked:
             return (
                 "ranked_corpus",
-                f"Domena {etld1} mieści się w rankingu ruchu (top {ranking_max_rank}) bez UGC i aktywnej bloklisty.",
+                f"Domena {etld1} mieści się w rankingu ruchu (top {ranking_max_rank}), a host nie jest na liście "
+                "wykluczeń. Ranking nie ocenia treści strony.",
             )
 
     return None

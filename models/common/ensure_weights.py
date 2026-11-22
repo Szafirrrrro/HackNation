@@ -1,7 +1,7 @@
 """Krok budowania obrazu: każde repo HF w /models/hf musi mieć plik wag.
 
 Przy zrywającym się łączu snapshot_download potrafi zakończyć się bez pliku wag
-(tak było z grounding-dino-tiny). Ten krok dociąga brakujące wagi, a gdy się nie uda,
+(zdarzyło się to przy budowie kontenera obiektów). Ten krok dociąga brakujące wagi, a gdy się nie uda,
 przerywa budowanie zamiast zostawić obraz, w którym model nie da się załadować.
 """
 import sys

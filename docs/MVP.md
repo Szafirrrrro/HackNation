@@ -1,6 +1,6 @@
 # Co oddajemy jury
 
-Celem pierwszej wersji jest próba, którą juror może wykonać sam. Wczytuje zbiór referencyjny, dodaje wcześniej niewidzianą reklamę i sprawdza, czy sugerowana grupa wytrzymuje porównanie jej członków. Z wyniku przechodzi do pary źródeł i do chronologii kampanii. Przy braku rozstrzygających informacji widzi, jakich danych zabrakło. To zakres do wdrożenia. Dostępne dziś materiały opisuje [README](../README.md).
+Celem pierwszej wersji jest próba, którą juror może wykonać sam. Wczytuje zbiór referencyjny, dodaje wcześniej niewidzianą reklamę i sprawdza, czy sugerowana grupa wytrzymuje porównanie jej członków. Z wyniku przechodzi do pary źródeł i do chronologii kampanii. Przy braku rozstrzygających informacji widzi, jakich danych zabrakło. Wynik dla odłożonych scenariuszy syntetycznych i ograniczenia etykiet opisuje [pomiar](../graph/eval/README.md). Instalację i obsługę opisuje [README](../README.md).
 
 ## Kryteria NASK i sposób odbioru
 

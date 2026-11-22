@@ -70,17 +70,12 @@ class Extractor:
     license = ""
     notes = ""
     consumes_derived_text = False  # True: przetwarza też ocr.text / asr.text z wcześniejszych ekstrakcji
-    # Decyzja zespołu (README, tabela „Który eksperyment…”):
-    #   default   - domyślny profil ekstrakcji,
-    #   candidate - liczony w profilu eval do porównania z domyślnym,
-    #   deferred  - odłożony (tylko PROFILE=all lub jawne MODELS),
-    #   excluded  - odłożony i wyłączony z grupowania (grouping=False).
+    # Decyzja zespołu po benchmarku (benchmark/README.md): jeden model na parametr.
+    #   default   - liczony przy każdym ./extract.sh,
+    #   on_demand - liczony tylko przez PROFILE=all albo jawne MODELS.
     stage = "default"
+    grouping = True      # False: wynik do pokazania analitykowi, poza grupowaniem kampanii
     decision = ""        # krótkie uzasadnienie statusu (trafia do runs/*.json)
-
-    @property
-    def grouping(self) -> bool:
-        return self.stage != "excluded"
 
     @property
     def slug(self) -> str:
