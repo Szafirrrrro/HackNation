@@ -1,7 +1,7 @@
 """Effort: wykrywanie obrazów generowanych przez AI (CLIP ViT-L/14 + ortogonalna dekompozycja SVD).
 
 Używa tych samych funkcji co `python3 training/demo.py` (load_detector, infer_single_image),
-więc wynik ekstrakcji = wynik komendy z README projektu Effort. Status `excluded`: ocena
+więc wynik ekstrakcji = wynik komendy z README projektu Effort. Poza grupowaniem (`grouping = False`): ocena
 „czy obraz jest fake” dla każdej reklamy, NIE dowód powiązania kampanii (decyzja zespołu
 i użytkownika 2026-11-21: pochodzenie obrazu poza grupowaniem).
 """
@@ -21,7 +21,8 @@ class EffortAIGI(Extractor):
     family = "visual"
     modality = "image"
     primary_field = "ai.effort"
-    stage = "excluded"
+    stage = "on_demand"
+    grouping = False
     decision = ("Wyłączone z grupowania (zgoda użytkownika 2026-11-21): ocena „czy to fake” per reklama; "
                 "ten sam generator może służyć niezależnym kampaniom.")
     license = "CC BY-NC 4.0 (kod i wagi Effort); CLIP ViT-L/14 MIT"

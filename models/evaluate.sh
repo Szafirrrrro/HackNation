@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EWALUACJA DECYZJI z tabeli laboratorium (README). Wynik: out/eval/decisions.json + decisions.md.
 #
-#   ./evaluate.sh            # pełny przebieg: korpus wariantów, ekstrakcja profilu eval, pomiar p95 OCR, metryki
+#   ./evaluate.sh            # pełny przebieg: korpus wariantów, ekstrakcja, pomiar p95 OCR, metryki
 #   SKIP_EXTRACT=1 ./evaluate.sh   # tylko przeliczenie metryk na istniejących cechach
 #
 # Wejście: DATA (korpus v0, domyślnie ../data/nask-hacknation-2026), etykiety tymczasowe
@@ -29,14 +29,15 @@ if [ "${SKIP_EXTRACT:-0}" != 1 ]; then
   docker run --rm --network none -v "$ROOT/scripts:/scripts:ro" -v "$data_abs:/src:ro" \
     -v "$(abs_dir "$EVAL"):/eval" tm-base:latest \
     python /scripts/make_eval_corpus.py /src "/eval/corpus-$ds-variants" || exit 1
-  # 2) cechy: oryginalny korpus (profil eval: domyślne + kandydaci), warianty (obraz), parafrazy
-  PROFILE=eval NEIGHBORS=1 DATA="$DATA" ./extract.sh ocr image_embedding text || fail=1
-  PROFILE=eval NEIGHBORS=0 DATA="$VAR" ./extract.sh image_embedding || fail=1
+  # 2) cechy: oryginalny korpus (modele domyślne i embedding tekstu do porównania z TF-IDF), warianty, parafrazy
+  NEIGHBORS=0 DATA="$DATA" ./extract.sh ocr image_embedding || fail=1
+  MODELS=multilingual-e5-small NEIGHBORS=1 DATA="$DATA" ./extract.sh text || fail=1
+  NEIGHBORS=0 DATA="$VAR" ./extract.sh image_embedding || fail=1
   if [ -d data/sample/texts ]; then
-    PROFILE=eval NEIGHBORS=0 DATA=./data/sample/texts ./extract.sh text || fail=1
+    MODELS=multilingual-e5-small NEIGHBORS=0 DATA=./data/sample/texts ./extract.sh text || fail=1
   fi
   # 3) p95 OCR na tym samym korpusie (1 wątek i wszystkie z limitu CPUS)
-  RUN="eval-ocr-$(date +%Y%m%d_%H%M%S)" DATA="$DATA" MODELS=tesseract,easyocr REPEATS=1 \
+  RUN="eval-ocr-$(date +%Y%m%d_%H%M%S)" DATA="$DATA" MODELS=tesseract REPEATS=1 \
     MAX_ITEMS=13 ./bench.sh run ocr || fail=1
 fi
 

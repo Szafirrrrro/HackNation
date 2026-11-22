@@ -11,8 +11,9 @@ TAGS = ["a screenshot of a news article", "a social media ad", "a photo of a cel
 
 
 class Clip(Extractor):
-    stage = "deferred"
-    decision = "Odłożone do zadania wyszukiwania obrazów o wspólnym znaczeniu."
+    stage = "default"
+    decision = ("Model podobieństwa obrazu (benchmark 2026-11-22): ślad zewnętrzny hit@3 88,7%, "
+                "warianty syntetyczne 81,1%; uzupełnia skróty percepcyjne.")
     name = "clip-vit-b-32-laion2b"
     use_case = "image_embedding"
     family = "visual"
@@ -42,34 +43,6 @@ class Clip(Extractor):
         return [Out("image.embedding", l2(f[0].numpy())),
                 Out("image.clip_tags", [{"tag": TAGS[int(i)], "p": round(float(sims[i]), 4)}
                                         for i in top])]
-
-
-class Dino(Extractor):
-    stage = "default"
-    decision = ("Domyślne obok pHash jako sygnał RANKINGU (out/eval/decisions.md, 2026-11-21): odnajduje "
-                "syntetyczne kadry/warianty lepiej niż pHash; próg nie jest punktem pracy - 2/4 "
-                "tymczasowe pary rzeczywiste mają cos < 0,77.")
-    name = "dinov2-small"
-    use_case = "image_embedding"
-    family = "visual"
-    modality = "image"
-    primary_field = "image.embedding"
-    version = "hf:facebook/dinov2-small"
-    hf_repo = "facebook/dinov2-small"
-    params = {"pooling": "pooler_output"}
-    license = "Apache-2.0"
-    notes = "384d (CLS), wierny wyglądowi/szablonowi"
-
-    def load(self, threads):
-        from transformers import AutoImageProcessor, AutoModel
-        mid = "facebook/dinov2-small"
-        self.m = AutoModel.from_pretrained(mid).eval()
-        self.p = AutoImageProcessor.from_pretrained(mid)
-
-    def extract(self, item):
-        with torch.inference_mode():
-            out = self.m(**self.p(images=load_rgb(item.path), return_tensors="pt"))
-        return [Out("image.embedding", l2(out.pooler_output[0].numpy()))]
 
 
 class Hashes(Extractor):
@@ -102,46 +75,6 @@ class Hashes(Extractor):
         return outs + [Out("image.size", {"width": im.size[0], "height": im.size[1]}),
                        Out("image.phash", str(self.ih.phash(im))),
                        Out("image.dhash", str(self.ih.dhash(im)))]
-
-
-
-
-class ORB(Extractor):
-    name = "opencv-orb"
-    use_case = "image_embedding"
-    family = "visual"
-    modality = "image"
-    primary_field = "image.orb"
-    stage = "candidate"
-    decision = ("Kandydat (przegląd 2026-11-21): na syntetycznych wariantach top-3 39/39, ale niepowiązane "
-                "zrzuty z tą samą ramką platformy osiągają 216 dopasowań wobec progu 222 - wynik napędza "
-                "wspólny interfejs. Wymaga weryfikacji geometrycznej lub testu na ponownym renderze.")
-    license = "Apache-2.0 (OpenCV)"
-    notes = "binarne deskryptory 32 B; porównanie: BFMatcher Hamming + test Lowe'a"
-    params = {"nfeatures": 1000, "max_side": 1024}
-
-    @property
-    def version(self):
-        import cv2
-        return f"opencv-{cv2.__version__}/orb"
-
-    def load(self, threads):
-        import cv2
-        cv2.setNumThreads(threads)
-        self.cv2 = cv2
-        self.orb = cv2.ORB_create(nfeatures=self.params["nfeatures"])
-
-    def extract(self, item):
-        cv2 = self.cv2
-        gray = cv2.cvtColor(load_bgr(item.path), cv2.COLOR_BGR2GRAY)
-        h, w = gray.shape
-        scale = min(1.0, self.params["max_side"] / max(h, w))
-        if scale < 1:
-            gray = cv2.resize(gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-        kps, des = self.orb.detectAndCompute(gray, None)
-        if des is None:
-            return [Out("image.orb", reason="no_keypoints")]
-        return [Out("image.orb", {"array": des, "n_keypoints": len(kps), "scale": round(scale, 4)})]
 
 
 class QR(Extractor):
@@ -178,4 +111,4 @@ class QR(Extractor):
                        Out("qr.urls", urls) if urls else Out("qr.urls", reason="no_url_in_qr")]
 
 
-EXTRACTORS = [Clip(), Dino(), Hashes(), ORB(), QR()]
+EXTRACTORS = [Clip(), Hashes(), QR()]

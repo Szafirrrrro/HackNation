@@ -10,7 +10,7 @@ TEMPLATE = "Ten tekst dotyczy: {}."
 
 
 class Embed(Extractor):
-    # E5-small domyślnie; BGE-M3 dopiero po wykazaniu powtarzalnego błędu mniejszego modelu
+    # Tekst porównuje TF-IDF (features_lib); embedding zostaje jako wejście grafu (docs/DATA_CONTRACT.md)
     use_case = "text_embedding"
     family = "text"
     modality = "text"
@@ -36,9 +36,9 @@ class Embed(Extractor):
 
 
 class ZeroShot(Extractor):
-    stage = "deferred"
-    decision = ("Odłożone: zestaw zwraca jedną z zadanych kategorii także dla tekstu spoza listy; "
-                "dwie różne kampanie mogą reklamować leki.")
+    stage = "on_demand"
+    decision = ("Poza profilem domyślnym: zestaw zwraca jedną z zadanych kategorii także dla tekstu "
+                "spoza listy; dwie różne kampanie mogą reklamować leki.")
     use_case = "text_topic"
     family = "text"
     modality = "text"
@@ -67,11 +67,8 @@ class ZeroShot(Extractor):
 
 
 EXTRACTORS = [
-    Embed("intfloat/multilingual-e5-small", "query: ", "118M param, 384d, lekki", "candidate",
-          "Kandydat (przegląd 2026-11-21): na parafrazach hit@3 jak TF-IDF (7/7); przewaga MRR z jednego "
-          "zapytania dopasowanego po temacie, nie kampanii. Domyślnie TF-IDF char_wb 3-5 (features_lib)."),
-    Embed("BAAI/bge-m3", "", "568M param, 1024d, najmocniejszy wielojęzyczny", "deferred",
-          "Odłożone: ma sens po wykazaniu powtarzalnego błędu E5-small."),
-    ZeroShot("MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli", "107M param, szybki"),
-    ZeroShot("MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7", "278M param, dokładniejszy"),
+    Embed("intfloat/multilingual-e5-small", "query: ", "118M param, 384d, lekki", "on_demand",
+          "Poza wyborem benchmarku: tekst porównuje TF-IDF char_wb 3-5 (features_lib). Zostaje, bo "
+          "text.embedding jest wejściem grafu (docs/DATA_CONTRACT.md); usunięcie wymaga zgody Pary C."),
+    ZeroShot("MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7", "278M param"),
 ]

@@ -3,9 +3,8 @@
 Reguły (README laboratorium: embedding wolno włączyć, gdy odzyska dodatkowy zgodny wariant
 w top-3, utrzyma lub obniży liczbę fałszywych przypisań i zmieści się w budżecie; progi to
 założenia zespołu):
-  OCR   : Tesseract zostaje, chyba że EasyOCR ma CER niższy o >= 5 pkt proc., nie mniej
-          kluczowych fraz i p95 w budżecie 5 s (zgoda użytkownika 2026-11-21: Tesseract).
-  Obraz : kandydat wchodzi jako sygnał RANKINGU obok pHash, gdy (a) daje dodatkowe trafienia
+  OCR   : Tesseract jest jedynym silnikiem; raport podaje CER, frazy i p95.
+  Obraz : embedding (CLIP, model domyślny) spełnia regułę sygnału RANKINGU obok pHash, gdy (a) daje dodatkowe trafienia
           top-3, (b) każda rzeczywista para tymczasowa ma wynik wyższy niż najwyższa niepowiązana
           para z tą samą ramką, (c) próg pomocniczy przewyższa tę parę o >= 5% (zapas na ramkę).
   Tekst : embedding wchodzi obok TF-IDF, gdy na parafrazach ma więcej hit@3 i nie więcej
@@ -61,7 +60,7 @@ for m, r in img.items():
     reserve_ok = hi is not None and thr - hi >= 0.05 * abs(hi)
     verdict = ("**sygnał rankingu obok pHash** (próg nie jest punktem pracy)"
                if extra > 0 and real_ok and reserve_ok else
-               "zostaje kandydatem (" + ", ".join(x for x, ok in (("brak dodatkowych trafień", extra > 0),
+               "reguła rankingu niespełniona (" + ", ".join(x for x, ok in (("brak dodatkowych trafień", extra > 0),
                                                                   ("para rzeczywista ≤ niepowiązanej", real_ok),
                                                                   ("zapas progu nad ramką < 5%", reserve_ok)) if not ok) + ")")
     out.append(f"- {m}: +{extra} top-3 vs pHash; najniższa para rzeczywista {lo} vs najwyższa niepowiązana "
@@ -103,45 +102,30 @@ else:
     out.append(f"- E5-small: hit@3 parafrazy {e3[0]}/{e3[1]} vs TF-IDF {t3[0]}/{t3[1]}; top-1 z innej grupy "
                f"{ew[0]} vs {tw[0]}; MRR {get(syn, 'E5', 'MRR')} vs {get(syn, 'TF-IDF', 'MRR')} → "
                + ("**włączyć obok TF-IDF**" if ok else
-                  "**TF-IDF char_wb 3-5 domyślnie**, E5 zostaje kandydatem (" + ", ".join(
+                  "**TF-IDF char_wb 3-5 domyślnie** (" + ", ".join(
                       why for why, bad in (("brak dodatkowego trafienia top-3", e3[0] <= t3[0]),
                                            ("więcej top-1 z innej grupy", ew[0] > tw[0]),
                                            ("gorzej na NASK", en is not None and tn is not None and en[0] < tn[0]))
                       if bad) + ")"))
-out.append("- BGE-M3: odłożone do wykazania powtarzalnego błędu E5-small (decyzja zespołu).")
 
 # ----- OCR
 ocr = d.get("ocr", {})
 out += ["", "## OCR", ""]
-easy_p95 = [v for k, v in (ocr.get("p95_ms") or {}).items() if "easyocr" in k and v]
-easy_over_budget = bool(easy_p95) and min(easy_p95) > 5000
 if isinstance(ocr.get("CER"), str):
-    out.append(f"- CER: {ocr['CER']}. Zostaje **Tesseract** (zgoda użytkownika 2026-11-21: wybór ze względu "
-               "na koszt, jakość niezmierzona); EasyOCR odłożony.")
-if easy_over_budget:
-    out.append(f"- EasyOCR przekracza budżet p95 ≤ 5 s już sam (najlepsze p95 {min(easy_p95):.0f} ms) "
-               "→ na CPU nie może zastąpić Tesseract niezależnie od CER.")
+    out.append(f"- CER: {ocr['CER']}.")
 else:
     out += ["| metoda | n | średni CER | kluczowe frazy | domeny |", "|---|---|---|---|---|"]
     for m, r in ocr.items():
         if isinstance(r, dict) and "CER_mean" in r:
             out.append(f"| {m} | {r['n']} | {r['CER_mean']} | {r['key_phrases']} | {r['domains']} |")
-    t = next((r for m, r in ocr.items() if "tesseract" in m and isinstance(r, dict)), None)
-    e = next((r for m, r in ocr.items() if "easyocr" in m and isinstance(r, dict)), None)
-    if t and e and isinstance(t["CER_mean"], float) and isinstance(e["CER_mean"], float):
-        better = (t["CER_mean"] - e["CER_mean"]) >= 0.05 and not easy_over_budget and \
-            (num(e["key_phrases"]) or (0, 0))[0] >= (num(t["key_phrases"]) or (0, 0))[0]
-        out.append(f"- Propozycja: {'**EasyOCR**' if better else '**Tesseract** zostaje'} "
-                   f"(reguła: CER niższy o ≥ 5 pkt proc. i nie mniej fraz).")
 if ocr.get("p95_ms"):
     out += ["", "p95 latencji OCR (ms) na tym korpusie: " +
             "; ".join(f"{k}: {v}" for k, v in ocr["p95_ms"].items()) +
             f". n = {ocr.get('p95_n', '?')} pomiarów na konfigurację (p95 z małej próby ≈ jedna z najwyższych wartości). "
             "Budżet projektu: p95 ≤ 5 s na całą ścieżkę obrazu."]
-out += ["", "## Odłożone / wyłączone (bez pomiaru, decyzja zespołu)", "",
-        "Temat (XNLI), obiekty (OWLv2, Grounding DINO; zamiast nich dekoder QR), twarze, mowa (brak nagrań), "
-        "CLIP, BGE-M3, EasyOCR; pochodzenie obrazu (reverse-SynthID, SigLIP) wyłączone z grupowania. "
-        "Uruchomienie: `PROFILE=all ./extract.sh` albo `MODELS=...`.",
+out += ["", "## Poza tym raportem", "",
+        "Wybór modeli opisuje benchmark/README.md. Temat, obiekty, twarze i ocena Effort liczą się "
+        "na żądanie: `PROFILE=all ./extract.sh` albo `MODELS=...`.",
         "", f"Wejścia: `{json.dumps(d.get('_inputs', {}), ensure_ascii=False)}`",
         "", f"Metody: `{json.dumps(d.get('_methods', {}), ensure_ascii=False)}`"]
 print("\n".join(out))

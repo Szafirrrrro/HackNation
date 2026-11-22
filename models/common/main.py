@@ -27,17 +27,19 @@ from corpus import Item, load_corpus  # noqa: E402
 from extractor import SCHEMA, FeatureWriter, Unavailable, _atomic_write  # noqa: E402
 
 
-PROFILES = {"default": {"default"}, "eval": {"default", "candidate"},
-            "all": {"default", "candidate", "deferred", "excluded"}}
+PROFILES = {"default": {"default"}, "all": {"default", "on_demand"}}
 
 
 def _select(exts, only: str, profile: str = "default"):
-    """Jawne MODELS ma pierwszeństwo przed profilem; inaczej wybór wg statusu decyzji."""
+    """Jawne MODELS ma pierwszeństwo przed profilem; inaczej wybór wg pola stage."""
     names = [s for s in (only or "").split(",") if s]
     if names:
         return [e for e in exts if any(n.lower() in e.name.lower() or n == e.slug for n in names)]
     if profile not in PROFILES:
         sys.exit(f"nieznany PROFILE={profile}; dostępne: {', '.join(PROFILES)}")
+    known = set().union(*PROFILES.values())
+    if bad := [e.name for e in exts if e.stage not in known]:
+        sys.exit(f"nieznany stage w ekstraktorach: {', '.join(bad)}")
     return [e for e in exts if e.stage in PROFILES[profile]]
 
 

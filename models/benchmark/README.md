@@ -1,14 +1,14 @@
 # Benchmark warstwy modeli
 
-Stan na 2026-11-22. Dokument opisuje, jak porównaliśmy modele laboratorium na próbie 492 reklam, co wyszło i jakie decyzje z tego wynikają. Progi, reguły i wybór modeli to decyzje zespołu, nie wymagania NASK. Na każdy parametr zostaje jeden model (decyzja z 2026-11-22). Statusy `stage` w kodzie ekstraktorów nie zostały jeszcze zmienione. [Laboratorium](../README.md) · [Kontrakt cech](../../docs/DATA_CONTRACT.md)
+Stan na 2026-11-22. Dokument opisuje, jak porównaliśmy modele laboratorium na próbie 492 reklam, co wyszło i jakie decyzje z tego wynikają. Progi, reguły i wybór modeli to decyzje zespołu, nie wymagania NASK. Na każdy parametr zostaje jeden model (decyzja z 2026-11-22). Modele odrzucone usunięto potem z kodu; stan, w którym porównanie da się powtórzyć, to commit `344d525`. [Laboratorium](../README.md) · [Kontrakt cech](../../docs/DATA_CONTRACT.md)
 
 ## Pytanie
 
-Laboratorium ma 22 ekstraktory, a część statusów (`default`, `candidate`, `deferred`) ustalono na 13 zrzutach albo na oko. Benchmark odpowiada na jedno pytanie dla każdej rodziny modeli: który model zostaje.
+Przed benchmarkiem laboratorium miało 22 ekstraktory, a część ich statusów (`default`, `candidate`, `deferred`) ustalono na 13 zrzutach albo na oko. Benchmark odpowiada na jedno pytanie dla każdej rodziny modeli: który model zostaje.
 
 **W każdej rodzinie zostaje dokładnie jeden model.** Pierwotny plan dopuszczał drugi model, jeśli wnosi coś ponad pierwszy; zrezygnowaliśmy z tego po przebiegu, żeby każdy parametr miał jedno źródło. Obraz ma dwa parametry: skrót percepcyjny (ten sam plik) i podobieństwo. Benchmark jest rankingiem wewnątrz rodziny, a nie bramką, przez którą rodzina może nie przejść.
 
-Dwie rzeczy trzeba od siebie oddzielić. „Najlepszy w rodzinie” nie znaczy „wchodzi do `PROFILE=default`” ani „bierze udział w grupowaniu”. O grupowaniu decyduje status: ekstraktor z `excluded` jest z niego wyłączony, a rodziny tematu, obiektów i twarzy pozostają poza profilem domyślnym niezależnie od tego, który model w nich wygrał.
+Dwie rzeczy trzeba od siebie oddzielić. „Najlepszy w rodzinie” nie znaczy „wchodzi do `PROFILE=default`” ani „bierze udział w grupowaniu”. O grupowaniu decyduje osobna flaga `grouping` ekstraktora (Effort ma `false`), a rodziny tematu, obiektów i twarzy pozostają poza profilem domyślnym niezależnie od tego, który model w nich wygrał.
 
 „Rodzina” w tym dokumencie to grupa modeli rozwiązujących to samo zadanie (np. OCR). To nie to samo co pole `family` w kontrakcie cech (`text`, `visual`, `infrastructure`, `audio`).
 
@@ -58,7 +58,7 @@ Koszt mierzy `bench.sh`: p50 i p95 inferencji, czas ładowania i szczyt pamięci
 2. **Najlepszy model** to ten z najlepszym wynikiem miary rozstrzygającej wśród mieszczących się w budżecie. Gdy żaden się nie mieści, rodzina zostaje poza profilem domyślnym, a ranking podajemy informacyjnie.
 3. **Remis** ogłaszamy, gdy różnica jest mniejsza niż 2 pkt proc. albo dotyczy mniej niż 5 zapytań. Rozstrzyga wtedy niższy p95, a przy zbliżonym koszcie licencja pozwalająca na szersze użycie. Dla miar innych niż hit@3 stosujemy ten sam próg do odsetka.
 4. **Jeden model na parametr.** Modele, które przegrały, nie zostają jako kandydaci. To, w czym były lepsze, zapisujemy w tabeli decyzji jako znaną stratę.
-5. **Gdy baza przegrywa**, traci miejsce podstawowego modelu jak każdy inny. Zmiana statusu `default` wymaga jednak uzgodnienia z odbiorcą cech, bo zmienia wejście silnika grupowania.
+5. **Gdy baza przegrywa**, traci miejsce podstawowego modelu jak każdy inny. Zmiana modelu domyślnego zmienia jednak wejście silnika grupowania, więc odbiorca cech musi o niej wiedzieć.
 6. Rywali porównujemy zawsze na tych samych zapytaniach i tej samej galerii.
 
 Próg remisu w punkcie 3 przyjęliśmy przed przebiegiem i zatwierdziliśmy bez zmian po nim. Punkt 4 zastąpił po przebiegu wcześniejszą regułę o drugim modelu. Dwa dalsze doprecyzowania powstały po obejrzeniu wyników i trzeba je czytać z tą świadomością: pierwszeństwo miary niezależnej od śladu zewnętrznego (punkt 1) oraz kolejność miar w rodzinie OCR, gdzie dwie miary wskazały różne modele.
@@ -238,11 +238,11 @@ Checkpoint GenImage wykrywa więcej przy progu 0,5 i daje wyniki bliskie krańc�
 
 ### Mowa i audio
 
-Nie zmierzono: próba nie zawiera nagrań. Statusy zostają bez zmian.
+Nie zmierzono: próba nie zawiera nagrań. Wybór modeli zostaje bez zmian: Whisper small i Chromaprint domyślnie, Whisper base i ECAPA na żądanie.
 
 ## Decyzje
 
-Decyzje zespołu z 2026-11-22: jeden model na parametr. Statusy w kodzie pozostają na razie takie jak przed benchmarkiem.
+Decyzje zespołu z 2026-11-22: jeden model na parametr. Modele z kolumny „Odpada” usunięto z kontenerów, więc porównanie odtwarza commit `344d525`. W kodzie zostały dwa tryby: model liczony domyślnie albo na żądanie.
 
 | Parametr | Miara rozstrzygająca | Zostaje | Odpada | Podstawa i znana strata |
 | --- | --- | --- | --- | --- |
@@ -278,13 +278,13 @@ Co zostaje otwarte:
 - **Fałszywe alarmy i próg.** Skrypt przyjmuje `fake_prob` co najmniej 0,5 (`EFFORT_THRESHOLD`). Próg nie jest dobrany na danych, bo nie mamy zbioru obrazów bez AI; zespół zdecydował, że go nie buduje. Wynik Effort trzeba więc czytać jako wskazówkę dla analityka, nie rozstrzygnięcie.
 - **Zrzuty kart reklam.** Checkpoint GenImage nie oznaczył żadnego z 60 zrzutów. Nie wiemy, czy nie było wśród nich kreacji z AI, czy ramka platformy i kompresja zasłaniają ślady generatora.
 
-### Co zmienia się względem stanu obecnego
+### Co zmieniło się w kodzie
 
-1. **Podobieństwo obrazu:** CLIP zastępuje DINOv2-small jako model domyślny. To zmiana wejścia silnika grupowania (inny model, wymiar 512 zamiast 384), więc przed zmianą statusu w kodzie wymaga uzgodnienia z Parą C. ORB traci status kandydata.
-2. **Tekst:** E5-small traci status kandydata; tekst porównuje TF-IDF.
-3. **Twarze:** jeśli rodzina wejdzie do użycia, modelem jest YuNet + SFace.
-4. **Temat:** jeśli rodzina wejdzie do użycia, modelem jest mDeBERTa-v3.
-5. **Pochodzenie obrazu:** ocenę daje Effort; reverse-SynthID i SigLIP odpadają. Rodzina pozostaje poza grupowaniem.
+1. **Podobieństwo obrazu:** CLIP zastąpił DINOv2-small jako model domyślny. Pole `image.embedding` ma teraz 512 wymiarów zamiast 384 i inną wersję metody, więc cechy policzone wcześniej trzeba przeliczyć, a stare pliki usuniętych modeli w `out/features/<dataset_id>/` skasować, bo raport sąsiadów nadal by je czytał. ORB usunięto.
+2. **Tekst:** tekst porównuje TF-IDF. BGE-M3 usunięto. E5-small zostaje na żądanie, bo `text.embedding` jest wejściem grafu według [kontraktu](../../docs/DATA_CONTRACT.md); jego usunięcie wymaga zmiany po stronie Pary C.
+3. **OCR:** EasyOCR usunięto, zostaje Tesseract.
+4. **Twarze, temat, obiekty:** zostają YuNet + SFace, mDeBERTa-v3 i OWLv2, wszystkie na żądanie. InsightFace, MiniLMv2 i Grounding DINO usunięto.
+5. **Pochodzenie obrazu:** ocenę daje Effort, na żądanie i poza grupowaniem. Kontener `ai_generated` z reverse-SynthID i SigLIP usunięto.
 
 ## Ocena ręczna
 

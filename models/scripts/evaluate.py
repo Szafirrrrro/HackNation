@@ -1,10 +1,10 @@
-"""Ewaluacja decyzji z tabeli laboratorium (README: „Który eksperyment…”).
+"""Ewaluacja decyzji z tabeli laboratorium (README: „Ewaluacja decyzji”).
 
 Uruchamiane przez ./evaluate.sh w kontenerze tm-text (numpy, scikit-learn, OpenCV).
 Czyta wyłącznie gotowe cechy (out/features/...) i etykiety ewaluacyjne - nie zmienia cech.
 
   obraz : warianty (kadr, róg, zmniejszenie+JPEG) jako zapytania, oryginały jako kandydaci;
-          top-1/top-3 dla pHash, DINOv2, ORB (remisy liczone NA NIEKORZYŚĆ metody); dodatkowe
+          top-1/top-3 dla pHash i CLIP (remisy liczone NA NIEKORZYŚĆ metody); dodatkowe
           trafienia względem pHash; próg pomocniczy = 10. percentyl wyników prawdziwych par
           wariant-oryginał (NIE punkt pracy) i liczba WSZYSTKICH par oryginałów z różnych grup
           tymczasowych i z tym samym screenshot_type, które go przekraczają; osobno wyniki
@@ -30,7 +30,7 @@ import numpy as np
 
 sys.path.insert(0, "/app/common")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
-from features_lib import ORB_MATCH, FeatureStore, hamming_hex  # noqa: E402
+from features_lib import FeatureStore, hamming_hex  # noqa: E402
 
 
 def jl(p):
@@ -55,30 +55,12 @@ def image_scores(fs: FeatureStore, queries, cands):
     if ph:
         out["pHash (−Hamming)"] = np.array([[-hamming_hex(ph[q], ph[c]) if q in ph and c in ph
                                              else -99 for c in cands] for q in queries], float)
-    mv = method_of(fs, "image_embedding", "image.embedding", "dinov2")
+    mv = method_of(fs, "image_embedding", "image.embedding", "clip")
     if mv:
         X, rows = fs.vectors(mv, "image.embedding")
         idx = {r["ad_id"]: i for i, r in enumerate(rows)}
-        out["DINOv2-small (cos)"] = np.array([[float(X[idx[q]] @ X[idx[c]]) if q in idx and c in idx
-                                               else -1 for c in cands] for q in queries])
-    orb = {r["ad_id"]: r for r in fs.rows(field="image.orb")}
-    if orb:
-        import cv2
-        cache = {}
-
-        def des(ad):
-            v = orb[ad]["value"]
-            if v["array"] not in cache:
-                cache[v["array"]] = np.load(fs.root / v["array"])
-            return cache[v["array"]][v["key"]]
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING)
-
-        def good(a, b):
-            if a not in orb or b not in orb:
-                return -1
-            m = bf.knnMatch(des(a), des(b), k=2)
-            return sum(1 for p in m if len(p) == 2 and p[0].distance < ORB_MATCH["ratio"] * p[1].distance)
-        out["ORB (dobre dopasowania)"] = np.array([[good(q, c) for c in cands] for q in queries], float)
+        out["CLIP ViT-B/32 (cos)"] = np.array([[float(X[idx[q]] @ X[idx[c]]) if q in idx and c in idx
+                                                else -1 for c in cands] for q in queries])
     return out
 
 
@@ -252,9 +234,7 @@ def main():
     fs_ocr = fs_txt
     result["ocr"] = eval_ocr(fs_ocr, a.ocr_ref, a.bench)
     result["_methods"] = {"pHash (−Hamming)": method_of(fs_img, "image_embedding", "image.phash", "imagehash"),
-                          "DINOv2-small (cos)": method_of(fs_img, "image_embedding", "image.embedding", "dinov2"),
-                          "ORB (dobre dopasowania)": method_of(fs_img, "image_embedding", "image.orb", "orb"),
-                          "ORB_match": {**ORB_MATCH, "matcher": "BFMatcher knn k=2"}}
+                          "CLIP ViT-B/32 (cos)": method_of(fs_img, "image_embedding", "image.embedding", "clip")}
     result["_inputs"] = {"image_ds": corpus_root, "labels": a.labels, "bench": a.bench,
                          "fingerprints": {"image": fs_img.fingerprint, "text": fs_txt.fingerprint}}
 
