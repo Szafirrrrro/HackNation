@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scamgraph.analyst_store import private_corpus_path, append_private_card
+from scamgraph.analyst_store import private_corpus_path, append_private_card, read_private_cards
 
 from graph.ftf_graph.card import SIGNAL_KINDS, parse_card
 from graph.ftf_graph.cluster import cluster
@@ -176,7 +176,23 @@ except ValueError as exc:
     st.error(str(exc))
     st.stop()
 if private_path.is_file():
-    corpus += read_jsonl(str(private_path), private_path.stat().st_mtime)
+    try:
+        private_cards, skipped = read_private_cards(private_path)
+    except OSError as exc:
+        st.warning(f"Nie można odczytać prywatnego korpusu ({type(exc).__name__}).")
+    else:
+        for private_card in private_cards:
+            try:
+                parsed = parse_card(private_card)
+                if parsed.phash is not None and not 0 <= parsed.phash < 2 ** 64:
+                    raise ValueError("phash spoza 64 bitów")
+                card_tooltip(parsed, NOISE_LABEL)  # the graph reads nested page fields
+            except (ValueError, TypeError, AttributeError, RecursionError):
+                skipped += 1
+            else:
+                corpus.append(private_card)
+        if skipped:
+            st.warning(f"Pominięto uszkodzone wiersze prywatnego korpusu: {skipped}. Plik: {private_path.name}")
 
 st.subheader("Przechwyć stronę z linku")
 st.caption("Wklej adres strony. Po pobraniu dane automatycznie trafią do analizy i na graf.")
@@ -277,10 +293,10 @@ with st.sidebar:
     show_noise = st.checkbox("pokaż reklamy bez kampanii (szum HDBSCAN)", True,
                              help="Reklamy, których nie dało się przypisać do żadnej kampanii. To NIE znaczy, "
                                   "że są bezpieczne — mogą być pojedynczym oszustwem albo mieć za mało danych.")
-    hide_trusted = st.checkbox("ukryj reklamy prowadzące na zaufane strony", True,
-                               help="Reklama, której strona docelowa jest na liście zaufanych (np. youtube.com) "
-                                    "i która NIE należy do żadnej kampanii, nie jest rysowana. Reklama na zaufanej "
-                                    "stronie, ale powiązana z kampanią (np. tą samą twarzą lub głosem), zostaje.")
+    hide_trusted = st.checkbox("ukryj reklamy prowadzące na wspólne lub popularne hosty", False,
+                               help="Domyślnie wyłączone: popularność nie świadczy o bezpieczeństwie. Po włączeniu "
+                                    "nie rysujemy reklam bez kampanii, których cel to wspólny lub popularny host "
+                                    "(np. youtube.com). Reklama powiązana z kampanią (np. tą samą twarzą lub głosem) zostaje.")
     graph_height = st.slider("wysokość grafu", 400, 1000, 650, 50)
 
 if not Path(corpus_path).exists():
@@ -341,7 +357,7 @@ m1.metric("materiały", len(cards))
 m2.metric("kampanie", len(camps))
 m3.metric("krawędzie SIMILAR", len(edges))
 m4.metric("bez kampanii", int(sum(c is None for c in camp_of)))
-m5.metric("ukryte (zaufane strony)", len(hidden))
+m5.metric("ukryte (wspólne hosty)", len(hidden))
 
 # --- gdzie trafiła nowa reklama ---
 idx = {c.id: i for i, c in enumerate(cards)}
@@ -367,11 +383,12 @@ for nid in sorted(new_ids):
                 f"({', '.join(cards[i].signals()) or 'żadnego'}). Brak powiązań może wynikać z braku danych, "
                 f"a nie z unikalności materiału.")
     if nid in lands_trusted:
-        st.info(f"Strona docelowa {nid} ({cards[i].final_domain}) jest na liście zaufanych. "
+        st.info(f"Cel {nid} ({cards[i].final_domain}) to wspólny lub popularny host, więc sama domena nie jest "
+                "śladem powiązania. Nie oznacza to, że treść jest bezpieczna. "
                 + ("Reklama jest jednak powiązana z kampanią, więc zostaje na grafie." if cid else
                    "Nowy materiał jest pokazany, aby umożliwić ocenę wyniku analizy."))
     if cards[i].trusted_hits:
-        st.caption(f"Pominięte zaufane domeny (nie są śladem): {', '.join(cards[i].trusted_hits)}")
+        st.caption(f"Wspólne lub popularne hosty (nie są śladem, nie oceniają bezpieczeństwa): {', '.join(cards[i].trusted_hits)}")
     with st.expander(f"Dlaczego? Najsilniejsze powiązania {nid}", expanded=bool(cid)):
         if not mine:
             st.write("Brak krawędzi powyżej progu.")

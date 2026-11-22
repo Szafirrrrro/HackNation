@@ -8,8 +8,9 @@ Puste pola (null, "", brak klucza) NIGDY nie tworzą śladu: brak artefaktu = br
 = brak porównania. Dwie reklamy bez twarzy nie są przez to ani podobne, ani "różne" — po prostu
 nic o sobie nie mówią.
 
-Zaufane domeny (pełny Tranco + ręczne wpisy z wykluczeniami) nie tworzą artefaktów: wspólne przejście
-przez YouTube niczego nie dowodzi. Lista trafionych zaufanych domen zostaje w karcie (trusted_hits).
+Wspólne hosty (skracacze, Facebook, CDN) i popularne domeny nie tworzą artefaktów: wspólne przejście
+przez YouTube niczego nie dowodzi. To nie ocena bezpieczeństwa. Trafienia zostają w karcie (trusted_hits).
+Subdomena użytkownika platformy (oferta.weebly.com) jest śladem.
 
 Szablon strony: dom_template_hash (identyczny szablon) to artefakt; dom_template_minhash (sygnatura MinHash
 shingli DOM) służy do śladu miękkiego "podobny szablon" — ten sam zestaw do budowy stron z drobnymi zmianami.
@@ -26,8 +27,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterator
 
-from .domain_policy import MULTI_TENANT_HOSTS, NEVER_TRUST_BY_RANK
-from .trusted import load_trusted
+from .domain_policy import SHARED_HOSTS, TENANT_PARENTS
+from .trusted import cert_blocked, load_trusted, platform_rules
 
 
 @dataclass(frozen=True, order=True)
@@ -82,7 +83,7 @@ class Card:
     # --- szablon strony: MinHash shingli DOM (podobny, nie identyczny szablon) ---
     template_minhash: list[int] = field(default_factory=list)
     template_minhash_scheme: str = ""  # "metoda|k|num_perm" — porównujemy tylko sygnatury tego samego schematu
-    trusted_hits: list[str] = field(default_factory=list)  # zaufane domeny pominięte jako ślady
+    trusted_hits: list[str] = field(default_factory=list)  # wspólne lub popularne hosty, pominięte jako ślady
     artifacts: list[Artifact] = field(default_factory=list)  # posortowane, bez duplikatów
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -107,12 +108,28 @@ class Card:
 SIGNAL_KINDS = 8  # liczba rodzajów w Card.signals()
 
 def is_trusted(host: str, trusted: frozenset[str]) -> bool:
-    """host = domena z listy albo jej subdomena (m.youtube.com -> youtube.com)."""
-    host = host.lower().rstrip(".")
-    if any(host == d or host.endswith("." + d) for d in MULTI_TENANT_HOSTS | NEVER_TRUST_BY_RANK):
+    """Czy host jest zbyt wspólny, żeby być śladem. NIE mówi, czy treść jest bezpieczna ani czy ją pobierać.
+
+    Blokada CERT wygrywa zawsze. Dalej rozstrzyga najdłuższy pasujący sufiks: platforma (sama lub z www)
+    jest wspólna, jej subdomena należy do użytkownika; host wspólny i domena z listy obejmują swoje subdomeny (m.youtube.com -> youtube.com).
+    """
+    parts = host.lower().rstrip(".").split(".")
+    suffixes = [".".join(parts[k:]) for k in range(len(parts))]
+    blocked = cert_blocked()
+    if any(suffix in blocked for suffix in suffixes):
         return False
-    parts = host.split(".")
-    return any(".".join(parts[k:]) in trusted for k in range(len(parts) - 1))
+    platforms, wildcards = platform_rules()
+    for k, suffix in enumerate(suffixes[:-1]):
+        platform_itself = k == 0 or parts[:k] == ["www"]
+        if suffix in TENANT_PARENTS:
+            return platform_itself
+        if suffix in SHARED_HOSTS:
+            return True
+        if suffix in platforms or suffixes[k + 1] in wildcards:
+            return platform_itself
+        if suffix in trusted:
+            return True
+    return False
 
 
 # ---------- pomocnicze ----------

@@ -110,7 +110,7 @@ class Neo4jStore:
         # łańcuch przekierowań jako ścieżka domen
         starts, hops, lands, covers = [], [], [], []
         for c in cards:
-            # zaufane domeny (youtube.com...) wycinamy ze ścieżki — nie tworzą węzłów Domain
+            # wspólne i popularne hosty (youtube.com...) wycinamy ze ścieżki — nie tworzą węzłów Domain
             ch = [d for d in c.redirect_chain if d not in c.trusted_hits]
             if ch:
                 starts.append({"ad": c.id, "d": ch[0]})

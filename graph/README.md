@@ -322,7 +322,7 @@ Wszystkie wagi i progi są w `Config` (`ftf_graph/scoring.py`). To ręcznie dobr
 
 ## Zaufane domeny
 
-Domena z listy wyliczanej w pamięci z Tranco i wpisów ręcznych (albo jej subdomena: `m.youtube.com` → `youtube.com`) **nie tworzy**
+„Zaufana” znaczy tu: zbyt wspólna, żeby być śladem. Nie znaczy: bezpieczna. Domena z listy wyliczanej w pamięci z Tranco i wpisów ręcznych (albo jej subdomena: `m.youtube.com` → `youtube.com`) **nie tworzy**
 artefaktów `domain_hop`, `domain_final` ani `nameserver`, a w Neo4j nie powstaje dla niej węzeł `:Domain`.
 Trafienia są zapisywane w `Card.trusted_hits` i `Ad.trusted_domains`. Lista **nie** wpływa na `ip`, `asn`,
 `form_endpoint` ani kontakty.
@@ -331,9 +331,9 @@ Moduł `ftf_graph.trusted` buduje listę bezpośrednio w pamięci:
 
 1. domeny z pierwszych **10 000** pozycji rankingu **Tranco** (`data/tranco_46YVX.csv`, format `pozycja,domena`),
 2. dodaje `data/trusted_manual.txt` (ręczne uzupełnienia: CDN-y, trackery, polskie serwisy),
-3. **usuwa platformy z treściami użytkowników** — wpisy z sekcji PRIVATE DOMAINS listy Public Suffix List
-   (z pakietu `publicsuffixlist`) i każdą domenę, pod którą leży taki wpis (np. `s3.amazonaws.com` usuwa
-   `amazonaws.com`). Na tych platformach subdomena (`krypto-bot.blogspot.com`) jest śladem oszusta,
+3. **usuwa same platformy z treściami użytkowników**: dokładne wpisy z sekcji PRIVATE DOMAINS listy
+   Public Suffix List (z pakietu `publicsuffixlist`, wersja przypięta w `requirements.txt`) a z rankingu także sufiksy rejestrów.
+   Rodzic wpisu zostaje: `pro.typeform.com` nie usuwa `typeform.com`,
 4. usuwa domeny z Listy Ostrzeżeń CERT Polska, jeśli istnieje `data/cert_domains.txt`.
 
 Opcjonalny plik `data/cert_domains.txt` można dostarczyć lokalnie. Zależność
@@ -342,10 +342,26 @@ Opcjonalny plik `data/cert_domains.txt` można dostarczyć lokalnie. Zależnoś�
 Nie tworzymy `data/trusted_domains.txt`. Wynik jest współdzielonym zbiorem
 w pamięci, odświeżanym po zmianie CSV, wpisów ręcznych, CERT lub PSL. Dla
 obecnych źródeł ma mniej niż 10 000 wpisów po wykluczeniach. Wspólna polityka
-`ftf_graph.domain_policy` dodatkowo wyklucza skracacze, formularze, komunikatory,
-hosting i serwisy publikowania treści/plików użytkowników (także filesdl.top).
-Wykluczenia hosta mają pierwszeństwo przed zaufanym rodzicem, również dla listy
-podanej przez `FTF_TRUSTED_DOMAINS`. Popularność nie stanowi oceny bezpieczeństwa.
+`ftf_graph.domain_policy` wyklucza z tej listy skracacze, formularze, komunikatory,
+hosting i serwisy z treściami użytkowników. Wykluczenie jest dokładne: `docs.google.com`
+nie usuwa `google.com`, a wpis PSL pod `co.uk` nie usuwa `bbc.co.uk`.
+
+Pobieranie i ślad w grafie to dwie osobne decyzje. Ręczny URL pobieramy zawsze.
+O tym, czy host jest śladem, decyduje najdłuższy pasujący sufiks:
+
+| Host | Przykład | Czy jest śladem |
+|---|---|---|
+| wspólny (`SHARED_HOSTS`) i jego subdomeny | `l.facebook.com`, `bit.ly`, `fonts.googleapis.com` | nie |
+| platforma (`TENANT_PARENTS`, prywatna sekcja PSL, `REGIONAL_WILDCARDS`) | `www.weebly.com`, `netlify.app`, `europe-west1.run.app` | nie |
+| wpis z listy CERT i jego subdomeny, ma pierwszeństwo | (plik lokalny) | tak |
+| subdomena użytkownika platformy | `oferta.weebly.com`, `oferta.netlify.app` | tak |
+| domena z listy popularnych i jej subdomeny | `www.onet.pl` | nie |
+| każda inna | `dorquesio.click` | tak |
+
+Reguła platform i hostów wspólnych działa także przy `FTF_TRUSTED_DOMAINS` (bez pakietu PSL: tylko jawne listy).
+Po zmianie tej polityki usuń zapisane `*.campaigns.json` schedulera, bo przeliczają się tylko po zmianie wejścia,
+a Neo4j zapisz z `--wipe`.
+Popularność nie stanowi oceny bezpieczeństwa.
 
 Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytorium:
 
@@ -451,8 +467,8 @@ W Browserze kliknij etykietę `Ad` w wyniku i ustaw *Caption* na `id`, żeby wid
 - **Oś czasu** (plotly): każda reklama jako pasek `first_seen → last_seen` (brak lub błędne `last_seen` → +12 h),
   pogrupowane według kampanii. Reklamy bez `first_seen` nie są na osi.
 - **Pasek boczny:** plik korpusu, `min_cluster_size`, `min_samples`, `min_edge`, pokazywanie krawędzi SIMILAR,
-  pokazywanie szumu, ukrywanie reklam na zaufanych stronach, wysokość grafu.
-- **Ukrywanie zaufanych:** reklama jest ukryta tylko wtedy, gdy jej domena docelowa jest zaufana **i** nie
+  pokazywanie szumu, ukrywanie reklam na wspólnych hostach (domyślnie wyłączone), wysokość grafu.
+- **Ukrywanie wspólnych hostów:** działa tylko po włączeniu. Reklama jest ukryta, gdy jej cel to wspólny lub popularny host **i** nie
   należy do żadnej kampanii **i** nie jest nowo wgrana. Film na YouTube powiązany z kampanią (np. tą samą twarzą) zostaje.
 
 ---
@@ -508,7 +524,7 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 - **Pamięć i czas:** pełna macierz N×N i HDBSCAN na niej (ok. 200 MB przy 5000 reklam); porównanie odcisków audio to pętla po parach w Pythonie, a MinHash szablonów liczy F×F porównań.
 - **Pola nieużywane w wyniku:** `favicon.phash`, `text.ocr_text`, `faces[].deepfake_score`, `cert.san`
   (tylko w Neo4j), segmenty audio. Odcisk audio musi być w `fingerprint.array` — sam `key` nie jest obsługiwany.
-- **Zaufane domeny działają na poziomie domeny.** Hosty UGC, np. `sites.google.com`, zachowują ślad domenowy także przy zaufanym rodzicu `google.com`. Popularność w rankingu nie oznacza bezpieczeństwa.
+- **Ślad domenowy działa na poziomie hosta.** Wspólny host nie jest śladem, nawet gdy oszustwa rozróżnia jego ścieżka (`sites.google.com/view/x`, `bit.ly/abc`). Listy hostów są wyliczeniem: brakujący serwis wspólny połączy niezależne reklamy, a subdomena platformy spoza list może stracić ślad. Popularność w rankingu nie oznacza bezpieczeństwa.
 - **Numery kampanii** (`CMP-n`) zmieniają się między przebiegami.
 - **Brak oceny ryzyka pojedynczej reklamy** (świeża domena, Lista Ostrzeżeń CERT, deepfake) — szum HDBSCAN-a to nie to samo.
 
