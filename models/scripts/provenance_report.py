@@ -1,7 +1,6 @@
-"""Łączy wyniki reverse-SynthID i Effort w jedną tabelę (wywoływany przez provenance.sh).
+"""Tabela wyników Effort dla katalogu obrazów (wywoływany przez provenance.sh).
 
-  provenance_report.py unflagged <katalog cech>         -> ID obrazów bez znaku SynthID, po przecinku
-  provenance_report.py report <katalog cech> <próg>     -> provenance.csv, provenance.json i podsumowanie
+  provenance_report.py <katalog cech> <próg> [<plik wag>]   -> provenance.csv, provenance.json i podsumowanie
 
 Tylko biblioteka standardowa: działa na hoście, poza kontenerami.
 """
@@ -10,57 +9,39 @@ import json
 import sys
 from pathlib import Path
 
-SYNTHID = "ai_generated_reverse_synthid_v4"
 EFFORT = "aigi_effort_effort_clip_l14"
 
 
-def rows(ds: Path, slug: str) -> dict:
-    """ad_id -> wiersz cechy; brak pliku = model nie był uruchomiony."""
-    f = ds / "features" / f"{slug}.jsonl"
+def rows(ds: Path) -> list[dict]:
+    f = ds / "features" / f"{EFFORT}.jsonl"
     if not f.exists():
-        return {}
-    out = {}
-    for line in f.read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
-        if r.get("source_field") in (None, "image_path"):
-            out[r["ad_id"]] = r
-    return out
+        return []
+    out = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
+    # pozycje bez source_ref nie mają obrazu (np. plik tekstowy w luźnym katalogu)
+    return [r for r in out if r.get("source_ref")]
 
 
-def label(path: str):
+def label(path: str) -> str:
     """Etykieta z nazwy katalogu: .../ai/... albo .../real/...; inaczej brak."""
     parts = {p.lower() for p in Path(path).parts[:-1]}
     if "ai" in parts and "real" not in parts:
         return "ai"
     if "real" in parts and "ai" not in parts:
         return "real"
-    return None
+    return ""
 
 
 def table(ds: Path, threshold: float) -> list[dict]:
-    syn, eff = rows(ds, SYNTHID), rows(ds, EFFORT)
     out = []
-    for ad_id, s in syn.items():
-        if not s.get("source_ref"):
-            continue  # pozycja bez obrazu (np. plik tekstowy w luźnym katalogu)
-        path = (s.get("source_ref") or {}).get("value") or ad_id
-        sv = s["value"] if s["status"] == "ok" else None
-        e = eff.get(ad_id)
-        ev = e["value"] if e and e["status"] == "ok" else None
-        watermark = bool(sv and sv.get("watermarked"))
-        prob = ev.get("fake_prob") if ev else None
-        if watermark:
-            verdict, by = "ai", "synthid"
-        elif prob is not None and prob >= threshold:
-            verdict, by = "ai", "effort"
-        elif sv is None or prob is None:
-            verdict, by = "brak wyniku", ""
+    for r in rows(ds):
+        path = r["source_ref"].get("value") or r["ad_id"]
+        prob = (r.get("value") or {}).get("fake_prob") if r["status"] == "ok" else None
+        if prob is None:
+            verdict = "brak wyniku"
         else:
-            verdict, by = "nieoznaczony", ""
-        out.append({"path": path, "label": label(path) or "", "verdict": verdict, "flagged_by": by,
-                    "synthid_watermarked": "" if sv is None else watermark,
-                    "synthid_confidence": "" if sv is None else sv.get("confidence"),
-                    "effort_fake_prob": "" if prob is None else prob, "ad_id": ad_id})
+            verdict = "ai" if prob >= threshold else "nieoznaczony"
+        out.append({"path": path, "label": label(path), "verdict": verdict,
+                    "effort_fake_prob": "" if prob is None else prob, "ad_id": r["ad_id"]})
     return sorted(out, key=lambda r: r["path"])
 
 
@@ -68,63 +49,40 @@ def frac(n, of):
     return f"{n}/{of}" + (f" ({100 * n / of:.1f}%)" if of else "")
 
 
-def report(ds: Path, threshold: float) -> int:
+def report(ds: Path, threshold: float, weights: str) -> int:
     t = table(ds, threshold)
     if not t:
-        print("brak obrazów z wynikiem SynthID", file=sys.stderr)
+        print(f"brak wyników Effort w {ds}", file=sys.stderr)
         return 1
     with open(ds / "provenance.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(t[0]))
         w.writeheader()
         w.writerows(t)
-    n = len(t)
-    by_syn = sum(r["flagged_by"] == "synthid" for r in t)
-    by_eff = sum(r["flagged_by"] == "effort" for r in t)
-    missing = sum(r["verdict"] == "brak wyniku" for r in t)
-    summary = {"images": n, "effort_threshold": threshold, "flagged_by_synthid": by_syn,
-               "flagged_by_effort": by_eff, "not_flagged": n - by_syn - by_eff - missing, "no_result": missing}
-    print(f"\nobrazy: {n}\noznaczone przez SynthID: {frac(by_syn, n)}\n"
-          f"oznaczone przez Effort (fake_prob >= {threshold}): {frac(by_eff, n - by_syn)} nieoznaczonych przez SynthID\n"
-          f"nieoznaczone: {frac(summary['not_flagged'], n)}" + (f"\nbrak wyniku: {missing}" if missing else ""))
-    lab = [r for r in t if r["label"]]
-    if lab:
-        ai = [r for r in lab if r["label"] == "ai"]
-        real = [r for r in lab if r["label"] == "real"]
-        hit = {"SynthID": lambda r: r["synthid_watermarked"] is True,
-               # Effort widzi tylko obrazy nieoznaczone przez SynthID, więc jego mianownik jest mniejszy
-               "Effort": lambda r: r["flagged_by"] == "effort",
-               "razem": lambda r: r["verdict"] == "ai"}
-        seen = {"SynthID": lambda r: r["synthid_watermarked"] != "",
-                "Effort": lambda r: r["effort_fake_prob"] != "",
-                "razem": lambda r: r["verdict"] != "brak wyniku"}
-        summary["labelled"] = {"ai": len(ai), "real": len(real)}
-        print(f"\nz etykietą: {len(ai)} ai, {len(real)} real\n{'':10}{'wykryte AI':>22}{'fałszywe alarmy':>22}")
-        for name in hit:
-            d = (sum(hit[name](r) for r in ai), sum(seen[name](r) for r in ai))
-            fa = (sum(hit[name](r) for r in real), sum(seen[name](r) for r in real))
-            summary["labelled"][name] = {"detected_ai": list(d), "false_alarms": list(fa)}
-            print(f"{name:10}{frac(*d):>22}{frac(*fa):>22}")
+    scored = [r for r in t if r["verdict"] != "brak wyniku"]
+    flagged = sum(r["verdict"] == "ai" for r in scored)
+    summary = {"images": len(t), "effort_weights": weights, "effort_threshold": threshold,
+               "flagged": flagged, "not_flagged": len(scored) - flagged, "no_result": len(t) - len(scored)}
+    print(f"\nobrazy: {len(t)}\noznaczone jako AI (fake_prob >= {threshold}): {frac(flagged, len(scored))}"
+          + (f"\nbrak wyniku: {summary['no_result']}" if summary["no_result"] else ""))
+    ai = [r for r in scored if r["label"] == "ai"]
+    real = [r for r in scored if r["label"] == "real"]
+    if ai or real:
+        d = sum(r["verdict"] == "ai" for r in ai)
+        fa = sum(r["verdict"] == "ai" for r in real)
+        # ai/real liczą obrazy z wynikiem; pozostałe z etykietą są w labelled_no_result
+        summary["labelled"] = {"ai": len(ai), "real": len(real), "detected_ai": d, "false_alarms": fa,
+                               "labelled_no_result": sum(bool(r["label"]) for r in t) - len(ai) - len(real)}
+        print(f"wykryte AI: {frac(d, len(ai))}\nfałszywe alarmy: {frac(fa, len(real))}")
     (ds / "provenance.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\ntabela: {ds / 'provenance.csv'}")
     return 0
 
 
 def main() -> int:
-    cmd, ds = sys.argv[1], Path(sys.argv[2])
-    if cmd == "unflagged":
-        syn = rows(ds, SYNTHID)
-        if not syn:
-            print(f"brak wyniku SynthID w {ds}", file=sys.stderr)
-            return 1
-        # do Effort idą też obrazy, na których SynthID zawiódł: brak znaku nie jest rozstrzygnięciem
-        print(",".join(a for a, r in syn.items()
-                       if not (r["status"] == "ok" and r["value"].get("watermarked"))
-                       and r.get("source_ref")))
-        return 0
-    if cmd == "report":
-        return report(ds, float(sys.argv[3]))
-    print(__doc__, file=sys.stderr)
-    return 2
+    if len(sys.argv) < 3:
+        print(__doc__, file=sys.stderr)
+        return 2
+    return report(Path(sys.argv[1]), float(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else "")
 
 
 if __name__ == "__main__":

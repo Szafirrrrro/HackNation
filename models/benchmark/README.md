@@ -6,7 +6,7 @@ Stan na 2026-11-22. Dokument opisuje, jak porównaliśmy modele laboratorium na 
 
 Laboratorium ma 22 ekstraktory, a część statusów (`default`, `candidate`, `deferred`) ustalono na 13 zrzutach albo na oko. Benchmark odpowiada na jedno pytanie dla każdej rodziny modeli: który model zostaje.
 
-**W każdej rodzinie zostaje dokładnie jeden model**, z wyjątkiem pochodzenia obrazu, gdzie drugi model ocenia obrazy nieoznaczone przez pierwszy. Pierwotny plan dopuszczał drugi model, jeśli wnosi coś ponad pierwszy; zrezygnowaliśmy z tego po przebiegu, żeby każdy parametr miał jedno źródło. Obraz ma dwa parametry: skrót percepcyjny (ten sam plik) i podobieństwo. Benchmark jest rankingiem wewnątrz rodziny, a nie bramką, przez którą rodzina może nie przejść.
+**W każdej rodzinie zostaje dokładnie jeden model.** Pierwotny plan dopuszczał drugi model, jeśli wnosi coś ponad pierwszy; zrezygnowaliśmy z tego po przebiegu, żeby każdy parametr miał jedno źródło. Obraz ma dwa parametry: skrót percepcyjny (ten sam plik) i podobieństwo. Benchmark jest rankingiem wewnątrz rodziny, a nie bramką, przez którą rodzina może nie przejść.
 
 Dwie rzeczy trzeba od siebie oddzielić. „Najlepszy w rodzinie” nie znaczy „wchodzi do `PROFILE=default`” ani „bierze udział w grupowaniu”. O grupowaniu decyduje status: ekstraktor z `excluded` jest z niego wyłączony, a rodziny tematu, obiektów i twarzy pozostają poza profilem domyślnym niezależnie od tego, który model w nich wygrał.
 
@@ -216,7 +216,25 @@ Podzbiór, 60 zrzutów. Nie wiemy, które kreacje faktycznie powstały z użycie
 | reverse-SynthID v4 | 9/60 | 0,13 s | 1688 MB |
 | Effort CLIP-L/14 | 0/60 | 1,0 s | 3410 MB |
 
-SigLIP oznacza każdy zrzut karty, więc na tym materiale nic nie rozróżnia. To samo można powiedzieć o Effort, który nie oznacza żadnego: wynik zero może oznaczać brak fałszywych alarmów albo brak czułości. Odrzucenie SigLIP opiera się na założeniu, że nie wszystkie 60 kreacji powstało z użyciem AI; bez zbioru obrazów o znanym pochodzeniu nie da się rozstrzygnąć nic więcej.
+SigLIP oznacza każdy zrzut karty, więc na tym materiale nic nie rozróżnia. To samo można powiedzieć o Effort, który nie oznacza żadnego: wynik zero może oznaczać brak fałszywych alarmów albo brak czułości. Odrzucenie SigLIP opiera się na założeniu, że nie wszystkie 60 kreacji powstało z użyciem AI. Zrzuty nie rozstrzygają nic więcej, dlatego modele sprawdziliśmy osobno na obrazach o znanym pochodzeniu.
+
+#### Test na obrazach wygenerowanych przez AI
+
+495 obrazów z około 100 generatorów i trybów pracy (generacja od zera, edycja, inpainting), po kilka na każdy. Wszystkie pochodzą z AI; w zbiorze nie ma zdjęć ani grafik bez udziału AI, więc test mierzy wykrywalność, a nie fałszywe alarmy. Przebieg wykonano 2026-11-22 poza tym repozytorium, w układzie „najpierw reverse-SynthID, potem Effort na obrazach nieoznaczonych”, osobno dla dwóch checkpointów Effort.
+
+reverse-SynthID oznaczył 113 z 495 obrazów (22,8%). Nie widać zależności od generatora: 4 z 15 dla obrazów z generatorów Google, 109 z 480 dla pozostałych. Znak SynthID osadza Google, więc oznaczenia obrazów z innych generatorów nie są odczytem znaku. Detektor nie odróżnia tu obrazów, które znak mają, od tych, które go mieć nie mogą.
+
+Effort ocenił pozostałe 382 obrazy:
+
+| Miara | Checkpoint GenImage (SD 1.4) | Checkpoint Chameleon |
+| --- | --- | --- |
+| Wykryte przy progu 0,5 | 234 (61,3%) | 159 (41,6%) |
+| Wykryte przy progu 0,3 | 275 (72,0%) | 279 (73,0%) |
+| Wynik powyżej 0,9 | 124 | 7 |
+| Generacja od zera (312 obrazów), próg 0,5 | 214 (68,6%) | 135 (43,3%) |
+| Edycja i inpainting (70 obrazów), próg 0,5 | 20 (28,6%) | 24 (34,3%) |
+
+Checkpoint GenImage wykrywa więcej przy progu 0,5 i daje wyniki bliskie krańców skali. Chameleon trzyma się środka (mediana 0,44), więc jego wynik zależy głównie od progu; przy 0,3 oba wykrywają prawie tyle samo. Na obrazach edytowanych oba wykrywają mniej więcej co trzeci. Checkpointy mylą się na różnych obrazach (korelacja wyników 0,10): co najmniej jeden oznacza 293 z 382 (76,7%), a 89 obrazów nie oznacza żaden.
 
 ### Mowa i audio
 
@@ -235,7 +253,7 @@ Decyzje zespołu z 2026-11-22: jeden model na parametr. Statusy w kodzie pozosta
 | Twarze | Pokrycie, potem ślad zewnętrzny | YuNet + SFace | InsightFace buffalo_l | Odstępstwo od reguły: w pokryciu wygrywa InsightFace (206 wobec 147 reklam), ale jego wagi mają licencję niekomercyjną, a poprawność 59 dodatkowych twarzy nie jest sprawdzona. YuNet + SFace ma swobodną licencję i jest dziesięć razy szybszy. |
 | Temat | Zgodność z frazą | mDeBERTa-v3 | MiniLMv2-L6 | 39,6% wobec 13,2%, przy słabej etykiecie i tylko dwóch kategoriach. Rodzina zostaje poza profilem domyślnym: lepszy model nie wskazał kategorii inwestycji w żadnym z 15 przypadków. |
 | Obiekty | Ocena ręczna (brak) | OWLv2 base, tymczasowo | Grounding DINO tiny | Oba przekraczają budżet, więc ranking jest informacyjny, a rodzina zostaje poza profilem domyślnym. Bez miary poprawności kolejność opiera się na obserwacji: Grounding DINO zgłasza kartę kredytową w 48 z 60 reklam, OWLv2 kod QR w 14, w których dekoder nie znalazł żadnego. Grounding DINO jest szybszy (8,2 s wobec 10,1 s). |
-| Pochodzenie obrazu | Fałszywe alarmy i wykrywalność (brak zbioru odniesienia) | reverse-SynthID, potem Effort | SigLIP | Wyjątek od zasady jednego modelu (decyzja z 2026-11-22). SynthID sprawdza obraz pierwszy; obrazy, których nie oznaczył, ocenia Effort. Benchmark tej kolejności nie uzasadnia ani nie podważa: bez obrazów o znanym pochodzeniu żadnego z modeli nie da się ocenić. SigLIP oznacza 60/60, przy założeniu opisanym w wynikach. Rodzina zostaje wyłączona z grupowania. |
+| Pochodzenie obrazu | Wykrywalność na obrazach AI | Effort, checkpoint GenImage | reverse-SynthID, SigLIP, Effort z checkpointem Chameleon | Effort z checkpointem GenImage wykrywa 61,3% z 382 ocenionych obrazów AI przy progu 0,5 wobec 41,6% dla Chameleona. reverse-SynthID oznacza co czwarty obraz niezależnie od generatora, a SigLIP każdy zrzut. Strata: fałszywych alarmów nie zmierzono, a obrazy edytowane są wykrywane słabo (28,6%). Rodzina zostaje wyłączona z grupowania. |
 | Mowa, audio | — | bez zmian | — | Brak nagrań w próbie. |
 
 ### Podobieństwo obrazu: dlaczego CLIP, a nie ORB
@@ -248,15 +266,17 @@ Reguła wskazuje ORB, bo wygrywa miarę rozstrzygającą. Wybieramy CLIP z trzec
 
 Słabe miejsce tej decyzji: przewaga CLIP w śladzie zewnętrznym może częściowo wynikać z nazwy nadawcy widocznej na zrzucie. Rozstrzygnęłaby to ocena ręczna 60 wylosowanych par (po 30 dla CLIP i ORB).
 
-### Pochodzenie obrazu: dwa modele po kolei
+### Pochodzenie obrazu: sam Effort
 
-To jedyny parametr z dwoma modelami. reverse-SynthID szuka znaku wodnego, który mają tylko obrazy z części generatorów, więc brak oznaczenia nic nie mówi o pozostałych. Obrazy nieoznaczone ocenia Effort, a wynik zapisuje, który model oznaczył obraz. Kaskadę uruchamia `provenance.sh <katalog z obrazami>`; podkatalogi `ai/` i `real/` służą jako etykiety i dają liczbę wykrytych obrazów oraz fałszywych alarmów. Skrypt nie był jeszcze uruchomiony w całości.
+Pierwsza decyzja z 2026-11-22 zakładała dwa modele po kolei: reverse-SynthID, a po nim Effort na obrazach nieoznaczonych. Test na obrazach AI ją zmienił. reverse-SynthID oznacza obrazy niezależnie od tego, czy mogą mieć znak wodny, więc w kaskadzie dokładał przypadkowe oznaczenia i zabierał Effortowi 113 z 495 obrazów. Każdy obraz ocenia teraz sam Effort z checkpointem GenImage (`effort_clip_L14_trainOn_sdv14.pth`).
 
-Do zrobienia zostają trzy rzeczy:
+Uruchamia to `provenance.sh <katalog z obrazami>`. Podkatalogi `ai/` i `real/` służą jako etykiety i dają liczbę wykrytych obrazów oraz fałszywych alarmów. Skrypt w obecnej, jednomodelowej postaci nie był jeszcze uruchomiony z kontenerem; sprawdzona jest część licząca tabelę.
+
+Co zostaje otwarte:
 
 - **Wagi Effort.** Checkpointu nie ma w repozytorium ani w obrazie kontenera; trzeba go udostępnić zespołowi przez Git LFS albo Google Drive i opisać pobranie w [laboratorium](../README.md).
-- **Zbiór kontrolny.** Kilkadziesiąt własnych obrazów o znanym pochodzeniu, także jako zrzuty kart. Bez niego nie wiemy, czy 9 oznaczeń SynthID na 60 zrzutach to prawdziwe znaki wodne ani czy Effort (0 z 60) widzi cokolwiek na tym materiale.
-- **Próg Effort.** Skrypt przyjmuje `fake_prob` co najmniej 0,5 (`EFFORT_THRESHOLD`); próg trzeba ustalić na zbiorze kontrolnym.
+- **Fałszywe alarmy i próg.** Skrypt przyjmuje `fake_prob` co najmniej 0,5 (`EFFORT_THRESHOLD`). Próg nie jest dobrany na danych, bo nie mamy zbioru obrazów bez AI; zespół zdecydował, że go nie buduje. Wynik Effort trzeba więc czytać jako wskazówkę dla analityka, nie rozstrzygnięcie.
+- **Zrzuty kart reklam.** Checkpoint GenImage nie oznaczył żadnego z 60 zrzutów. Nie wiemy, czy nie było wśród nich kreacji z AI, czy ramka platformy i kompresja zasłaniają ślady generatora.
 
 ### Co zmienia się względem stanu obecnego
 
@@ -264,6 +284,7 @@ Do zrobienia zostają trzy rzeczy:
 2. **Tekst:** E5-small traci status kandydata; tekst porównuje TF-IDF.
 3. **Twarze:** jeśli rodzina wejdzie do użycia, modelem jest YuNet + SFace.
 4. **Temat:** jeśli rodzina wejdzie do użycia, modelem jest mDeBERTa-v3.
+5. **Pochodzenie obrazu:** ocenę daje Effort; reverse-SynthID i SigLIP odpadają. Rodzina pozostaje poza grupowaniem.
 
 ## Ocena ręczna
 
@@ -281,5 +302,6 @@ Ocena ręczna nie jest już warunkiem żadnej decyzji, bo drugich modeli nie zos
 - **Mały podzbiór.** Drogie modele mają wyniki z 60 reklam, a EasyOCR na wariantach z 15. Różnica 7 zapytań na 45 wskazuje kierunek, nie wielkość efektu.
 - **Brak transkrypcji i nagrań.** Nie policzyliśmy CER ani WER. Wybór OCR opiera się na miarach pośrednich, a mowa i audio nie były mierzone.
 - **Brak oceny ręcznej.** Wybór CLIP zamiast ORB nie jest nią potwierdzony, a poprawność etykiet tematu, wykryć obiektów i dodatkowych twarzy nie została sprawdzona.
+- **Pochodzenie obrazu bez pomiaru fałszywych alarmów.** Test obejmuje wyłącznie obrazy AI, a Effort ocenił 382 z 495, bo pozostałe zatrzymał wcześniej reverse-SynthID. Checkpointu Chameleon nie uruchomiono na zrzutach reklam.
 - **Koszt z 5 wejść.** p95 z pięciu pomiarów jest w praktyce wartością najwyższą z pięciu. TF-IDF nie ma pomiaru kosztu, bo nie jest ekstraktorem kontenerowym.
 - **Koszt pojedynczego modelu nie jest czasem całej ścieżki** od przyjęcia reklamy do wyniku. Ten mierzymy osobno, po ustaleniu profilu.
