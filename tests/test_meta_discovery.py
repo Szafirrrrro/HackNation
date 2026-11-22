@@ -105,6 +105,27 @@ class MetaPublicTests(unittest.TestCase):
         self.assertEqual(card["removal_notice"], "This ad is unavailable because the account was disabled "
                          "under our advertising standards. See the full policy.")
 
+    def test_library_removal_and_disclaimer_notices_withdraw_card(self):
+        # Regresja: bench-500 zawierał 36 kart z tym komunikatem traktowanych jako widoczne,
+        # a link do standardów Meta wyglądał na cel reklamy.
+        policy = "https://l.facebook.com/l.php?u=https%3A%2F%2Ftransparency.meta.com%2Fpolicies%2Fad-standards%2F"
+        notices = ('Te materiały zostały usunięte, ponieważ naruszyły nasze <a href="{0}">Standardy dotyczące reklam</a>.',
+                   'Ta reklama była wyświetlana bez <a href="{0}">wymaganego zastrzeżenia</a>.',
+                   'These materials were removed because they violated our <a href="{0}">Advertising Standards</a>.')
+        for i, notice in enumerate(notices):
+            source = (f"<article><p>Identyfikator biblioteki: {4200000 + i}</p><div>Studio</div>"
+                      f"<div>Sponsorowane</div><div>{notice.format(policy)}</div></article>")
+            [(card, _, _)] = meta._parse_html(source, QUERY)
+            self.assertEqual(card["creative_state"], "withdrawn")
+            self.assertNotIn("landing_candidates", card)
+            self.assertNotIn("cta_element", card)
+        for text in ("Te materiały zostały usunięte z magazynu, nowe już są!",
+                     "These materials were removed from stock because of high demand."):
+            visible = ("<article><p>Identyfikator biblioteki: 4200009</p><div>Studio</div><div>Sponsorowane</div>"
+                       f"<p>{text}</p></article>")
+            [(card, _, _)] = meta._parse_html(visible, QUERY)
+            self.assertEqual(card["creative_state"], "visible", text)
+
     def test_reports_have_grounded_scope_nullable_fields_and_distinct_notes(self):
         p = self.root/"historic.json"
         data = {"data":"2020-01-01","wyszukiwania":[{"fraza":QUERY.phrase, "url":URL,

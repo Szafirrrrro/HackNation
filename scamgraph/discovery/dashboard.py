@@ -9,7 +9,7 @@ import streamlit as st
 
 from ..catalog import catalog, preview
 from ..capture import read_json
-from ..landing_quality import CONTENT_STATUS, REASON, TARGET_TYPE, content_status
+from ..landing_quality import CONTENT_STATUS, REASON, TARGET_BASIS, TARGET_CONFIDENCE, TARGET_TYPE, content_status
 from ..sources import evidence
 from .engine import connection
 from .page_queue import confirm_target, drain
@@ -178,8 +178,12 @@ def run_pages(root, select):
              f"   |   Użyteczna treść · {sum(content_status(r, row['page_status']) == 'usable' for row, r in details)}")
     table = []
     for row, r in details:
-        name = json.loads(row["card"]).get("page_name") or row["ad_ref"]
+        saved_card = json.loads(row["card"])
+        name = saved_card.get("page_name") or row["ad_ref"]
+        basis = r.get("target_basis") or saved_card.get("cta_basis")
         table.append({"Reklama": name, "ID emisji": row["ad_ref"], "Typ celu": TARGET_TYPE.get(r.get("target_kind"), "—"),
+                      "Podstawa celu": TARGET_BASIS.get(basis, "—"),
+                      "Pewność celu": TARGET_CONFIDENCE.get(r.get("target_confidence"), "—"),
                       "Treść celu": CONTENT_STATUS[content_status(r, row["page_status"])],
                       "Wizyta": PAGE_STATUS.get(row["page_status"], "—"),
                       "Powód": row["job_error"] or r.get("reason") or REASON.get(r.get("reason_code"), ""),

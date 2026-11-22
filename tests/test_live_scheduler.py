@@ -39,9 +39,10 @@ class LiveScheduler(unittest.TestCase):
         self.engine = engine_for(self.cfg)
         self.run = self.engine._claim({"meta"}, "cli", time.time())["meta"]
 
-    def insert(self):
+    def insert(self, auto_target=True):
         opts = self.engine.sources["meta"]
-        finding, = meta.fetch({"mode": "import", "imports": {"test": str(self.source)}}, self.query)
+        finding, = meta.fetch({"mode": "import", "imports": {"test": str(self.source)}, "auto_target": auto_target},
+                              self.query)
         finding.source_kind = "library"
         finding.card["comments"] = [{"text": "przykładowa opinia"}]
         finding.observed_at = "2026-01-01T00:00:00+00:00"
@@ -92,7 +93,8 @@ class LiveScheduler(unittest.TestCase):
     def test_analyst_confirms_one_candidate_and_binary_keeps_its_proof(self):
         self.source.write_text('<article><div>Library ID: 401</div><a href="https://shop.example/a">A</a>'
                                '<a href="https://shop.example/picture.png">B</a></article>', encoding="utf8")
-        base = self.insert()
+        # Przy włączonym auto_target te same odnośniki dałyby cel „dominant_domain”; tu sprawdzamy ścieżkę analityka.
+        base = self.insert(auto_target=False)
         row, = self.engine.snapshot()["candidates"]
         self.assertEqual(run_landing_totals(self.state, [self.run])[self.run]["content"], {"review": 1})
         card = read_json(self.state / "captures" / base / "ad/card.json")

@@ -51,10 +51,15 @@ class LandingCTATests(unittest.TestCase):
         self.assertEqual(meta._parse_html(html, QUERY)[0][0]["cta_attribute"], "href")
         html = card('<div role="button">Subscribe</div>')
         self.assertEqual(meta._parse_html(html, QUERY)[0][0]["cta"], "Subscribe")
-        html = card('', extra='<a href="https://other.example">other.example</a>')
+        html = card('', extra='<a href="https://other.example">Inny sklep</a>')
         row = meta._parse_html(html, QUERY)[0][0]
         self.assertIn("kilka różnych celów", row["landing_missing_reason"])
         self.assertNotIn("cta_element", row)
+        # Widoczny podpis domeny rozstrzyga między różnymi domenami (cel wybrany regułą).
+        html = card('', extra='<a href="https://other.pl">Inny sklep</a><div>OTHER.PL</div>')
+        row = meta._parse_html(html, QUERY)[0][0]
+        self.assertEqual((row["cta_basis"], row["cta_caption"]), ("caption", "OTHER.PL"))
+        self.assertNotIn("cta_element", meta._parse_html(html, QUERY, auto=False)[0][0])
 
     def test_private_ip_is_rejected_before_connecting(self):
         with self.assertRaisesRegex(LandingError, "publiczną"):
@@ -92,6 +97,56 @@ class LandingCTATests(unittest.TestCase):
             folder = root/"state"/"captures"/cid
             self.assertEqual(read_json(folder/"manifest.json")["availability"]["landing"]["reason"], "HTTP 403")
             self.assertFalse(read_json(folder/"extracted.json")["ad_page_links"])
+
+    def test_caption_target_platform_skip_and_confidence(self):
+        hidden = "https://l.facebook.com/l.php?u=http%3A%2F%2Ffb.me%2F&amp;h=AU"
+        offline = (patch("scamgraph.discovery.verified_entity.match_verified_entity", return_value=None),
+                   patch("scamgraph.discovery.authoritive_corpora.match_authoritative_corpus", return_value=None))
+        with staging(Path(tempfile.gettempdir())) as root, offline[0], offline[1]:
+            source = root / "cards.html"
+            options = {"mode": "import", "imports": {"test": source}, "state_dir": root / "state",
+                       "provider": "meta-ad-library", "query_phrase": "test", "query_country": "PL"}
+            source.write_text('<article><div>Library ID: 401</div><div>Sponsorowane</div><p>Oferta</p>'
+                              f'<a href="{hidden}"><div>SHOP.PL/offer</div><div role="button">Learn More</div></a>'
+                              '</article>', encoding="utf8")
+            finding, = meta.fetch(options, QUERY)
+            self.assertEqual(finding.card["cta_basis"], "caption")
+            options["mode"] = "live"
+            with patch.object(landing_visit, "visit", return_value={"status": "failed", "reason": "HTTP 403"}) as visit:
+                cid = publish("meta", options, finding)
+            self.assertEqual(visit.call_args[0][1], "https://shop.pl/offer")
+            saved = read_json(root / "state" / "captures" / cid / "extracted.json")["landing_visit"]
+            self.assertEqual((saved["target_basis"], saved["attribute"]), ("caption", "text"))
+            # Przycisk kontaktu prowadzi do komunikatora: brak wizyty, jawny powód.
+            source.write_text('<article><div>Library ID: 402</div><a href="https://l.facebook.com/l.php?u='
+                              'https%3A%2F%2Fwa.me%2F48500"><span>Wyślij wiadomość</span></a></article>', encoding="utf8")
+            options["mode"] = "import"
+            finding, = meta.fetch(options, QUERY)
+            options["mode"] = "live"
+            with patch.object(landing_visit, "visit", side_effect=AssertionError("unexpected visit")):
+                cid = publish("meta", options, finding)
+            summary = read_json(root / "state" / "captures" / cid / "manifest.json")["landing_summary"]
+            self.assertEqual((summary["content_status"], summary["reason_code"]), ("skipped", "platform_internal"))
+
+    def test_target_confidence_checks(self):
+        from scamgraph.discovery.service import target_confidence
+        with staging(Path(tempfile.gettempdir())) as root:
+            (root / "page.html").write_text("<title>Sklep</title><p>Zikom  INVEST sp. z o.o.</p>", encoding="utf8")
+            card_fields = {"page_name": "ZIKOM Invest", "cta_caption": "inwestycja.zikom.pl/"}
+            self.assertEqual(target_confidence("label", {}, PAGE, {}, root)["target_confidence"], "high")
+            both = target_confidence("single_link", card_fields, "https://inwestycja.zikom.pl/",
+                                     {"final_url": "https://www.zikom.pl/oferta"}, root)
+            self.assertEqual(both, {"target_confidence": "high", "target_checks": ["caption_domain", "advertiser_name"]})
+            # Cel z podpisu nie potwierdza się tym samym podpisem.
+            own = target_confidence("caption", {**card_fields, "page_name": "Inna Firma"}, "https://inwestycja.zikom.pl/",
+                                    {"final_url": "https://inwestycja.zikom.pl/"}, root)
+            self.assertEqual(own, {"target_confidence": "low", "target_checks": []})
+            # Nazwa reklamodawcy jako całe słowa, nie fragment innego słowa.
+            part = target_confidence("single_link", {"page_name": "Sklep"}, PAGE, {}, root)
+            self.assertEqual(part["target_checks"], ["advertiser_name"])
+            self.assertEqual(target_confidence("single_link", {"page_name": "Zikomx"}, PAGE, {}, root)["target_confidence"], "low")
+            low = target_confidence("single_link", {"page_name": "Inna Firma"}, PAGE, {"final_url": PAGE}, root)
+            self.assertEqual(low, {"target_confidence": "low", "target_checks": []})
 
     @unittest.skipUnless(os.environ.get("SCAMGRAPH_TEST_CHROME"), "Lokalny test renderowania w Chrome")
     def test_visible_meta_card_archives_its_external_link(self):

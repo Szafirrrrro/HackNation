@@ -7,13 +7,15 @@ import re
 import shutil
 import sqlite3
 from contextlib import closing
+from html import unescape
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from ..capture import capture, staging, write_json
 from ..media import AUDIO, IMAGES, VIDEO
 from .types import SourceError
 
+from .cta import PLATFORM_HOSTS, caption_url, destination, own_text, target_identity//
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "discovery.json"
 
 
@@ -126,7 +128,7 @@ def engine_for(config):
 
 def collect_landing(stage, options, finding, *, defer=False):
     from ..landing import Document
-    from .cta import destination, target_identity
+    from .cta import PLATFORM_HOSTS, caption_url, destination, own_text, target_identity
     from .landing_visit import visit
     from .landing_fetch import public_url
     from .trusted_domains import match_url, skip_reason
@@ -145,28 +147,39 @@ def collect_landing(stage, options, finding, *, defer=False):
     doc = Document(raw.decode("utf8"))
     node = doc.nodes[index - 1] if isinstance(index, int) and 1 <= index <= len(doc.nodes) else None
     attribute = finding.card.get("cta_attribute")
+    basis = finding.card.get("cta_basis", "label")
     inside_card = node and any(finding.locator == f"element:{p.index}" for p in (node, *node.ancestors()))
-    href = node.attr(attribute) if inside_card and attribute in {"href", "data-href", "data-url"} else ""
-    url = destination(href) if href else None
+    if inside_card and attribute == "text" and basis == "caption":
+        # Cel z widocznego podpisu domeny: dowodem jest tekst elementu karty, nie atrybut odnośnika.
+        url = caption_url(own_text(node))
+        href = url or ""
+    else:
+        href = node.attr(attribute) if inside_card and attribute in {"href", "data-href", "data-url"} else ""
+        url = destination(href) if href else None
     if not url:
         return {"status": "failed", "content_status": "error", "reason_code": "invalid_card_evidence",
                 "reason": "Brak poprawnego odnośnika we wskazanym elemencie karty."}
     database = options.get("domain_db")
+
     timeout = options.get("landing_timeout", 22)
     # Kolejność jak dotąd: baza zaufanych, podmiot, ranking, pętla dwustronna. Kolejny filtr liczymy tylko
     # wtedy, gdy poprzedni nie trafił. verified_entity (DNS, TLS) i bidirectional_verify (HTTP) łączą się
     # z podejrzanym hostem z pominięciem zabezpieczeń kolektora (prywatne IP, wspólny profil przeglądarki),
     # więc są wyłączone, dopóki profil jawnie ich nie włączy.
     network = options.get("mode") == "live" and options.get("network_trust_checks", False)
+    platform = (urlsplit(url).hostname or "").lower().rstrip(".") in PLATFORM_HOSTS
     host = match_url(database, url)
-    verified = match_verified_entity(url, options) if network and not host else None
+    verified = match_verified_entity(url, options) if network and not (platform or host) else None
     # Ranking ocenia tylko zwykłe strony WWW. Posty, Marketplace i wideo Facebooka mają własną obsługę
     # w landing_visit, a pozycja facebook.com w rankingu nie mówi nic o konkretnej treści.
     web = target_identity(url)[0] == "web"
     ranked_hit = None if host or verified or not web else match_authoritative_corpus(url)
-    closed_loop = match_bidirectional_verification(url) if network and not (host or verified or ranked_hit) else None
+    closed_loop = match_bidirectional_verification(url) if network and not (platform or host or verified or ranked_hit) else None
 
-    if host:
+    if platform:
+        outcome = {"status": "skipped", "content_status": "skipped", "reason_code": "platform_internal",
+                   "reason": "Cel prowadzi do profilu platformy lub kanału kontaktu, nie do strony WWW."}
+    elif host:
         outcome = {"status": "trusted_domain", "content_status": "skipped", "reason_code": "trusted_domain",
                    "trusted_domain": host, "reason": skip_reason(host)}
     elif verified:
@@ -201,9 +214,43 @@ def collect_landing(stage, options, finding, *, defer=False):
     if "page_id" in outcome:
         archive = Path(options["state_dir"]) / "pages" / outcome["page_id"]
         shutil.copytree(archive, stage / "landing")
+        outcome.update(target_confidence(basis, finding.card, url, outcome, archive))
     return {"target_kind": target_identity(url)[0], **outcome, "element": index, "attribute": attribute,
             "href": public_url(urljoin("https://www.facebook.com/", href)), "label": finding.card["cta"],
-            "target_basis": finding.card.get("cta_basis", "label"), "candidates": candidates}
+            "target_basis": basis, "candidates": candidates}
+
+
+def page_text(archive, limit=4 * 1024**2):
+    for name in ("page.html", "original/response.html"):
+        path = archive / name
+        if path.is_file():
+            with path.open("rb") as stream:
+                raw = stream.read(limit).decode("utf8", "replace")
+            raw = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1\s*>", " ", raw)
+            return unescape(re.sub(r"(?s)<[^>]+>", " ", raw))
+    return ""
+
+
+def folded(value):
+    return " ".join(re.sub(r"[^\w]+", " ", value.casefold()).split())
+
+
+def target_confidence(basis, card, url, outcome, archive):
+    """Zgodność odwiedzonej strony z kartą. Cel z etykiety, podglądu lub od analityka ma pewność wysoką;
+    cel wybrany regułą wymaga zgodności domeny z podpisem karty albo nazwy reklamodawcy na stronie."""
+    from .cta import AUTO_BASES, caption_url, site
+    if basis not in AUTO_BASES:
+        return {"target_confidence": "high", "target_checks": ["analyst" if basis == "analyst" else "card_link"]}
+    checks = []
+    final = outcome.get("final_url") or url
+    shown = caption_url(card.get("cta_caption", ""))
+    # Dla celu z podpisu zgodność z tym samym podpisem nie jest niezależnym sprawdzeniem.
+    if basis != "caption" and shown and site(final) == site(shown):
+        checks.append("caption_domain")
+    name = folded(card.get("page_name") or "")
+    if len(name) >= 5 and f" {name} " in f" {folded(page_text(archive))} ":
+        checks.append("advertiser_name")
+    return {"target_confidence": "high" if checks else "low", "target_checks": checks}
 
 
 def publish(sid, options, finding):
