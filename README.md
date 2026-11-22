@@ -16,6 +16,16 @@ Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live
 
 ## Od pliku do wyniku
 
+Streamlit przyjmuje też link do strony: `python -m pip install -r graph/requirements-app.txt`,
+następnie `python -m streamlit run graph/app.py`. Wklej publiczny URL i kliknij
+**Przechwyć stronę**, aby pobrać stronę i automatycznie wczytać jej dane do analizy oraz grafu. Domeny z listy zaufanych (cały ranking Tranco z wykluczeniami) są pomijane przed pobraniem, z komunikatem na ekranie. Wymagany jest Google Chrome. [Zapis URL i pliki wynikowe](graph/README.md#przechwycenie-strony-przez-url)
+
+W tym samym panelu sekcja **Sprawdź zdjęcie lub zrzut reklamy** przyjmuje PNG/JPEG/WebP.
+Wgraj zdjęcie i kliknij **Analizuj zdjęcie** — dostępna baza jest dołączana automatycznie.
+SHA-256, pHash i lokalny OCR z porównaniem TF-IDF zasilają silnik oraz graf;
+szczegóły powiązania pokazują oba obrazy. Brak OCR nie blokuje porównania wyglądu.
+[Zdjęcia, wymagania OCR i ograniczenia](graph/README.md#analiza-zdjęcia-lub-zrzutu-reklamy)
+
 Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.json serve`, aby otworzyć panel schedulera z lokalnymi kartami demonstracyjnymi. Domyślny profil `discovery.live.json` uruchamia Chrome przez Playwright i wyszukuje do 40 kart na frazę. Aby zachować opis uprawnienia lokalnie, skopiuj profil do `discovery.local.json`, uzupełnij `sources.meta.permission` i uruchom `python -m scamgraph.live --config discovery.local.json serve`. Panel otworzysz pod adresem http://127.0.0.1:8527/. Listą zaufanych domen dla wybranego profilu zarządza polecenie `trusted-domains`. [Instalacja i konfiguracja](docs/AD_DISCOVERY.md)
 
 | Krok | Technologia i wynik planowanego systemu | Wymaganie NASK |
