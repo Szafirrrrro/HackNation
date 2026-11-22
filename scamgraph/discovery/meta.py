@@ -464,11 +464,12 @@ def _live(options, query):
                         method = "Fetch.continueRequest"
                     try:
                         session.send(method, params)
-                    except BrowserError:
-                        # Żądanie zostało już zamknięte (context.route, nawigacja lub zamknięcie strony):
-                        # CDP zwraca wtedy "Invalid InterceptionId". Wyjątek w obsłudze zdarzenia
-                        # przerywał odczyt całej frazy, a nie ma już czego wznawiać ani blokować.
-                        pass
+                    except BrowserError as exc:
+                        # Żądanie anulowane w międzyczasie (nowa nawigacja, przerwane pobranie,
+                        # zamknięcie strony): CDP zwraca "Invalid InterceptionId". Nie ma już czego
+                        # wznawiać ani blokować, a wyjątek w obsłudze zdarzenia przerywał całą frazę.
+                        if "Invalid InterceptionId" not in str(exc) and "closed" not in str(exc).lower():
+                            raise
 
                 session.on("Fetch.requestPaused", check_response)
                 session.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Response"}]})
@@ -680,21 +681,28 @@ def fetch(options: dict, query: Query):
     else:
         raise SourceError("Nieznany tryb adaptera Meta.")
     kind = "library" if mode == "live" else ("synthetic" if options.get("synthetic") is True else "upload")
-    for path, sha, rows, image in batches:
-        observed_at = datetime.now(timezone.utc).isoformat() if mode == "live" else None
-        for card, locator, references in rows:
-            missing = not all(card.get(key) for key in ("page_name", "status", "daty_jak_na_karcie", "text"))
-            reason = f'Wynik wyszukiwania dokładnej frazy „{query.phrase}” ({query.country}).'
-            yield Finding(
-                card["id"],
-                card,
-                reason,
-                missing,
-                path,
-                locator,
-                image=image,
-                observed_at=observed_at,
-                source_kind=kind,
-                source_sha256=sha,
-                media=_local_media(path, references),
-            )
+    try:
+        for path, sha, rows, image in batches:
+            observed_at = datetime.now(timezone.utc).isoformat() if mode == "live" else None
+            for card, locator, references in rows:
+                missing = not all(card.get(key) for key in ("page_name", "status", "daty_jak_na_karcie", "text"))
+                reason = f'Wynik wyszukiwania dokładnej frazy „{query.phrase}” ({query.country}).'
+                yield Finding(
+                    card["id"],
+                    card,
+                    reason,
+                    missing,
+                    path,
+                    locator,
+                    image=image,
+                    observed_at=observed_at,
+                    source_kind=kind,
+                    source_sha256=sha,
+                    media=_local_media(path, references),
+                )
+    finally:
+        # Gdy konsument przestaje czytać przed końcem (limit kart, błąd zapisu), generator _live
+        # trzyma otwarte sync_playwright() i nie jest zwalniany wraz z tym generatorem, więc
+        # następna fraza w tym samym procesie dostawała "Playwright Sync API inside the asyncio loop".
+        if mode == "live":
+            batches.close()
