@@ -1,12 +1,11 @@
 <style>
-    body { margin: 0; color: #ededeb; background: #161616; }
+    body { margin: 0; color: #ededeb; background: #151515; }
     h1:empty { display: none; }
     #mynetwork {
         border: 0;
-        background-image: radial-gradient(circle, #393939 0.75px, transparent 1px),
-                          radial-gradient(ellipse at 30% 70%, #202923 0%, transparent 65%),
-                          radial-gradient(ellipse at 82% 12%, #242329 0%, transparent 60%);
-        background-size: 23px 23px, auto, auto;
+        background-image: radial-gradient(circle, #353535 0.75px, transparent 1px),
+                          radial-gradient(ellipse at 65% 20%, #222222, transparent 75%);
+        background-size: 23px 23px, auto;
     }
     div.vis-tooltip, #popup {
         background: #222; color: #ededeb; border: 1px solid #535353;
@@ -21,14 +20,15 @@
     }
     .node-inspector :is(select, button, article) { pointer-events: auto; }
     .node-inspector select {
-        display: block; margin-left: auto; max-width: 100%;
+        display: block; margin: 0 0 6px auto; max-width: 100%;
         padding: 7px 10px; border: 1px solid #4b4b4b; border-radius: 8px;
         background: #202020; color: #ededeb; color-scheme: dark; font: inherit;
     }
+    .node-inspector select[hidden] { display: none; }
     .node-inspector article {
-        margin-top: 8px; padding: 14px 15px; max-height: min(19rem, calc(100vh - 82px)); overflow: auto;
-        border: 1px solid #454545; border-top: 2px solid var(--node-accent, #5cf2ca);
-        border-radius: 12px; background: linear-gradient(160deg, #2c2e2d, #1b1b1b 66%);
+        margin-top: 8px; padding: 14px 15px; max-height: min(21rem, calc(100vh - 116px)); overflow: auto;
+        border: 1px solid #454545; border-top: 2px solid var(--node-accent, #ededeb);
+        border-radius: 12px; background: linear-gradient(160deg, #292929, #1b1b1b 66%);
         box-shadow: 0 8px 28px #101010cc; overflow-wrap: anywhere;
     }
     .node-inspector header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -36,23 +36,32 @@
         border: 1px solid #505050; border-radius: 7px;
         padding: 3px 8px; color: #ededeb; background: #252525; font: inherit; cursor: pointer;
     }
-    .node-inspector :is(button, select):focus-visible { outline: 2px solid #5cf2ca; outline-offset: 2px; }
+    .node-inspector :is(button, select, article):focus-visible { outline: 2px solid #ededeb; outline-offset: 2px; }
     #node-kind { color: var(--node-accent); font-size: 12px; }
     #node-title { margin: 7px 0; font-size: 16px; }
     #node-details { margin: 0; color: #c9c9c6; white-space: pre-line; }
+    #edge-endpoints, #edge-reasons { padding-left: 1.1rem; color: #c9c9c6; }
+    #edge-endpoints { margin: 0 0 0.8rem; white-space: pre-line; }
+    #edge-reasons { margin: 0.75rem 0 0; }
+    #edge-reasons li + li { margin-top: 0.35rem; }
 </style>
 <aside class="node-inspector" aria-label="Inspektor grafu" hidden>
     <select id="node-picker" aria-label="Wybierz węzeł grafu">
         <option value="">Wybierz węzeł</option>
     </select>
-    <article aria-labelledby="node-title" hidden>
+    <select id="edge-picker" aria-label="Wybierz połączenie węzła" hidden>
+        <option value="">Wybierz połączenie</option>
+    </select>
+    <article aria-labelledby="node-title" tabindex="0" hidden>
         <header>
             <span id="node-kind"></span>
-            <button type="button" id="node-close" aria-label="Zamknij szczegóły węzła">×</button>
+            <button type="button" id="node-close" aria-label="Zamknij szczegóły">×</button>
         </header>
         <div aria-live="polite">
             <h2 id="node-title"></h2>
+            <ul id="edge-endpoints" aria-label="Końce połączenia" hidden></ul>
             <p id="node-details"></p>
+            <ul id="edge-reasons" aria-label="Ślady porównania" hidden></ul>
         </div>
     </article>
 </aside>
@@ -60,33 +69,88 @@
     (() => {
         const inspector = document.querySelector(".node-inspector");
         const picker = document.getElementById("node-picker");
+        const edgePicker = document.getElementById("edge-picker");
         const card = inspector.querySelector("article");
+        const detailTitle = document.getElementById("node-title");
+        const detailKind = document.getElementById("node-kind");
+        const details = document.getElementById("node-details");
+        const endpoints = document.getElementById("edge-endpoints");
+        const reasons = document.getElementById("edge-reasons");
         let activeNode = null;
         if (!network || nodes.length === 0) return;
 
+        function choice(node) {
+            return node.detailTitle.endsWith(node.detailRef)
+                ? node.detailTitle
+                : `${node.detailTitle} [${node.detailRef}]`;
+        }
+
         for (const node of nodes.get()) {
-            picker.add(new Option(node.label.split("\n")[0], node.id));
+            picker.add(new Option(choice(node), node.id));
         }
         inspector.hidden = false;
 
-        function showNode(id) {
-            const node = id === null ? null : nodes.get(id);
-            activeNode = node ? node.id : null;
-            picker.value = activeNode ?? "";
-            card.hidden = !node;
-            if (!node) return;
+        function setContext(id) {
+            if (id === activeNode) return;
+            activeNode = id;
+            picker.value = id ?? "";
+            const connected = id === null ? [] : network.getConnectedEdges(id);
+            edgePicker.length = 1;
+            for (const edgeId of connected) {
+                const edge = edges.get(edgeId);
+                const other = nodes.get(edge.from === id ? edge.to : edge.from);
+                edgePicker.add(new Option(`${edge.detailTitle} · ${choice(other)}`, edgeId));
+            }
+            edgePicker.hidden = connected.length === 0;
+        }
 
-            const [title, ...details] = node.title.split("\n");
-            card.style.setProperty("--node-accent", node.detailColor);
-            document.getElementById("node-kind").textContent = node.detailKind;
-            document.getElementById("node-title").textContent = title;
-            document.getElementById("node-details").textContent = details.join("\n");
+        function fillList(list, lines) {
+            list.replaceChildren();
+            list.hidden = lines.length === 0;
+            for (const line of lines) {
+                const item = document.createElement("li");
+                item.textContent = line;
+                list.append(item);
+            }
+        }
+
+        function showCard(item, summary, labels = [], evidence = []) {
+            card.style.setProperty("--node-accent", item.detailColor);
+            detailKind.textContent = item.detailKind;
+            detailTitle.textContent = item.detailTitle;
+            details.textContent = summary;
+            fillList(endpoints, labels);
+            fillList(reasons, evidence);
+            card.hidden = false;
             card.scrollTop = 0;
+        }
+
+        function showNode(id) {
+            const node = nodes.get(id);
+            setContext(id);
+            edgePicker.value = "";
+            showCard(node, node.title);
+        }
+
+        function showEdge(id) {
+            const edge = edges.get(id);
+            if (activeNode !== edge.from && activeNode !== edge.to) setContext(edge.from);
+            edgePicker.value = id;
+            const labels = [edge.from, edge.to].map(nodeId => {
+                const node = nodes.get(nodeId);
+                return `${node.detailTitle}\n${node.id}`;
+            });
+            showCard(edge, edge.detailSummary, labels, edge.detailReasons ?? []);
+        }
+
+        function clearCard() {
+            setContext(null);
+            card.hidden = true;
         }
 
         function closeCard() {
             network.unselectAll();
-            showNode(null);
+            clearCard();
             picker.focus();
         }
 
@@ -98,10 +162,23 @@
             network.selectNodes([picker.value]);
             showNode(picker.value);
         });
-        network.on("click", ({nodes: selected}) => showNode(selected[0] ?? null));
+        edgePicker.addEventListener("change", () => {
+            if (edgePicker.value === "") {
+                network.selectNodes([activeNode]);
+                showNode(activeNode);
+                return;
+            }
+            network.selectEdges([edgePicker.value]);
+            showEdge(edgePicker.value);
+        });
+        network.on("click", ({nodes: selectedNodes, edges: selectedEdges}) => {
+            if (selectedNodes.length) showNode(selectedNodes[0]);
+            else if (selectedEdges.length) showEdge(selectedEdges[0]);
+            else clearCard();
+        });
         document.getElementById("node-close").addEventListener("click", closeCard);
         document.addEventListener("keydown", (event) => {
-            if (event.key === "Escape" && activeNode !== null) closeCard();
+            if (event.key === "Escape" && !card.hidden) closeCard();
         });
     })();
 </script>

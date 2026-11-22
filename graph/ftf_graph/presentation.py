@@ -6,7 +6,11 @@ from .card import SIGNAL_KINDS
 
 def compact(text: str, limit: int) -> str:
     text = " ".join(text.split())
-    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+    if len(text) <= limit:
+        return text
+    prefix = text[:limit - 1]
+    boundary = prefix.rfind(" ")
+    return (prefix[:boundary] if boundary >= limit * 0.7 else prefix).rstrip() + "…"
 
 
 def page_preview(raw: dict) -> tuple[str, str]:
@@ -17,6 +21,38 @@ def page_preview(raw: dict) -> tuple[str, str]:
     headings = [row["value"] for page in pages for row in page.get("headings", []) if row.get("value")]
     # Older captures without reading_text use headings; never promote the menu dump.
     return (titles[0] if titles else "", " ".join(dict.fromkeys(content or headings)))
+
+
+def short_ref(record_id: str) -> str:
+    ref = record_id.rsplit("/", 1)[-1] or record_id
+    return f"…{ref[-8:]}" if len(ref) > 12 else ref
+
+
+def graph_title(card) -> str:
+    """Prefer text already available to the analyst, without opening an archive."""
+    provenance = card.raw.get("provenance", {})
+    kind = provenance.get("record_kind")
+    if kind == "page_capture":
+        title, content = page_preview(card.raw)
+        options = (title, card.final_domain, content)
+        fallback = "Zapis strony"
+    else:
+        options = (card.ad_text, card.raw.get("page_name"), provenance.get("page_name"),
+                   card.final_domain, card.audio_transcript)
+        fallback = "Zgłoszenie" if kind == "image_query" else "Reklama"
+    for value in options:
+        if isinstance(value, str) and value.strip():
+            return compact(value, 80)
+    return f"{fallback} · {short_ref(card.id)}"
+
+
+def pair_labels(cards, pairs) -> dict[str, str]:
+    choices = [f"{compact(graph_title(card), 32)} [{short_ref(card.id)}]" for card in cards]
+    labels = {pair: f"{choices[edge.a]} ↔ {choices[edge.b]}" for pair, edge in pairs.items()}
+    # Streamlit uses the formatted labels to resolve a selection.
+    if len(set(labels.values())) != len(labels):
+        labels = {pair: f"{index} · {label}" for index, (pair, label) in enumerate(labels.items(), 1)}
+    return labels
 
 
 def card_tooltip(card, campaign: str) -> str:

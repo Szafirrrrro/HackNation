@@ -2,10 +2,27 @@
 import unittest
 
 from graph.ftf_graph.card import parse_card
-from graph.ftf_graph.presentation import card_tooltip
+from graph.ftf_graph.presentation import card_tooltip, graph_title, pair_labels
+from graph.ftf_graph.scoring import Edge
 
 
 class GraphPresentationTests(unittest.TestCase):
+    def test_graph_title_prefers_ad_text_and_compacts_identity_fallback(self):
+        ad_id = "meta-ad-library/1234567890123456"
+        raw = {"ad_id": ad_id, "page_name": "Example advertiser", "text": {"ad_text": "  Offer\n with details  "}}
+        self.assertEqual(graph_title(parse_card(raw, trusted=frozenset())), "Offer with details")
+        self.assertEqual(graph_title(parse_card({**raw, "text": {}}, trusted=frozenset())), "Example advertiser")
+        card = parse_card({"ad_id": ad_id}, trusted=frozenset())
+        self.assertEqual(graph_title(card), "Reklama · …90123456")
+        self.assertIn(ad_id, card_tooltip(card, "bez kampanii"))
+
+    def test_pair_labels_remain_unique_for_matching_titles_and_id_suffixes(self):
+        cards = [parse_card({"ad_id": f"meta-ad-library/{i}1111111123456789",
+                             "text": {"ad_text": "Identical ad text"}}, trusted=frozenset()) for i in range(3)]
+        labels = pair_labels(cards, {"first": Edge(0, 1, 0.6, []), "second": Edge(0, 2, 0.6, [])})
+        self.assertEqual(len(set(labels.values())), 2)
+        self.assertTrue(all("Identical ad text" in text for text in labels.values()))
+
     def test_page_tooltip_uses_content_and_keeps_source_unchanged(self):
         raw = {
             "ad_id": "page:fixture", "provenance": {"record_kind": "page_capture",
@@ -18,6 +35,7 @@ class GraphPresentationTests(unittest.TestCase):
                                  {"section": "content", "value": "Useful offer " * 1000}]}]}}}
         card = parse_card(raw, trusted=frozenset())
         tooltip = card_tooltip(card, "bez kampanii")
+        self.assertTrue(graph_title(card).startswith("Own offer A & B"))
         self.assertIn("Own offer", tooltip)
         self.assertIn("Useful offer", tooltip)
         self.assertIn("domena: own.example", tooltip)

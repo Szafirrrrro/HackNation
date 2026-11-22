@@ -14,9 +14,9 @@
       "headless": true,
       "country": "PL",
       "phrases": [
-        "cukrzyca"
+        "woda"
       ],
-      "limit": 40
+      "limit": 100
     }
   }
 }

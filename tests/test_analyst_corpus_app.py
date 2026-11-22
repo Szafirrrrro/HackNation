@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -77,8 +78,8 @@ class AnalystCorpusTests(unittest.TestCase):
         self.assertEqual(report["verified_links"], 0)
         self.assertTrue(any("test-42" in item.value for item in app.markdown))
         self.assertTrue(any("Zapisy stron: 2" in item.value for item in app.caption))
-        self.assertTrue(any("Data publikacji nieustalona" in item.value and "fresh-B" in item.value
-                            for item in app.caption))
+        self.assertIn("Brak dat obserwacji: 1 · Data publikacji nieustalona: 1",
+                      [item.value for item in app.caption])
         rows = timeline_rows(app)
         publication = next(row for row in rows if row["Zdarzenie"] == "Publikacja")
         self.assertEqual(publication["Data źródłowa"], "2026-10-08")
@@ -119,7 +120,7 @@ class AnalystCorpusTests(unittest.TestCase):
         path = self.root / "cards.jsonl"
         shared = {"page": {"tracking_ids": {"meta_pixel": "own-123"}}}
         source_ref = "raw-one  <source & evidence>\n next line"
-        a = {**shared, "ad_id": "x-1", "first_seen": "2026-10-08T12:00:00Z",
+        a = {**shared, "ad_id": "x-1", "page_name": "Example advertiser", "first_seen": "2026-10-08T12:00:00Z",
              "provenance": {"provider": "own", "ad_ref": "one", "source_ref": source_ref}}
         b = {**shared, "ad_id": "x-2", "provenance": {"provider": "own", "ad_ref": "two", "source_ref": "raw-two"}}
         jsonl(path, [a, "{bad", {**a, "ad_id": "alias"}, {**a, "provenance": {"provider": "own", "ad_ref": "three"}}, b])
@@ -130,6 +131,12 @@ class AnalystCorpusTests(unittest.TestCase):
         graph = app.get("iframe")[0].proto.srcdoc
         self.assertNotIn("https://cdn.jsdelivr.net/npm/bootstrap", graph)
         self.assertIn("Content-Security-Policy", graph)
+        nodes = json.loads(re.search(r"nodes = new vis.DataSet\((\[.*?\])\);", graph, re.S)[1])
+        self.assertEqual(next(node for node in nodes if node["id"] == "x-1")["label"], "Example advertiser")
+        links = json.loads(re.search(r"edges = new vis.DataSet\((\[.*?\])\);", graph, re.S)[1])
+        self.assertEqual(links[0]["detailTitle"], "Podobieństwo materiałów")
+        self.assertIn("Ocena kampanii", links[0]["detailSummary"])
+        self.assertTrue(any("own-123" in reason for reason in links[0]["detailReasons"]))
         pair = next(widget for widget in app.selectbox if widget.label == "Wybierz parę z grafu")
         pair.set_value("x-1 ↔ x-2").run()
         self.assertFalse(app.exception)

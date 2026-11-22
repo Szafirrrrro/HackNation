@@ -30,7 +30,7 @@ from models.common.import_rows import deduplicate_rows
 
 from graph.ftf_graph.card import parse_card
 from graph.ftf_graph.matching import build_reference
-from graph.ftf_graph.presentation import card_tooltip
+from graph.ftf_graph.presentation import card_tooltip, compact, graph_title, pair_labels, short_ref
 from graph.ftf_graph.scoring import Config
 from graph.ftf_graph.trusted import load_trusted
 from graph import database_source
@@ -103,8 +103,8 @@ def save_material(corpus_path, raw):
 
 # ---------------------------------------------------------------- graf
 def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar, show_noise, height,
-                     hidden: set[str] = frozenset()) -> str:
-    net = Network(height=f"{height}px", width="100%", bgcolor="#161616", cdn_resources="in_line")
+                     hidden: set[str] = frozenset(), *, query_ids) -> str:
+    net = Network(height=f"{height}px", width="100%", bgcolor="#151515", cdn_resources="in_line")
     net.barnes_hut(gravity=-2200, central_gravity=0.55, spring_length=110, spring_strength=0.04,
                    overlap=0.65)
     net.set_edge_smooth("continuous")
@@ -113,8 +113,10 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
     for c in camps:
         nid = f"camp:{c.id}"
         color = colors[c.id]
-        net.add_node(nid, label=f"{c.id}\n{len(c.members)} reklam", shape="diamond", size=29,
-                     color=color, detailColor=color, detailKind="Kampania",
+        context = c.persons if len(c.persons) == 1 else c.final_domains
+        title = f"{c.id} · {compact(context[0], 20)}" if len(context) == 1 else f"Kampania {c.id}"
+        net.add_node(nid, label=f"{title}\n{len(c.members)} reklam", shape="diamond", size=29,
+                     color=color, detailColor=color, detailKind="Kampania", detailTitle=title, detailRef=c.id,
                      shadow={"enabled": True, "color": color + "66", "size": 17, "x": 0, "y": 0},
                      font={"color": "#ECECEA", "face": "Segoe UI, sans-serif", "size": 18},
                      title=(f"{c.id}\n{len(c.members)} reklam\n"
@@ -123,17 +125,20 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
 
     for i, card in enumerate(cards):
         cid, is_new = camp_of[i], card.id in new_ids
+        is_query = card.id in query_ids
         is_page = standalone_page(card.raw)
         if card.id in hidden or (cid is None and not show_noise and not (is_new or is_page)):
             continue
         color = PAGE_COLOR if is_page else colors.get(cid, NOISE_COLOR)
         kind = PAGE_LABEL if is_page else "Reklama"
         accent = NEW_COLOR if is_new else color
-        net.add_node(card.id, label=("★ " if is_new else "") + card.id,
+        title = graph_title(card)
+        net.add_node(card.id, label=("★ " if is_new else "") + compact(title, 26),
                      shape="star" if is_new else ("square" if is_page else "dot"), size=26 if is_new else 12,
                      color={"background": accent, "border": accent,
                             "highlight": {"background": accent, "border": "#F4F9FF"}},
-                     detailColor=accent, detailKind=f"Zgłoszenie · {kind.lower()}" if is_new else kind,
+                     detailColor=accent, detailKind=f"Zgłoszenie · {kind.lower()}" if is_query else kind,
+                     detailTitle=title, detailRef=short_ref(card.id),
                      shadow={"enabled": bool(is_new or cid or is_page), "color": accent + "77",
                              "size": 11, "x": 0, "y": 0},
                      borderWidth=2 if is_new else 1,
@@ -142,8 +147,13 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
                      title=card_tooltip(card, PAGE_LABEL if is_page else cid or NOISE_LABEL))
         present.add(card.id)
         if cid:
-            net.add_edge(card.id, f"camp:{cid}", color=color, width=1.5, dashes=is_new,
-                         title="Sugerowane przypisanie" if is_new else "Członek referencji")
+            relation = "Sugerowane przypisanie" if is_query else "Członek kampanii"
+            net.add_edge(card.id, f"camp:{cid}", color=color, width=1.5, dashes=is_query,
+                         title=relation, detailTitle=relation, detailKind="Przypisanie do kampanii",
+                         detailColor=accent, detailSummary=(
+                             "Silnik wskazał kampanię dla nowego zgłoszenia." if is_query
+                             else "Materiał należy do kampanii w zbiorze odniesienia."
+                         ))
 
     for e in edges:
         a, b = cards[e.a].id, cards[e.b].id
@@ -152,11 +162,26 @@ def build_graph_html(cards, edges, camps, camp_of, colors, new_ids, show_similar
         touches_new = a in new_ids or b in new_ids
         if not (show_similar or touches_new):
             continue
-        reasons = "\n".join(f"{'[TWARDY]' if r.hard else '[MIĘKKI]'} +{r.strength:.2f} {r.detail}" for r in e.reasons)
+        reasons = []
+        for reason in e.reasons:
+            measure = []
+            if reason.value is not None:
+                measure.append(f"wartość {reason.value:g}")
+            if reason.threshold is not None:
+                measure.append(f"próg {reason.threshold:g}")
+            kind = "Twardy" if reason.hard else "Miękki"
+            reasons.append(f"{kind} +{reason.strength:.2f} · {reason.detail}"
+                           + (f" ({', '.join(measure)})" if measure else ""))
+        color = NEW_COLOR if touches_new else "#777777"
         net.add_edge(a, b, width=1 + 2.5 * e.score, dashes=not e.has_hard,
-                     color=NEW_COLOR if touches_new else "#536476",
+                     color={"color": color, "highlight": "#ededeb"},
                      physics=camp_of[e.a] == camp_of[e.b],
-                     title=f"SIMILAR {a} – {b}: score {e.score:.2f}\n{reasons}")
+                     title=f"Podobieństwo {e.score:.2f} · kliknij, aby sprawdzić ślady",
+                     detailTitle="Podobieństwo materiałów",
+                     detailKind="Twardy ślad w porównaniu" if e.has_hard else "Miękkie ślady",
+                     detailColor=NEW_COLOR if touches_new else "#c1c1c1",
+                     detailSummary=f"Podobieństwo {e.score:.2f}   ·   Ocena kampanii {e.campaign_score:.2f}",
+                     detailReasons=reasons)
     html = BOOTSTRAP_TAGS.sub("", net.generate_html())
     html = html.replace("</body>", GRAPH_INSPECTOR + "\n</body>", 1)
     # pyvis switches to a custom HTML popup when any title contains "href".
@@ -179,7 +204,7 @@ def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, h
                         for _, glyph, label, _ in TIMELINE_STEPS)
         st.html(f'<ul class="analyst-step-guide" aria-label="Ikony zdarzeń">{steps}</ul>')
     camp_by_id, seen = {}, []
-    missing, missing_publication = [], []
+    missing, missing_publication = 0, 0
     for i, card in enumerate(cards):
         cid = PAGE_LABEL if standalone_page(card.raw) else camp_of[i] or NOISE_LABEL
         if card.id in hidden or (cid == NOISE_LABEL and not show_noise and card.id not in new_ids):
@@ -190,10 +215,10 @@ def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, h
         events = card_events(card)
         seen.extend(events)
         if not events:
-            missing.append(card.id)
+            missing += 1
         if (card.raw.get("provenance", {}).get("record_kind") not in {"page_capture", "image_query"}
                 and not any(row.kind == "Publikacja" and row.precision != "nieczytelna data" for row in events)):
-            missing_publication.append(card.id)
+            missing_publication += 1
     if scope == "Wszystkie kampanie":
         for page in pages:
             label = f"Strona · {page.id}"
@@ -202,7 +227,7 @@ def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, h
             if item := event(label, "Obserwacja strony", value, source):
                 seen.append(item)
             else:
-                missing.append(label)
+                missing += 1
     daily = defaultdict(lambda: defaultdict(Counter))
     for row in seen:
         if row.instant is not None:
@@ -254,10 +279,13 @@ def render_timeline(cards, pages, camps, camp_of, colors, new_ids, show_noise, h
             table = f"<table><thead><tr>{headings}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
             st.html(f'<div class="analyst-evidence-table" tabindex="0" role="region" '
                     f'aria-label="Daty i źródła zdarzeń">{table}</div>')
+    date_gaps = []
     if missing:
-        st.caption("Brak dat obserwacji: " + ", ".join(missing))
+        date_gaps.append(f"Brak dat obserwacji: {missing}")
     if missing_publication:
-        st.caption("Data publikacji nieustalona: " + ", ".join(missing_publication))
+        date_gaps.append(f"Data publikacji nieustalona: {missing_publication}")
+    if date_gaps:
+        st.caption(" · ".join(date_gaps))
 
 
 def source_image(card) -> bytes | None:
@@ -773,15 +801,16 @@ if dashboard is not None:
                     <li><span class="legend-query" aria-hidden="true">★</span>Zgłoszenie</li>
                 </ul>
             """)
-            st.caption("Kliknij węzeł lub wybierz go z listy, aby otworzyć szczegóły. Kolor wskazuje kampanię, "
-                       "szary oznacza brak grupy. Linie ciągłe oznaczają twarde ślady, a przerywane tylko miękkie.")
+            st.caption("Kliknij węzeł lub linię, aby otworzyć szczegóły. Wybierz węzeł z listy, aby przejrzeć jego połączenia. "
+                       "Szare węzły nie należą do kampanii. Między materiałami linia ciągła oznacza twardy ślad.")
             components.html(build_graph_html(cards, edges, camps, camp_of, colors, new_ids,
-                                             show_similar, show_noise, graph_height, hidden),
+                                             show_similar, show_noise, graph_height, hidden, query_ids=decisions.keys()),
                             height=graph_height, scrolling=False, tab_index=0)
             if edges:
                 with st.expander("Dowody par · otwórz oba źródła"):
                     by_pair = {f"{cards[edge.a].id} ↔ {cards[edge.b].id}": edge for edge in edges}
-                    pair = st.selectbox("Wybierz parę z grafu", list(by_pair), index=None, placeholder="Wybierz parę")
+                    pair = st.selectbox("Wybierz parę z grafu", list(by_pair), index=None,
+                                        placeholder="Wybierz parę", format_func=pair_labels(cards, by_pair).__getitem__)
                     if pair is not None:
                         render_pair(by_pair[pair], cards)
 
