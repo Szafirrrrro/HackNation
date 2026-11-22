@@ -10,11 +10,11 @@
       "synthetic": false,
       "manual_import": false,
       "requires_web_permission": true,
-      "permission": "Zgoda zespołu na odczyt Biblioteki reklam Meta na potrzeby HackNation",
+      "permission": "permission",
       "headless": true,
       "country": "PL",
       "phrases": [
-        "oferta inwestycyjna"
+        "cukrzyca"
       ],
       "limit": 40
     }

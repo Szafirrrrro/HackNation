@@ -167,6 +167,8 @@ def main():
         elif args.command == "status":
             print(json.dumps(engine.snapshot(), ensure_ascii=False, indent=2))
         elif args.command == "timer":
+            print(f"Uruchamiam zegar scrapera ({file.name}). "
+                  "W drugim terminalu uruchom control z tym samym --config, aby sprawdzić stan.", flush=True)
             timer(file)
         else:
             panel = Path(__file__).resolve().parents[2] / "scheduler_panel.py"
