@@ -142,11 +142,18 @@ def source_stamp(source: CorpusSource) -> tuple:
 
 def read_engine_rows(path: Path, errors: list[dict]) -> list[tuple[int, dict]]:
     """Check graph-card shapes before applying identity rules or scoring."""
+    return validate_engine_rows(read_jsonl(path, errors), str(path), errors)
+
+
+def validate_engine_rows(numbered, source: str, errors: list[dict]) -> list[tuple[int, dict]]:
     from graph.ftf_graph.card import parse_card
     from graph.ftf_graph.presentation import card_tooltip
 
     rows = []
-    for line, row in read_jsonl(path, errors):
+    for line, row in numbered:
+        if not isinstance(row, dict):
+            errors.append({"file": source, "line": line, "ad_id": None, "error": "expected JSON object"})
+            continue
         try:
             for key in ("provenance", "extensions", "visual", "text", "extraction", "infra", "page", "audio"):
                 if key in row and row[key] is None:
@@ -158,7 +165,7 @@ def read_engine_rows(path: Path, errors: list[dict]) -> list[tuple[int, dict]]:
                 raise ValueError("phash spoza 64 bitów")
             card_tooltip(card, "bez kampanii")
         except (AttributeError, TypeError, ValueError, RecursionError) as exc:
-            errors.append({"file": str(path), "line": line, "ad_id": row.get("ad_id"), "error": str(exc)})
+            errors.append({"file": source, "line": line, "ad_id": row.get("ad_id"), "error": str(exc)})
         else:
             rows.append((line, row))
     return rows
@@ -294,3 +301,30 @@ def load_analyst_corpus(source: Path | CorpusSource) -> AnalystCorpus:
     return AnalystCorpus(path.stem, cards, report={"accepted": len(cards), "duplicates": duplicates,
         "errors": errors, "repeated_images": len(hashes) - len(set(hashes)),
         "fingerprint": hashlib.sha256(path.read_bytes()).hexdigest()[:16]})
+
+
+def database_stamp(conn, dataset_id: str) -> tuple:
+    """Cheap revision of a PostgreSQL dataset: the last graph_feed export and the last engine run."""
+    feed = conn.execute("SELECT revision, written_ns FROM feed_export WHERE dataset_id = %s",
+                        (dataset_id,)).fetchone()
+    run = conn.execute("SELECT run_id FROM engine_run WHERE dataset_id = %s ORDER BY computed_at DESC, seq DESC LIMIT 1",
+                       (dataset_id,)).fetchone()
+    return (tuple(feed) if feed else None, str(run[0]) if run else None)
+
+
+def load_database_corpus(conn, dataset_id: str) -> AnalystCorpus:
+    """Current scraper cards (view card_current) with the same checks as an engine JSONL file."""
+    from . import db
+
+    source = f"postgresql:card_current/{dataset_id}"
+    errors: list[dict] = []
+    rows = validate_engine_rows(enumerate(db.load_cards(conn, dataset_id), 1), source, errors)
+    rows, duplicates = deduplicate_rows(rows, dataset_id, source, errors)
+    cards = [card for _, card in rows]
+    hashes = [value for card in cards if isinstance(value := card.get("visual", {}).get("sha256"), str) and value]
+    unavailable = conn.execute("SELECT count(*) FROM ad WHERE dataset_id = %s AND unavailable IS NOT NULL",
+                               (dataset_id,)).fetchone()[0]
+    return AnalystCorpus(f"postgres:{dataset_id}", cards, report={
+        "accepted": len(cards), "duplicates": duplicates, "errors": errors,
+        "repeated_images": len(hashes) - len(set(hashes)), "unavailable_in_database": unavailable,
+        "revision": database_stamp(conn, dataset_id)})

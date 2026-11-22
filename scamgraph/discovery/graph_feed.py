@@ -343,13 +343,15 @@ def compute_report(feed, mode, data, output, env, metadata, signature):
         return report
 
 
-def refresh_graph(config):
+def refresh_graph(config, *, campaigns=True):
+    """Publish the feed of every configured mode; campaigns=False only exports cards (and PostgreSQL)."""
     state = Path(config["state_dir"])
     for mode in sorted({s["mode"] for s in config["sources"].values()}):
         error = state / "graph" / (mode + ".error")
         try:
             feed = export_graph(state, mode)
-            update_campaigns(feed)
+            if campaigns:
+                update_campaigns(feed)
             error.unlink(missing_ok=True)
         except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as exc:
             # The last complete JSONL remains usable while the input is being repaired.

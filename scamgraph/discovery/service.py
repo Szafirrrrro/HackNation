@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 from ..capture import capture, staging, write_json
 from ..media import AUDIO, IMAGES, VIDEO
+from .control import apply_control
 from .types import SourceError
 
 from .cta import PLATFORM_HOSTS, caption_url, destination, own_text, target_identity//
@@ -78,7 +79,7 @@ def load_config(file=DEFAULT_CONFIG):
             raise ValueError(f"Limit {sid} musi wynosić od 1 do 100.")
         if not re.fullmatch("[A-Z]{2}", opts["country"]) or opts["mode"] not in {"live", "import", "replay"}:
             raise ValueError(f"Nieprawidłowy kraj lub tryb {sid}.")
-    return config
+    return apply_control(config)  # operator overrides from <state_dir>/timer-control.json
 
 
 def save_import(config, sid, name, payload, phrase, country):
