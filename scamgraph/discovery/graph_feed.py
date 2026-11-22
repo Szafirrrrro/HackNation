@@ -9,14 +9,38 @@ import sqlite3
 import subprocess
 import sys
 import time
+import traceback
 from uuid import uuid4
 
+from .. import db as pgdb
 from ..capture import read_json, staging, write_json
 from ..catalog import artifact_path
 from ..sources import address
 from .engine import connection, iso
 
 TEXT_METHOD = "char-wb-3-5-hash1024-l2/v1"
+# Parametry silnika przekazywane jawnie, żeby zapis przebiegu w bazie odpowiadał wywołaniu.
+ENGINE_CONFIG = {"min_cluster": 3, "min_samples": 2, "min_edge": 0.25}
+
+
+def mirror(folder, name, action):
+    """Powiela wynik w PostgreSQL, gdy ustawiono DATABASE_URL. Wywoływać poza blokadami SQLite.
+    Pliki pozostają podstawowym wynikiem: błąd bazy trafia z tracebackiem do
+    <tryb>.<feed|run>.db-error i na stderr, ale nie zatrzymuje pipeline'u."""
+    if not pgdb.enabled():
+        return
+    marker = folder / (name + ".db-error")
+    try:
+        with closing(pgdb.connect()) as conn:
+            action(conn)
+    except pgdb.Stale:
+        return  # nowszy eksport lub raport zapisze się sam
+    except Exception:  # baza jest opcjonalnym odbiorcą, nie może zatrzymać zegara
+        text = traceback.format_exc()
+        print(f"[scamgraph.db] {name}: {text}", file=sys.stderr)
+        marker.write_text(text[-4000:], encoding="utf8")
+        return
+    marker.unlink(missing_ok=True)
 
 
 def projection(folder):
@@ -98,6 +122,8 @@ def export_graph(state, mode="live"):
     with closing(sqlite3.connect(folder / "export.sqlite3", timeout=10)) as index, index:
         index.execute("BEGIN IMMEDIATE")
         index.execute("CREATE TABLE IF NOT EXISTS exports(mode TEXT PRIMARY KEY, revision TEXT NOT NULL)")
+        # Czas zapisu pliku porządkuje eksporty w bazie, która jest zapisywana już poza tą blokadą.
+        index.execute("CREATE TABLE IF NOT EXISTS export_times(mode TEXT PRIMARY KEY, written_ns INTEGER NOT NULL)")
         with connection(state / "discovery.sqlite3") as db:
             rows = db.execute("""SELECT o.seq,o.capture_id,o.provider,o.ad_ref,o.observed_at,o.found_at,s.first_at
                 FROM observations o JOIN (SELECT provider,ad_ref,MAX(seq) AS latest,MIN(found_at) AS first_at
@@ -111,24 +137,58 @@ def export_graph(state, mode="live"):
             versions.append(package_stamp(state / "captures" / cid))
         revision = hashlib.sha256(json.dumps(["graph-feed/4", [tuple(r) for r in rows], versions]).encode()).hexdigest()
         last = index.execute("SELECT revision FROM exports WHERE mode=?", (mode,)).fetchone()
-        if last and last[0] == revision and output.is_file():
+        unchanged = bool(last and last[0] == revision and output.is_file())
+        if unchanged and not pgdb.enabled():
             return output
-        temp = folder / (uuid4().hex + ".tmp")
-        try:
-            with temp.open("w", encoding="utf8") as stream:
-                for row, stamp in zip(rows, versions):
-                    cid = row["capture_id"]
-                    payload = {**projected_version(state / "captures" / cid, stamp),
-                               "ad_id": row["provider"] + "/" + row["ad_ref"],
-                               "first_seen": iso(row["first_at"]), "last_seen": iso(row["found_at"]),
-                               "provenance": {"source": row["provider"], "mode": mode, "capture_id": cid,
-                                              "fetched_at": row["observed_at"], "observation_seq": row["seq"]}}
-                    stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
-            os.replace(temp, output)
-            index.execute("INSERT OR REPLACE INTO exports VALUES (?,?)", (mode, revision))
-        finally:
-            temp.unlink(missing_ok=True)
+        if not unchanged:
+            temp = folder / (uuid4().hex + ".tmp")
+            try:
+                with temp.open("w", encoding="utf8") as stream:
+                    for row, stamp in zip(rows, versions):
+                        cid = row["capture_id"]
+                        payload = {**projected_version(state / "captures" / cid, stamp),
+                                   "ad_id": row["provider"] + "/" + row["ad_ref"],
+                                   "first_seen": iso(row["first_at"]), "last_seen": iso(row["found_at"]),
+                                   "provenance": {"source": row["provider"], "mode": mode, "capture_id": cid,
+                                                  "fetched_at": row["observed_at"], "observation_seq": row["seq"]}}
+                        stream.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
+                os.replace(temp, output)
+                index.execute("INSERT OR REPLACE INTO exports VALUES (?,?)", (mode, revision))
+                # Monotonicznie także przy cofnięciu zegara, żeby baza nie pominęła nowszego eksportu.
+                before = index.execute("SELECT written_ns FROM export_times WHERE mode=?", (mode,)).fetchone()
+                index.execute("INSERT OR REPLACE INTO export_times VALUES (?,?)",
+                              (mode, max(time.time_ns(), before[0] + 1 if before else 0)))
+            finally:
+                temp.unlink(missing_ok=True)
+        written = index.execute("SELECT written_ns FROM export_times WHERE mode=?", (mode,)).fetchone()
+        if written is None:  # plik powstał, zanim włączono bazę
+            written = (time.time_ns(),)
+            index.execute("INSERT INTO export_times VALUES (?,?)", (mode, written[0]))
+    # Baza poza blokadą SQLite; store_feed najpierw sprawdza, czy ma już ten eksport.
+    mirror(folder, mode + ".feed", lambda conn: pgdb.store_feed(
+        conn, mode, revision, written[0], lambda: feed_entries(state, mode, output, rows)))
     return output
+
+
+def feed_entries(state, mode, output, rows):
+    """Linie opublikowanego JSONL z surową kartą obserwacji, do zapisu w bazie. Czyta plik,
+    a nie przelicza projekcji, więc baza dostaje dokładnie to, co plik."""
+    records = [json.loads(line) for line in output.read_text(encoding="utf8").splitlines() if line.strip()]
+    if len(records) != len(rows) or any(rec["provenance"]["observation_seq"] != row["seq"]
+                                        for rec, row in zip(records, rows)):
+        raise pgdb.Stale("Plik grafu zmienił się w trakcie zapisu do bazy.")
+    seqs = [row["seq"] for row in rows]
+    extra = {}
+    with connection(state / "discovery.sqlite3") as source:
+        for i in range(0, len(seqs), 500):
+            chunk = seqs[i:i + 500]
+            extra.update({seq: (run_id, card) for seq, run_id, card in source.execute(
+                f"SELECT seq, run_id, card FROM observations WHERE seq IN ({','.join('?' * len(chunk))})", chunk)})
+    return [{"record": rec, "provider": row["provider"], "ad_ref": row["ad_ref"],
+             "seq": row["seq"], "run_id": extra[row["seq"]][0], "card": json.loads(extra[row["seq"]][1]),
+             "observed_at": row["observed_at"], "found_at": iso(row["found_at"]),
+             "source_kind": "library" if mode == "live" else "upload"}
+            for row, rec in zip(rows, records)]
 
 
 def update_campaigns(feed):
@@ -141,37 +201,49 @@ def update_campaigns(feed):
         data = feed.read_bytes()
         revision = hashlib.sha256(data).hexdigest()
         last = lock.execute("SELECT revision FROM reports WHERE mode=?", (mode,)).fetchone()
-        if last and last[0] == revision and output.is_file():
-            return
-        with staging(feed.parent) as stage:
-            records = [json.loads(line) for line in data.splitlines()]
-            unavailable = [{"ad_id": r["ad_id"], "capture_id": r.get("provenance", {}).get("capture_id"),
-                            "reason": r["unavailable"]} for r in records if "unavailable" in r]
-            available = [r for r in records if "unavailable" not in r]
-            if available:
-                source = stage / "cards.jsonl"
-                with source.open("w", encoding="utf8") as stream:
-                    for row in available:
-                        stream.write(json.dumps(row, ensure_ascii=False) + "\n")
-                graph = Path(__file__).resolve().parents[2] / "graph"
-                subprocess.run([sys.executable, "-m", "ftf_graph", str(source), "--out", str(stage)],
-                               cwd=graph, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               check=True, timeout=180)
-                groups, edges = read_json(stage / "campaigns.json"), read_json(stage / "edges.json")
-                methods = {r["ad_id"]: r.get("text", {}).get("method") for r in available}
-                for edge in edges:
-                    if methods[edge["a"]] == methods[edge["b"]] == TEXT_METHOD:
-                        for reason in edge["reasons"]:
-                            if reason["kind"] == "text":
-                                reason["method"] = TEXT_METHOD
-                                reason["detail"] = reason["detail"].replace("podobna narracja tekstu",
-                                                                           "podobne fragmenty tekstu")
-            else:
-                groups, edges = {"campaigns": [], "unassigned": [], "clustering_backend": "none"}, []
-            write_json(stage / "report.json", {**groups, "edges": edges, "mode": mode, "unavailable": unavailable,
-                       "feed_sha256": revision, "computed_at": iso(time.time())})
-            os.replace(stage / "report.json", output)
+        if not (last and last[0] == revision and output.is_file()):
+            compute_report(feed, mode, data, revision, output)
             lock.execute("INSERT OR REPLACE INTO reports VALUES (?,?)", (mode, revision))
+    # Do bazy trafia ten sam plik raportu (z opisami TEXT_METHOD), poza blokadą SQLite.
+    # Raport policzony przed włączeniem bazy dochodzi przy następnym przebiegu zegara.
+    if pgdb.enabled():
+        mirror(feed.parent, mode + ".run", lambda conn: pgdb.store_run(conn, mode, read_json(output), ENGINE_CONFIG))
+
+
+def compute_report(feed, mode, data, revision, output):
+    with staging(feed.parent) as stage:
+        records = [json.loads(line) for line in data.splitlines()]
+        unavailable = [{"ad_id": r["ad_id"], "capture_id": r.get("provenance", {}).get("capture_id"),
+                        "reason": r["unavailable"]} for r in records if "unavailable" in r]
+        available = [r for r in records if "unavailable" not in r]
+        if available:
+            source = stage / "cards.jsonl"
+            with source.open("w", encoding="utf8") as stream:
+                for row in available:
+                    stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+            graph = Path(__file__).resolve().parents[2] / "graph"
+            subprocess.run([sys.executable, "-m", "ftf_graph", str(source), "--out", str(stage),
+                            "--min-cluster", str(ENGINE_CONFIG["min_cluster"]),
+                            "--min-samples", str(ENGINE_CONFIG["min_samples"]),
+                            "--min-edge", str(ENGINE_CONFIG["min_edge"])],
+                           cwd=graph, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           check=True, timeout=180)
+            groups, edges = read_json(stage / "campaigns.json"), read_json(stage / "edges.json")
+            methods = {r["ad_id"]: r.get("text", {}).get("method") for r in available}
+            for edge in edges:
+                if methods[edge["a"]] == methods[edge["b"]] == TEXT_METHOD:
+                    for reason in edge["reasons"]:
+                        if reason["kind"] == "text":
+                            reason["method"] = TEXT_METHOD
+                            reason["detail"] = reason["detail"].replace("podobna narracja tekstu",
+                                                                       "podobne fragmenty tekstu")
+        else:
+            groups, edges = {"campaigns": [], "unassigned": [], "clustering_backend": "none"}, []
+        # engine_config i code_version opisują ten przebieg w chwili liczenia, nie zapisu do bazy.
+        write_json(stage / "report.json", {**groups, "edges": edges, "mode": mode, "unavailable": unavailable,
+                   "feed_sha256": revision, "computed_at": iso(time.time()),
+                   "engine_config": ENGINE_CONFIG, "code_version": pgdb.code_version()})
+        os.replace(stage / "report.json", output)
 
 
 def refresh_graph(config):
