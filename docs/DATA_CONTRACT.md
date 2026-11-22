@@ -176,4 +176,37 @@ Każde sprawdzenie adresu dostaje osobny katalog `pages/<id_pobrania>/` w prywat
 
 Techniczny `status` zachowuje wartości `success`, `partial` i `failed`. Nowe pola `target_kind`, `content_status` i `reason_code` opisują typ oraz dostępność treści. Na przykład wynik WWW z HTML-em oferty i niedostępnym zasobem ma `content_status: usable` oraz techniczny `status: partial`. Wizyta z HTTP 200 zwracająca ekran logowania ma `content_status: blocked`. Plik PDF, obraz albo obsługiwane audio/wideo otrzymuje ocenę na podstawie zweryfikowanego pliku. `content_evidence` w pakiecie wskazuje plik i jego SHA-256 oraz lokalizator dokumentu, jeśli dotyczy. Zapisany obraz lub film może uzupełnić dowód publicznego obiektu Facebooka z potwierdzonym ID.
 
-Paczka jest prywatnym źródłem. Samodzielna wizyta nie tworzy relacji z emisją. Scheduler wiąże kartę z paczką na podstawie elementu i atrybutu odnośnika oraz wpisu HAR. `target_basis` podaje pochodzenie wyboru celu (`label`, `preview` albo `analyst`). Użyteczne WWW trafia do `ad_page_links` i może zasilić graf. Dla potwierdzonych plików i publicznych obiektów Facebooka `ad_target_link` zachowuje ten sam ślad dowodowy. Wcześniejsze pakiety pozostają czytelne i mogą nie mieć nowych pól oceny.
+Paczka jest prywatnym źródłem. Samodzielna wizyta nie tworzy relacji z emisją. Scheduler wiąże kartę z paczką na podstawie elementu i atrybutu odnośnika oraz wpisu HAR. `target_basis` podaje pochodzenie wyboru celu (`label`, `preview`, `analyst` albo wartości reguł opisane niżej). Użyteczne WWW trafia do `ad_page_links` i może zasilić graf. Dla potwierdzonych plików i publicznych obiektów Facebooka `ad_target_link` zachowuje ten sam ślad dowodowy. Wcześniejsze pakiety pozostają czytelne i mogą nie mieć nowych pól oceny.
+
+### Automatyczny wybór celu i pewność celu (decyzja zespołu 2026-11-22)
+
+Gdy karta nie ma jednoznacznego przycisku CTA ani podglądu, scraper wybiera cel regułą zamiast czekać na analityka. Wybór zapisuje `cta_basis` karty i `target_basis` wizyty:
+
+| Wartość | Reguła |
+| --- | --- |
+| `dominant_domain` | Kilka odnośników karty prowadzi do tej samej domeny rejestrowej. Wybierany jest pierwszy, a odnośnik z etykietą CTA ma pierwszeństwo. Na hostingu wielu najemców (np. `github.io`, `sites.google.com`) liczy się pełny host. Skracacze (np. `bit.ly`, `tiny.pl`) nie tworzą wspólnej domeny. |
+| `single_link` | Karta ma jeden odnośnik do strony WWW. |
+| `caption` | Odnośnik, którego domena zgadza się z podpisem domeny z podglądu reklamy. Bez takiego odnośnika celem jest sam podpis: wtedy `cta_attribute: "text"`, a dowodem jest tekst elementu karty. |
+
+Podpis domeny to widoczny element karty, którego cały własny tekst jest adresem, a najbliższy odnośnik nad nim nie ma własnego adresu albo ma tylko zaślepkę fb.me. W Bibliotece Meta jest to stopka podglądu, np. `WWW.PRZYKLAD.PL` albo `inwestycja.przyklad.pl/`. Nie są podpisem:
+- tekst linku w treści reklamy (np. `youtu.be/…`),
+- nazwa strony prowadząca do profilu,
+- domeny platform (`facebook.com`, `fb.com`, `instagram.com`), sklepów z aplikacjami i serwisów wideo,
+- napisy z końcówką spoza dwuliterowych ccTLD i listy popularnych domen ogólnych w `cta.py` (np. `Dr.Oetker`).
+
+`cta_caption` przechowuje podpis, jeśli występuje.
+
+Profile platform i kanały kontaktu nie są wybierane regułą. Pełna lista jest w `PLATFORM_HOSTS` w `scamgraph/discovery/cta.py`: `instagram.com`, `threads.net`, `m.me`, `wa.me`, `api.whatsapp.com`, `chat.whatsapp.com`, `t.me`, `telegram.me`, `msng.link`. Linki z samym logotypem profilu również nie są wybierane. Kilka różnych domen bez zgodnego podpisu zostaje do potwierdzenia przez analityka. Zaślepka Biblioteki Meta `l.php?u=http://fb.me/` nie jest celem. Karta dostaje wtedy powód w `landing_missing_reason`. Konfiguracja źródła `"auto_target": false` wyłącza wybór celu regułą i przywraca dawne powody braku celu.
+
+Po wizycie `target_confidence` (`high` albo `low`) i `target_checks` opisują zgodność strony z kartą:
+- Cel z etykiety, podglądu lub od analityka ma `high` i `target_checks` równe `card_link` albo `analyst`.
+- Cel wybrany regułą ma `high`, gdy domena końcowa zgadza się z podpisem karty (`caption_domain`) albo nazwa reklamodawcy, z co najmniej 5 znakami, występuje w tekście strony jako całe słowa (`advertiser_name`). W pozostałych przypadkach ma `low`.
+- Dla `caption` sprawdzenie `caption_domain` nie jest liczone, bo cel pochodzi z tego samego podpisu.
+
+Oba pola trafiają też do `landing_summary`.
+
+Nowe wartości `reason_code`:
+- `dead_domain`: domena celu albo przekierowania nie istnieje w DNS (NXDOMAIN), `content_status: unavailable`. Powód podaje brakujący host. Kod jest nadawany tylko wtedy, gdy kontrolne zapytanie o `www.iana.org` się rozwiązuje, bo bez sieci system zgłasza NXDOMAIN dla każdej nazwy. Przejściowy błąd resolvera pozostaje `worker_error`.
+- `platform_internal`: cel to profil platformy albo kanał kontaktu, `content_status: skipped`, bez wizyty. Dotyczy także celów z etykiety CTA (np. „Wyślij wiadomość” do `wa.me`), niezależnie od `auto_target`.
+
+**Propozycja dla Pary C (do akceptacji):** krawędź reklama → strona z `target_confidence: low` nie łączy kampanii samodzielnie. Wzmacnia jedynie grupę potwierdzoną innym niezależnym dowodem. Do czasu akceptacji `graph_feed` traktuje wszystkie użyteczne strony WWW jednakowo.

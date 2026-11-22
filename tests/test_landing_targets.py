@@ -1,5 +1,6 @@
 import io
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -10,7 +11,7 @@ from PIL import Image
 from urllib3.exceptions import ReadTimeoutError
 
 from scamgraph.capture import read_json, staging
-from scamgraph.discovery.cta import card_cta
+from scamgraph.discovery.cta import HIDDEN_REASON, caption_url, card_cta
 from scamgraph.discovery.landing_visit import gather
 from scamgraph.landing import Document
 
@@ -45,6 +46,8 @@ class LandingTargets(unittest.TestCase):
         result = card_cta(Document(preview + '<a href="https://example.org/another">Link</a>').root)
         self.assertNotIn("cta_element", result)
         self.assertEqual(len(result["landing_candidates"]), 2)
+        result = card_cta(Document(preview + f'<a href="{WEB}/other">Link</a>').root)
+        self.assertEqual((result["cta_basis"], result["cta_element"]), ("dominant_domain", 1))
         self.assertEqual(card_cta(Document(f'<footer><a href="{WEB}">Kup teraz</a></footer>').root)["cta_basis"], "label")
         self.assertNotIn("cta_element", card_cta(Document(f'<a href="{WEB}"><img alt="Logotyp profilu"></a>').root))
 
@@ -62,15 +65,71 @@ class LandingTargets(unittest.TestCase):
         # Prawdziwy adres obok zaślepki pozostaje celem.
         mixed = card_cta(Document(f'<a href="{hidden}"><img alt="Oferta"></a><a href="{WEB}">Kup teraz</a>').root)
         self.assertEqual((mixed["cta_basis"], mixed["landing_candidates"][0]["url"]), ("label", WEB))
-        # Przycisk z zaślepką i adres w treści: adres czeka na potwierdzenie, powód wskazuje ukrycie celu.
+        # Przycisk z zaślepką i adres w treści: adres zostaje celem wybranym regułą.
         text = card_cta(Document(f'<p><a href="{WEB}">shop.example</a></p><a href="{hidden}"><span>Learn More</span></a>').root)
-        self.assertNotIn("cta_element", text)
+        self.assertEqual((text["cta_basis"], text["cta_element"]), ("single_link", 2))
         self.assertEqual([c["url"] for c in text["landing_candidates"]], [WEB])
-        self.assertIn("fb.me", text["landing_missing_reason"])
+        # auto_target=false: dawne zachowanie i dawny powód.
+        manual = card_cta(Document(f'<p><a href="{WEB}">shop.example</a></p><a href="{hidden}"><span>Learn More</span></a>').root,
+                          auto=False)
+        self.assertNotIn("cta_element", manual)
+        self.assertEqual((manual["cta"], manual["landing_missing_reason"]), ("Learn More", HIDDEN_REASON))
         # fb.me ze ścieżką nie jest zaślepką.
         short = card_cta(Document('<a href="https://fb.me/abc123">Kup teraz</a>').root)
         self.assertEqual(short["cta_basis"], "label")
         self.assertEqual(card_cta(Document(f'<p><a href="{policy}">Standardy</a></p>').root)["landing_candidates"], [])
+
+    def test_rule_based_targets(self):
+        hidden = "https://l.facebook.com/l.php?u=http%3A%2F%2Ffb.me%2F&h=AU"
+        # Jedyny odnośnik do strony; profil platformy i kanał kontaktu nie są celem.
+        one = card_cta(Document(f'<p>Oferta</p><a href="{WEB}">Sklep</a><a href="https://wa.me/48500">WhatsApp</a>'
+                                '<a href="https://www.instagram.com/shop">IG</a>').root)
+        self.assertEqual((one["cta_basis"], one["cta"], one["cta_element"]), ("single_link", "Jedyny odnośnik na karcie", 2))
+        self.assertNotIn("cta_element", card_cta(Document('<a href="https://wa.me/48500">WhatsApp</a>').root))
+        # Podpis domeny przy zaślepce fb.me jest celem; dowodem jest tekst elementu karty.
+        caption = card_cta(Document(f'<a href="{hidden}"><div>INWESTYCJA.Example.PL/oferta</div>'
+                                    '<div role="button">Learn More</div></a>').root)
+        self.assertEqual((caption["cta_basis"], caption["cta_attribute"], caption["cta"]), ("caption", "text", "Learn More"))
+        self.assertEqual(caption["cta_caption"], "INWESTYCJA.Example.PL/oferta")
+        self.assertEqual(caption_url(caption["cta_caption"]), "https://inwestycja.example.pl/oferta")
+        for text in ("FB.ME", "FB.COM", "photo.jpg", "0:00 / 0:00", "facebook.com", "Kup teraz!", "instagram.com/shop",
+                     "Dr.Oetker", "Kup.Teraz", "Jan.Kowalski", "PLAY.GOOGLE.COM", "youtu.be/abc", "github.io"):
+            self.assertIsNone(caption_url(text), text)
+        # Podpis wskazuje jeden z kilku różnych celów.
+        many = card_cta(Document('<a href="https://a.example/x">A</a><a href="https://shop-b.pl/y">B</a>'
+                                 '<span>SHOP-B.PL</span>').root)
+        self.assertEqual((many["cta_basis"], many["cta_element"]), ("caption", 2))
+        # Kilka różnych domen bez podpisu: brak zgadywania.
+        self.assertNotIn("cta_element", card_cta(Document('<a href="https://a.example/x">A</a>'
+                                                          '<a href="https://b.example/y">B</a>').root))
+
+    def test_rule_based_target_regressions(self):
+        # Regresja z bench-500: link w treści reklamy, którego tekstem jest adres (youtu.be), nie jest podpisem.
+        body = card_cta(Document('<p>Zobacz film: <a href="https://l.facebook.com/l.php?u=https%3A%2F%2Fyoutu.be%2Fx">'
+                                 'youtu.be/x</a></p><a href="https://shop.pl/"><img alt=""></a>'
+                                 '<a href="https://other.pl/">Inny</a>').root)
+        self.assertNotIn("cta_caption", body)
+        self.assertNotIn("cta_element", body)
+        # Nazwa strony prowadząca do profilu FB nie jest podpisem domeny.
+        page = card_cta(Document('<a href="https://www.facebook.com/oliviahome/">OliviaHome.com</a>'
+                                 '<a href="https://l.facebook.com/l.php?u=http%3A%2F%2Ffb.me%2F">Learn More</a>').root)
+        self.assertNotIn("cta_element", page)
+        self.assertNotIn("cta_caption", page)
+        # Regresja z bench-500: nazwa strony w role=button wewnątrz linku do profilu FB.
+        nested = card_cta(Document('<a href="https://www.facebook.com/247379405663467"><div role="button">'
+                                   '<span>SugarCubes.pl</span></div></a>').root)
+        self.assertNotIn("cta_caption", nested)
+        # Podpis w stopce podglądu prowadzącej do prawdziwego celu pozostaje podpisem.
+        footer = card_cta(Document('<a href="https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.shop.pl%2F"><div role="button">'
+                                   '<div>WWW.SHOP.PL</div></div><div role="button">Kup teraz</div></a>').root)
+        self.assertEqual((footer["cta_caption"], footer["cta_basis"]), ("WWW.SHOP.PL", "label"))
+        # Hosting wielu najemców i skracacze: wspólny host nie oznacza wspólnego reklamodawcy.
+        for first, second in (("https://foo.github.io/a", "https://bar.github.io/b"),
+                              ("https://bit.ly/a", "https://bit.ly/b")):
+            mixed = card_cta(Document(f'<a href="{first}">A</a><a href="{second}">B</a>').root)
+            self.assertNotIn("cta_element", mixed, first)
+        same = card_cta(Document('<a href="https://foo.github.io/a">A</a><a href="https://foo.github.io/b">B</a>').root)
+        self.assertEqual(same["cta_basis"], "dominant_domain")
 
     def test_polish_meta_button_labels(self):
         for label in ("Więcej informacji", "Zapisz się", "Wyślij wiadomość", "Uzyskaj ofertę", "Zainstaluj teraz"):
@@ -88,6 +147,24 @@ class LandingTargets(unittest.TestCase):
                 self.assertEqual(render.call_count, 1)
                 self.assertEqual((folder / "original/response.html").read_bytes(), body)
                 self.assertEqual(len(read_json(folder / "network.har")["log"]["entries"]), 2)
+
+    def test_missing_domain_is_unavailable_not_worker_error(self):
+        with patch("scamgraph.discovery.landing_visit.resolver_works", return_value=True):
+            dead, *_ = self.gather("nxdomain", WEB, socket.gaierror(socket.EAI_NONAME, "not known"))
+            redirect = (302, "text/plain", b"", "https://gone.example/x", {})
+            moved, *_ = self.gather("nxdomain-redirect", WEB, redirect, socket.gaierror(socket.EAI_NONAME, "not known"))
+        self.assertEqual((dead["content_status"], dead["reason_code"]), ("unavailable", "dead_domain"))
+        self.assertEqual(dead["reason"], "Domena celu nie istnieje w DNS (shop.example).")
+        self.assertEqual(moved["reason"], "Domena przekierowania nie istnieje w DNS (gone.example).")
+        # Bez działającego resolvera (np. brak sieci) NXDOMAIN nie jest dowodem martwej domeny.
+        with patch("scamgraph.discovery.landing_visit.resolver_works", return_value=False):
+            offline, *_ = self.gather("offline", WEB, socket.gaierror(socket.EAI_NONAME, "not known"))
+        self.assertEqual(offline["reason_code"], "worker_error")
+        self.assertNotIn("Nie ukończono renderowania (gaierror).", dead["issues"])
+        # Przejściowy błąd resolvera nie jest dowodem martwej domeny.
+        with patch("scamgraph.discovery.landing_visit.resolver_works", side_effect=AssertionError("no probe")):
+            transient, *_ = self.gather("eai-again", WEB, socket.gaierror(socket.EAI_AGAIN, "try again"))
+        self.assertEqual((transient["content_status"], transient["reason_code"]), ("error", "worker_error"))
 
     def test_access_screens_and_refusal(self):
         for code in (200, 403):

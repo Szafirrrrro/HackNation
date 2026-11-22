@@ -160,7 +160,7 @@ def _card_roots(doc):
         yield ad_ref, root
 
 
-def _html_card(ad_ref, root):
+def _html_card(ad_ref, root, auto=True):
     lines = _lines(root)
     sponsor = next((i for i, s in enumerate(lines) if SPONSORED.fullmatch(s)), None)
     prefix = lines if sponsor is None else lines[:sponsor]
@@ -202,7 +202,7 @@ def _html_card(ad_ref, root):
     if notice:
         card.update(removal_notice=notice, creative_state="withdrawn")
     else:
-        card.update(card_cta(root))
+        card.update(card_cta(root, auto))
         text = [
             s
             for s in (lines[sponsor + 1:] if sponsor is not None else ())
@@ -232,7 +232,7 @@ def _html_card(ad_ref, root):
     return card
 
 
-def _parse_html(source, query, require_scope=False):
+def _parse_html(source, query, require_scope=False, auto=True):
     doc = Document(source)
     saved = re.search(r"<!--\s*saved from url=\(\d+\)(https?://[^\s<>]+?)\s*-->", source[:4096], re.I)
     urls = [saved[1]] if saved else []
@@ -261,7 +261,7 @@ def _parse_html(source, query, require_scope=False):
     rows = []
     for ad_ref, node in roots[: query.limit]:
         media = [n.attr("src") for n in node.descendants() if n.tag in {"img", "video", "audio", "source"} and n.attr("src")]
-        rows.append((_html_card(ad_ref, node), f"element:{node.index}", media))
+        rows.append((_html_card(ad_ref, node, auto), f"element:{node.index}", media))
     return rows
 
 
@@ -597,7 +597,7 @@ def _live(options, query):
                     if len(source.encode("utf8")) > MAX_BYTES:
                         raise SourceError("Wyrenderowany dokument Meta przekracza limit rozmiaru.")
                     try:
-                        rows = _parse_html(source, query)
+                        rows = _parse_html(source, query, auto=options.get("auto_target", True) is not False)
                     except SourceError as exc:
                         if not str(exc).startswith("Nierozpoznany układ"):
                             raise page_error(str(exc)) from exc
@@ -675,7 +675,8 @@ def fetch(options: dict, query: Query):
             elif path.suffix.lower() in {".html", ".htm"}:
                 charset = re.search(br"""charset\s*=\s*["']?([\w-]+)""", raw[:4096], re.I)
                 codec = charset[1].decode("ascii") if charset else "utf-8-sig"
-                rows = _parse_html(raw.decode(codec), query, require_scope=not selected)
+                rows = _parse_html(raw.decode(codec), query, require_scope=not selected,
+                                   auto=options.get("auto_target", True) is not False)
             else:
                 raise SourceError("Import wyników Meta przyjmuje zapisany HTML lub raport JSON.")
         except (LookupError, UnicodeError, json.JSONDecodeError) as exc:

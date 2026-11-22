@@ -22,7 +22,12 @@ REASON = {"access_denied": "Odmowa dostępu lub ograniczenie liczby żądań", "
           "error_screen": "Ekran błędu serwera",
           "unsupported_facebook_target": "Nieobsługiwany typ celu Facebooka", "invalid_file": "Zawartość nie odpowiada typowi pliku",
           "document_timeout": "Przekroczono czas pobrania dokumentu", "incomplete_response": "Niepełna odpowiedź główna",
-          "invalid_document": "Brak treści odpowiedzi głównej", "worker_error": "Nie ukończono odczytu"}
+          "invalid_document": "Brak treści odpowiedzi głównej", "worker_error": "Nie ukończono odczytu",
+          "dead_domain": "Domena celu nie istnieje w DNS",
+          "platform_internal": "Profil platformy lub kanał kontaktu zamiast strony WWW"}
+TARGET_BASIS = {"label": "Przycisk CTA", "preview": "Podgląd reklamy", "analyst": "Analityk",
+                "single_link": "Jedyny odnośnik", "dominant_domain": "Wspólna domena", "caption": "Podpis domeny"}
+TARGET_CONFIDENCE = {"high": "Wysoka", "low": "Niska"}
 
 
 def content_status(summary, job_status):
@@ -41,7 +46,8 @@ def summarize(folder, artifacts, result):
                "document": bool(pages), "reason": visit.get("reason"),
                "issues": visit.get("issues", []), "offer": None, "dialog": None, "screen": None}
     if "content_status" in visit:
-        summary.update({key: visit[key] for key in ("content_status", "target_kind", "reason_code", "http_status") if key in visit})
+        summary.update({key: visit[key] for key in ("content_status", "target_kind", "reason_code", "http_status",
+                                                     "target_basis", "target_confidence") if key in visit})
     for page in pages:
         if page.get("consent_dialogs"):
             summary["dialog"] = page["consent_dialogs"][0]

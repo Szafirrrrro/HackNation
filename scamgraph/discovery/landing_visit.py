@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 from time import monotonic
@@ -326,6 +327,22 @@ def clear_temporary(directory):
         (directory / name).unlink(missing_ok=True)
 
 
+RESOLVER_PROBE = "www.iana.org"
+NXDOMAIN = {code for code in (getattr(socket, "EAI_NONAME", None), getattr(socket, "EAI_NODATA", None)) if code}
+
+
+def dead_domain(exc):
+    return isinstance(exc, socket.gaierror) and exc.errno in NXDOMAIN
+
+
+def resolver_works(host=RESOLVER_PROBE):
+    """Kontrola: bez sieci macOS zgłasza EAI_NONAME dla każdej nazwy, więc NXDOMAIN wymaga działającego DNS."""
+    try:
+        return bool(socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM))
+    except OSError:
+        return False
+
+
 def gather(directory, url, *, worker=False, network_deadline=None, domain_db=None):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "page_files").mkdir(exist_ok=True)
@@ -358,6 +375,14 @@ def gather(directory, url, *, worker=False, network_deadline=None, domain_db=Non
             report.update(trusted_domain=exc.host, content_status="skipped", reason_code="trusted_domain")
         if isinstance(exc, DocumentTimeout):
             report["reason_code"] = "document_timeout"
+        if "document_entry" not in report and dead_domain(exc) and resolver_works():
+            # Trwały brak domeny w DNS (NXDOMAIN), nie przejściowy błąd resolvera ani brak sieci.
+            issues.discard(reason)
+            missing = urlsplit(reads.entries[-1]["request"]["url"]).hostname if reads.entries else urlsplit(url).hostname
+            reason = (f"Domena celu nie istnieje w DNS ({missing})." if missing == urlsplit(url).hostname
+                      else f"Domena przekierowania nie istnieje w DNS ({missing}).")
+            issues.add(reason)
+            report.update(content_status="unavailable", reason_code="dead_domain", reason=reason)
         if report.get("content_status") != "usable" and not report.get("reason"):
             report["reason"] = reason
         if "http_status" not in report and reads.entries:
