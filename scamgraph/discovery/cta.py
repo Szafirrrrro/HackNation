@@ -9,9 +9,19 @@ from .landing_fetch import public_url
 LABEL = re.compile(r"obejrzyj (?:więcej|teraz)|oglądaj (?:więcej|teraz)|kup teraz|dowiedz się więcej|"
                    r"zobacz (?:więcej|ofertę)|sprawdź ofertę|zamów teraz|zarejestruj się|skorzystaj z oferty|"
                    r"watch (?:more|now)|shop now|buy now|learn more|see offer|get offer|order now|"
-                   r"sign up|subscribe|subskrybuj|book now|apply now|download|contact us", re.I)
+                   r"sign up|subscribe|subskrybuj|book now|apply now|download|contact us|"
+                   # Polskie i angielskie etykiety przycisków CTA z Biblioteki Meta (decyzja zespołu, lista otwarta).
+                   r"więcej informacji|zapisz się|pobierz|zainstaluj(?: teraz)?|zarezerwuj(?: teraz)?|"
+                   r"aplikuj(?: teraz)?|złóż wniosek|uzyskaj ofertę|odbierz ofertę|zamów|skontaktuj się z nami|"
+                   r"wyślij wiadomość|zadzwoń(?: teraz)?|get quote|get started|install now|send message|call now|"
+                   r"use app|play game|zagraj", re.I)
 
 FACEBOOK = {"facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.watch"}
+# Zaślepka Biblioteki Meta: l.php?u=http://fb.me/ bez ścieżki, gdy platforma nie ujawnia celu reklamy.
+HIDDEN_HOSTS = {"fb.me", "www.fb.me"}
+# Strony informacyjne Meta linkowane z komunikatów biblioteki (standardy, zastrzeżenia), nie cel reklamodawcy.
+META_INFO_HOSTS = {"transparency.meta.com", "about.meta.com", "www.meta.com", "help.instagram.com"}
+HIDDEN_REASON = "Biblioteka Meta ukryła adres docelowy reklamy (zaślepka fb.me)."
 OBJECT_ID = r"(?:[0-9]+|pfbid[A-Za-z0-9]+)"
 FACEBOOK_PATHS = {
     "facebook_marketplace": rf"/marketplace/item/({OBJECT_ID})",
@@ -49,18 +59,44 @@ def target_identity(url):
     return next((kind for kind, extensions in FILE_TYPES.items() if extension in extensions), "web"), None
 
 
+def unwrap(href):
+    """Adres po zdjęciu przekierowania l.facebook.com / l.instagram.com albo None."""
+    url = urljoin("https://www.facebook.com/", href)
+    parsed = urlsplit(url)
+    facebook_wrapper = parsed.hostname in {"www.facebook.com", "l.facebook.com", "lm.facebook.com", "facebook.com"}
+    if (facebook_wrapper and parsed.path == "/l.php") or (parsed.hostname == "l.instagram.com" and parsed.path == "/"):
+        targets = parse_qs(parsed.query).get("u", [])
+        if len(targets) != 1:
+            return None
+        url = targets[0]
+    return url
+
+
+def _placeholder(parsed):
+    return ((parsed.hostname or "").lower().rstrip(".") in HIDDEN_HOSTS
+            and parsed.path in {"", "/"} and not parsed.query)
+
+
+def hidden_target(href):
+    """Biblioteka Meta podstawia sam korzeń fb.me zamiast adresu docelowego, którego nie ujawnia."""
+    try:
+        url = unwrap(href)
+        return bool(url) and _placeholder(urlsplit(url))
+    except ValueError:
+        return False
+
+
 def destination(href):
     try:
-        url = urljoin("https://www.facebook.com/", href)
+        url = unwrap(href)
+        if url is None:
+            return None
         parsed = urlsplit(url)
-        facebook_wrapper = parsed.hostname in {"www.facebook.com", "l.facebook.com", "lm.facebook.com", "facebook.com"}
-        if (facebook_wrapper and parsed.path == "/l.php") or (parsed.hostname == "l.instagram.com" and parsed.path == "/"):
-            targets = parse_qs(parsed.query).get("u", [])
-            if len(targets) != 1:
-                return None
-            url = targets[0]
-            parsed = urlsplit(url)
+        if _placeholder(parsed):
+            return None
         host = (parsed.hostname or "").lower().rstrip(".")
+        if host in META_INFO_HOSTS:
+            return None
         if (not host or parsed.scheme not in {"http", "https"} or parsed.username is not None
                 or parsed.password is not None or parsed.port not in {None, 80, 443}
                 or ((host == "facebook.com" or host.endswith(".facebook.com"))
@@ -84,12 +120,15 @@ def card_cta(root):
     linked = {}
     preview = {}
     seen_label = None
+    hidden = False
     for anchor in root.descendants():
         if anchor.tag not in {"a", "button"} and anchor.attr("role") not in {"button", "link"}:
             continue
         if any(node.tag == "nav" or node.attr("role") == "navigation"
                for node in (anchor, *anchor.ancestors()) if node is not root):
             continue
+        hidden = hidden or any(hidden_target(anchor.attr(key)) for key in ("href", "data-href", "data-url")
+                               if anchor.attr(key))
         children = list(anchor.descendants())
         for url, key in links(anchor):
             linked.setdefault(url, (anchor.index, key))
@@ -128,6 +167,9 @@ def card_cta(root):
             index, key = next(iter(preview.values()))
             label, basis = "Odnośnik w podglądzie reklamy", "preview"
         return {**result, "cta": label, "cta_element": index, "cta_attribute": key, "cta_basis": basis}
+    if hidden and not targets:
+        # Pozostałe odnośniki karty (np. adres w treści) zostają kandydatami do potwierdzenia.
+        return {**result, **({"cta": seen_label} if seen_label else {}), "landing_missing_reason": HIDDEN_REASON}
     if seen_label:
         return {**result, "cta": seen_label, "landing_missing_reason": "Kilka celów CTA na karcie." if targets
                 else "Przycisk CTA bez dostępnego odnośnika do strony docelowej."}

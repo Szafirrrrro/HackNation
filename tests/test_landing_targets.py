@@ -48,6 +48,35 @@ class LandingTargets(unittest.TestCase):
         self.assertEqual(card_cta(Document(f'<footer><a href="{WEB}">Kup teraz</a></footer>').root)["cta_basis"], "label")
         self.assertNotIn("cta_element", card_cta(Document(f'<a href="{WEB}"><img alt="Logotyp profilu"></a>').root))
 
+    def test_meta_hidden_target_and_information_links_are_not_destinations(self):
+        hidden = "https://l.facebook.com/l.php?u=http%3A%2F%2Ffb.me%2F&h=AU"
+        policy = "https://l.facebook.com/l.php?u=https%3A%2F%2Ftransparency.meta.com%2Fpolicies%2Fad-standards%2F"
+        result = card_cta(Document(f'<div><a href="{hidden}"><div role="button">Learn More</div></a></div>').root)
+        self.assertNotIn("cta_element", result)
+        self.assertEqual(result["landing_candidates"], [])
+        self.assertEqual(result["cta"], "Learn More")
+        self.assertIn("fb.me", result["landing_missing_reason"])
+        preview = card_cta(Document(f'<a href="{hidden}"><img alt="Oferta"></a>').root)
+        self.assertEqual((preview["landing_candidates"], "cta_element" in preview), ([], False))
+        self.assertIn("fb.me", preview["landing_missing_reason"])
+        # Prawdziwy adres obok zaślepki pozostaje celem.
+        mixed = card_cta(Document(f'<a href="{hidden}"><img alt="Oferta"></a><a href="{WEB}">Kup teraz</a>').root)
+        self.assertEqual((mixed["cta_basis"], mixed["landing_candidates"][0]["url"]), ("label", WEB))
+        # Przycisk z zaślepką i adres w treści: adres czeka na potwierdzenie, powód wskazuje ukrycie celu.
+        text = card_cta(Document(f'<p><a href="{WEB}">shop.example</a></p><a href="{hidden}"><span>Learn More</span></a>').root)
+        self.assertNotIn("cta_element", text)
+        self.assertEqual([c["url"] for c in text["landing_candidates"]], [WEB])
+        self.assertIn("fb.me", text["landing_missing_reason"])
+        # fb.me ze ścieżką nie jest zaślepką.
+        short = card_cta(Document('<a href="https://fb.me/abc123">Kup teraz</a>').root)
+        self.assertEqual(short["cta_basis"], "label")
+        self.assertEqual(card_cta(Document(f'<p><a href="{policy}">Standardy</a></p>').root)["landing_candidates"], [])
+
+    def test_polish_meta_button_labels(self):
+        for label in ("Więcej informacji", "Zapisz się", "Wyślij wiadomość", "Uzyskaj ofertę", "Zainstaluj teraz"):
+            result = card_cta(Document(f'<a href="{WEB}"><span>{label}</span></a><a href="https://other.example">x</a>').root)
+            self.assertEqual((result.get("cta_basis"), result.get("cta")), ("label", label))
+
     def test_document_attempts_and_preservation_before_chrome(self):
         body = b"<main><p>Da sie odczytac opis oferty.</p></main>"
         for i, failure in enumerate((ReadTimeoutError(None, WEB, "timeout"), response(b"busy", status=503))):

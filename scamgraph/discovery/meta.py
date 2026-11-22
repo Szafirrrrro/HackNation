@@ -32,7 +32,12 @@ REMOVED = re.compile(
     r"(?:ta reklama|treść reklamy|this ad|ad content).{0,140}(?:usunięt|wycofan|niedostępn|removed|unavailable)|"
     r"(?:reklama|reklamę|ad).{0,200}(?:wyłącz|wył[ąa]czon|disabled|deactivated).{0,140}(?:kont|stron|account|page|standard)|"
     r"(?:konto|strona|account|page).{0,150}(?:wyłącz|usunięt|disabled|deactivated)|"
-    r"(?:wyłącz\w*|disabled).{0,70}(?:stron|kont|account|page).{0,90}(?:standard|zasad|polic)",
+    r"(?:wyłącz\w*|disabled).{0,70}(?:stron|kont|account|page).{0,90}(?:standard|zasad|polic)|"
+    # Komunikaty Biblioteki Meta zastępujące usunięty materiał (karta nie pokazuje już kreacji).
+    r"\b(?:te|these)\s+(?:materiały|materials?)\s+(?:zostały|were|have\s+been)\s+(?:usunięt|removed)"
+    r".{0,60}(?:ponieważ|because).{0,80}(?:narusz|violat)|"
+    r"\b(?:ta reklama|this ad)\s+(?:była wyświetlana|ran)\s+(?:bez|without)\s+(?:(?:a|the)\s+)?(?:wymaganego\s+|required\s+)?"
+    r"(?:zastrzeżenia|disclaimer)",
     re.I,
 )
 DATE = re.compile(

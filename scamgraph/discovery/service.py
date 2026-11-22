@@ -131,7 +131,7 @@ def collect_landing(stage, options, finding, *, defer=False):
     from .landing_fetch import public_url
     from .trusted_domains import match_url, skip_reason
     from .verified_entity import match_verified_entity
-    from .authoritative_corpora import match_authoritative_corpus
+    from .authoritive_corpora import match_authoritative_corpus
 
     index = finding.card.get("cta_element")
     candidates = finding.card.get("landing_candidates", [])
