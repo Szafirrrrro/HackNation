@@ -14,6 +14,8 @@ przez wspólne piksele, favicony, szablony i twarze.
 from __future__ import annotations
 
 from collections import defaultdict
+import hashlib
+import json
 
 from neo4j import GraphDatabase
 
@@ -54,9 +56,9 @@ class Neo4jStore:
     def run(self, query: str, **params) -> None:
         self.driver.execute_query(query, params, database_=self.database)
 
-    def unwind(self, query: str, rows: list) -> None:
+    def unwind(self, tx, query: str, rows: list) -> None:
         for chunk in _batches(rows):
-            self.run(query, rows=chunk)
+            tx.run(query, rows=chunk).consume()
 
     # ---------- schemat ----------
     def ensure_schema(self) -> None:
@@ -76,8 +78,22 @@ class Neo4jStore:
     def write(self, cards: list[Card], edges: list[Edge], res: ClusterResult,
               camps: list[Campaign], label_to_id: dict[int, str], sc: Scorer) -> None:
         self.ensure_schema()
+        with self.driver.session(database=self.database) as session:
+            session.execute_write(self._write, cards, edges, res, camps, label_to_id, sc)
 
-        self.unwind("""
+    def _write(self, tx, cards, edges, res, camps, label_to_id, sc):
+        card_ids = sorted(c.id for c in cards)
+        previous_campaigns = tx.run("""MATCH (a:Ad)-[:IN_CAMPAIGN]->(k:Campaign)
+            WHERE a.id IN $ids RETURN DISTINCT k.id AS id""", ids=card_ids).value("id")
+        # Wymień wyniki wyłącznie w zakresie powtórnie ocenionych kart i par.
+        tx.run("""MATCH (a:Ad)-[r:SIMILAR]->(b:Ad)
+                  WHERE a.id IN $ids AND b.id IN $ids DELETE r""", ids=card_ids).consume()
+        tx.run("""MATCH (a:Ad)-[r:USES|STARTS_AT|LANDS_ON|IN_CAMPAIGN]->()
+                  WHERE a.id IN $ids DELETE r""", ids=card_ids).consume()
+        tx.run("""MATCH ()-[r:REDIRECTS_TO|COVERS]->()
+                  WHERE r.ad_id IN $ids DELETE r""", ids=card_ids).consume()
+
+        self.unwind(tx, """
             UNWIND $rows AS r
             MERGE (a:Ad {id: r.id})
             SET a.source = r.source, a.url = r.url, a.fetched_at = r.fetched_at,
@@ -100,7 +116,7 @@ class Neo4jStore:
                 per_label[NODE_LABEL[a.kind]].append(
                     {"ad": c.id, "value": a.value, "kind": a.kind, "ads": df, "rarity": round(sc.rarity_of(a.key), 3)})
         for label, rows in per_label.items():
-            self.unwind(f"""
+            self.unwind(tx, f"""
                 UNWIND $rows AS r
                 MATCH (a:Ad {{id: r.ad}})
                 MERGE (x:{label} {{value: r.value}})
@@ -114,22 +130,22 @@ class Neo4jStore:
             ch = [d for d in c.redirect_chain if d not in c.trusted_hits]
             if ch:
                 starts.append({"ad": c.id, "d": ch[0]})
-                hops += [{"a": ch[k], "b": ch[k + 1], "hop": k + 1} for k in range(len(ch) - 1)]
+                hops += [{"ad": c.id, "a": ch[k], "b": ch[k + 1], "hop": k + 1} for k in range(len(ch) - 1)]
             if c.final_domain and c.final_domain not in c.trusted_hits:
                 lands.append({"ad": c.id, "d": c.final_domain})
             if c.cert_id:
-                covers += [{"cert": c.cert_id, "d": d} for d in c.cert_san if d not in c.trusted_hits]
-        self.unwind("UNWIND $rows AS r MATCH (a:Ad {id: r.ad}) MERGE (d:Domain {value: r.d}) "
+                covers += [{"ad": c.id, "cert": c.cert_id, "d": d} for d in c.cert_san if d not in c.trusted_hits]
+        self.unwind(tx, "UNWIND $rows AS r MATCH (a:Ad {id: r.ad}) MERGE (d:Domain {value: r.d}) "
                     "MERGE (a)-[:STARTS_AT]->(d)", starts)
-        self.unwind("UNWIND $rows AS r MERGE (x:Domain {value: r.a}) MERGE (y:Domain {value: r.b}) "
-                    "MERGE (x)-[t:REDIRECTS_TO]->(y) SET t.hop = r.hop", hops)
-        self.unwind("UNWIND $rows AS r MATCH (a:Ad {id: r.ad}) MERGE (d:Domain {value: r.d}) "
+        self.unwind(tx, "UNWIND $rows AS r MERGE (x:Domain {value: r.a}) MERGE (y:Domain {value: r.b}) "
+                    "MERGE (x)-[t:REDIRECTS_TO {ad_id: r.ad}]->(y) SET t.hop = r.hop", hops)
+        self.unwind(tx, "UNWIND $rows AS r MATCH (a:Ad {id: r.ad}) MERGE (d:Domain {value: r.d}) "
                     "MERGE (a)-[:LANDS_ON]->(d)", lands)
-        self.unwind("UNWIND $rows AS r MERGE (x:Certificate {value: r.cert}) MERGE (d:Domain {value: r.d}) "
-                    "MERGE (x)-[:COVERS]->(d)", covers)
+        self.unwind(tx, "UNWIND $rows AS r MERGE (x:Certificate {value: r.cert}) MERGE (d:Domain {value: r.d}) "
+                    "MERGE (x)-[:COVERS {ad_id: r.ad}]->(d)", covers)
 
         # krawędzie podobieństwa z uzasadnieniem (lista tekstów — czytelna w Neo4j Browser)
-        self.unwind("""
+        self.unwind(tx, """
             UNWIND $rows AS r
             MATCH (a:Ad {id: r.a}), (b:Ad {id: r.b})
             MERGE (a)-[s:SIMILAR]-(b)
@@ -138,19 +154,28 @@ class Neo4jStore:
               "reasons": [f"{'[TWARDY]' if r.hard else '[MIĘKKI]'} +{r.strength:.2f} {r.detail}" for r in e.reasons]}
              for e in edges])
 
-        # kampanie (stare przypisania zastępujemy, bo numeracja to wynik bieżącego klastrowania)
-        self.run("MATCH (:Ad)-[r:IN_CAMPAIGN]->() DELETE r")
-        self.unwind("""
+        # Lokalny numer CMP-1 może występować w dwóch niezależnych wejściach.
+        keys = {c.id: hashlib.sha256(json.dumps(sorted(cards[i].id for i in c.members)).encode()).hexdigest()
+                for c in camps}
+        self.unwind(tx, """
             UNWIND $rows AS r
             MERGE (k:Campaign {id: r.id})
-            SET k.size = r.size, k.mean_edge = r.mean_edge, k.first_seen = r.first_seen, k.last_seen = r.last_seen""",
-            [{"id": c.id, "size": len(c.members), "mean_edge": round(c.mean_edge, 3),
+            SET k.campaign = r.campaign, k.size = r.size, k.mean_edge = r.mean_edge, k.projection_complete = true,
+                k.first_seen = r.first_seen, k.last_seen = r.last_seen""",
+            [{"id": keys[c.id], "campaign": c.id, "size": len(c.members), "mean_edge": round(c.mean_edge, 3),
               "first_seen": c.first_seen, "last_seen": c.last_seen} for c in camps])
-        self.unwind("""
+        self.unwind(tx, """
             UNWIND $rows AS r
             MATCH (a:Ad {id: r.ad}), (k:Campaign {id: r.cmp})
             MERGE (a)-[m:IN_CAMPAIGN]->(k) SET m.strength = r.strength""",
-            [{"ad": cards[i].id, "cmp": label_to_id[int(lab)], "strength": round(float(res.strength[i]), 2)}
+            [{"ad": cards[i].id, "cmp": keys[label_to_id[int(lab)]], "strength": round(float(res.strength[i]), 2)}
              for i, lab in enumerate(res.labels) if lab >= 0])
-        # kampanie bez reklam po przeliczeniu to wyniki poprzedniego klastrowania — usuwamy tylko je
-        self.run("MATCH (k:Campaign) WHERE NOT (k)<-[:IN_CAMPAIGN]-() DETACH DELETE k")
+        # Kampanie z innych analiz i węzły używane przez inne relacje pozostają w bazie.
+        tx.run("""MATCH (k:Campaign) WHERE k.id IN $previous AND NOT (k)--() DELETE k""",
+               previous=previous_campaigns).consume()
+        tx.run("""MATCH (k:Campaign) WHERE k.id IN $previous
+            OPTIONAL MATCH (a:Ad)-[:IN_CAMPAIGN]->(k)
+            WITH k, count(a) AS current_size
+            WHERE current_size <> coalesce(k.size, -1)
+            SET k.size = current_size, k.projection_complete = false
+            REMOVE k.mean_edge, k.first_seen, k.last_seen""", previous=previous_campaigns).consume()

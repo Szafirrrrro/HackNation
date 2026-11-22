@@ -1,6 +1,8 @@
 import json
+from contextlib import closing
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 from threading import Event, Thread
 import time
@@ -17,6 +19,7 @@ from scamgraph.discovery.service import engine_for, load_config, publish
 from scamgraph.discovery.types import Query
 from scamgraph.discovery.trusted_domains import canonical_domain, match_url
 from scamgraph.discovery.landing_fetch import PageReads, TrustedDestination
+from scamgraph.sources import digest
 
 
 class LiveScheduler(unittest.TestCase):
@@ -228,7 +231,10 @@ class LiveScheduler(unittest.TestCase):
         report = file.with_suffix(".campaigns.json")
         edge, = read_json(report)["edges"]
         self.assertEqual({edge["a"], edge["b"]}, {"meta-ad-library/81", "meta-ad-library/82"})
-        self.assertEqual([r["method"] for r in edge["reasons"]], [exported[0]["text"]["method"]])
+        reason, = edge["reasons"]
+        self.assertEqual(reason["method"], "cosine")
+        self.assertEqual(reason["method_a"], exported[0]["text"]["method"])
+        self.assertEqual(reason["method_b"], exported[1]["text"]["method"])
         manifest = self.state / "captures" / cid / "manifest.json"
         other = manifest.with_suffix(".saved")
         manifest.rename(other)
@@ -251,3 +257,99 @@ class LiveScheduler(unittest.TestCase):
         before = report.read_bytes()
         update_campaigns(feed)
         self.assertEqual(before, report.read_bytes())
+
+    def test_saved_feed_is_reprojected_with_verified_creative_and_stable_ad_id(self):
+        from PIL import Image
+
+        self.source.write_text('<article><div>Library ID: 401</div><p>Opis przykładowej oferty rowerowej.</p></article>',
+                               encoding="utf8")
+        opts = self.engine.sources["meta"]
+        finding, = meta.fetch({"mode": "import", "imports": {"test": str(self.source)}}, self.query)
+        original = self.root / "creative.png"
+        Image.new("RGB", (24, 24), "seagreen").save(original)
+        finding.image = original
+        with patch("scamgraph.capture.ocr", side_effect=ValueError("Brak OCR")):
+            cid = publish("meta", {**opts, "query_phrase": "test", "query_country": "PL"}, finding)
+        with connection(self.engine.db_path, write=True) as db:
+            store_card(db, self.run, "meta", opts, self.query, finding, cid)
+        feed = export_graph(self.state)
+        previous = json.loads(feed.read_text(encoding="utf8"))
+        visual = previous.pop("visual")
+        self.assertEqual(visual["sha256"], digest(original))
+        self.assertEqual(visual["source_ref"]["origin_id"], digest(original))
+        self.assertRegex(visual["phash"], "^[0-9a-f]{16}$")
+        with closing(sqlite3.connect(feed.parent / "export.sqlite3")) as index, index:
+            index.execute("UPDATE exports SET revision = 'old-adapter' WHERE mode = 'live'")
+        feed.write_text(json.dumps(previous) + "\n", encoding="utf8")
+        projected = json.loads(export_graph(self.state).read_text(encoding="utf8"))
+        self.assertEqual(projected, {**previous, "visual": visual})
+
+        image = self.state / "captures" / cid / visual["source_ref"]["file"]
+        image.write_bytes(b"broken image")
+        self.assertEqual(json.loads(export_graph(self.state).read_text(encoding="utf8")), previous)
+        image.write_bytes(original.read_bytes())
+        self.assertEqual(json.loads(export_graph(self.state).read_text(encoding="utf8")), projected)
+
+    def test_report_invalidates_for_policy_contents_config_and_method(self):
+        from scamgraph.discovery import graph_feed
+
+        feed = self.root / "replay.jsonl"
+        feed.write_text("", encoding="utf8")
+        report = feed.with_suffix(".campaigns.json")
+        override = self.root / "domains.txt"
+        override.write_text("aaa.example\n", encoding="utf8")
+        with patch.dict(os.environ, {"FTF_TRUSTED_DOMAINS": str(override)}):
+            update_campaigns(feed)
+            first = read_json(report)
+            update_campaigns(feed)
+            self.assertEqual(read_json(report), first)
+
+            stamp = override.stat()
+            override.write_text("bbb.example\n", encoding="utf8")
+            os.utime(override, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            update_campaigns(feed)
+            policy = read_json(report)
+            self.assertNotEqual(policy["domain_policy"], first["domain_policy"])
+            self.assertNotEqual(policy["engine_fingerprint"], first["engine_fingerprint"])
+
+            with patch.dict(graph_feed.ENGINE_CONFIG, {"min_edge": 0.8}):
+                update_campaigns(feed)
+            config = read_json(report)
+            self.assertNotEqual(config["engine_fingerprint"], policy["engine_fingerprint"])
+            self.assertEqual(config["engine_config"]["min_edge"], 0.8)
+
+            def updated_method(path):
+                signature, components = original_method(path)
+                return "new-" + signature, components
+
+            original_method = graph_feed.engine_signature
+            with patch.dict(graph_feed.ENGINE_CONFIG, {"min_edge": 0.8}), patch.object(
+                    graph_feed, "engine_signature", side_effect=updated_method):
+                update_campaigns(feed)
+            method = read_json(report)
+            self.assertEqual(method["feed_sha256"], first["feed_sha256"])
+            self.assertNotEqual(method["analysis_revision"], config["analysis_revision"])
+
+    def test_custom_policy_replaces_report_with_new_decision(self):
+        feed = self.root / "import.jsonl"
+        rows = [{"ad_id": f"fixture-{i}",
+                 "infra": {"final_domain": "private.example" if i < 3 else f"unique-{i}.example"}}
+                for i in range(60)]
+        feed.write_text("\n".join(map(json.dumps, rows)) + "\n", encoding="utf8")
+        override = self.root / "domains.txt"
+        override.write_text("changed.example\n", encoding="utf8")
+        with patch.dict(os.environ, {"FTF_TRUSTED_DOMAINS": str(override)}):
+            update_campaigns(feed)
+            old = read_json(feed.with_suffix(".campaigns.json"))
+            self.assertEqual(len(old["campaigns"]), 1)
+            self.assertEqual(len(old["edges"]), 3)
+
+            stamp = override.stat()
+            override.write_text("private.example\n", encoding="utf8")
+            os.utime(override, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            update_campaigns(feed)
+            current = read_json(feed.with_suffix(".campaigns.json"))
+            self.assertEqual(current["feed_sha256"], old["feed_sha256"])
+            self.assertNotEqual(current["analysis_revision"], old["analysis_revision"])
+            self.assertEqual(current["campaigns"], [])
+            self.assertEqual(current["edges"], [])

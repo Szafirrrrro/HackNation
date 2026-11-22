@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from .url_capture import reproject_saved_page
+
 PRIVATE_ROOT = Path(__file__).resolve().parents[1] / ".private-discovery" / "analyst" / "corpora"
 
 
@@ -32,7 +34,7 @@ def read_private_cards(path: Path) -> tuple[list[dict], int]:
         if (isinstance(card, dict) and isinstance(card.get("ad_id"), str)
                 and all(isinstance(card.get(key, {}), dict)
                         for key in ("provenance", "extensions", "visual", "text", "extraction"))):
-            cards.append(card)
+            cards.append(reproject_saved_page(card))
         else:
             skipped += 1
     return cards, skipped

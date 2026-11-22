@@ -96,16 +96,31 @@ class GraphFeedTests(unittest.TestCase):
     def package(self, pages, linked=True):
         folder = self.tmp / "cap1"
         folder.mkdir(exist_ok=True)
-        nav = {"file": "landing/network.har", "origin_id": "o1", "entry": 0}
+        artifacts = []
+
+        def artifact(filename, role, text):
+            path = folder / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf8")
+            sha = digest(path)
+            artifacts.append({"path": filename, "role": role, "sha256": sha})
+            return {"file": filename, "origin_id": sha}
+
+        har = artifact("landing/network.har", "har", "{}")
+        cta = artifact("ad/original/source.html", "source_record", '<a href="https://shop.example/offer">Oferta</a>')
+        nav = {**har, "entry": 0}
+        pages = [{**page, "evidence": artifact(f"landing/page-{i}.html", "html", TWIN_A)}
+                 for i, page in enumerate(pages)]
         result = {"ad": {"ad_id": "meta-ad-library/1", "text": ""}, "pixels": [], "pages": pages,
-                  "networks": [{"evidence": {"file": "landing/network.har", "origin_id": "o1"}, "pixels": [],
+                  "networks": [{"evidence": har, "pixels": [],
                                 "entries": [{"evidence": nav, "status": 200,
                                              "address": {"host": "shop.example", "path": "/offer"}}]}],
                   "ad_page_links": [{"capture_id": "cap1", "ad_id": "meta-ad-library/1",
-                                     "final_url": "https://shop.example/offer", "navigation_evidence": nav}]
+                                     "final_url": "https://shop.example/offer", "navigation_evidence": nav,
+                                     "evidence": cta}]
                   if linked else []}
         (folder / "extracted.json").write_text(json.dumps(result), encoding="utf-8")
-        manifest = {"capture_id": "cap1", "artifacts": [],
+        manifest = {"capture_id": "cap1", "artifacts": artifacts,
                     "result": {"path": "extracted.json", "sha256": digest(folder / "extracted.json")}}
         (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         return folder
@@ -114,7 +129,9 @@ class GraphFeedTests(unittest.TestCase):
         fp = sig(TWIN_A)[0]
         card = projection(self.package([{"pixels": [], "dom_template_minhash": fp}]))
         self.assertEqual(card["infra"]["final_domain"], "shop.example")
-        self.assertEqual(card["page"]["dom_template_minhash"], fp)
+        actual = card["page"]["dom_template_minhash"]
+        self.assertEqual(actual["signature"], fp["signature"])
+        self.assertEqual(actual["source_refs"][0]["file"], "landing/page-0.html")
 
     def test_conflicting_or_unlinked_pages_leave_card_empty(self):
         a, b = sig(TWIN_A)[0], sig(OTHER)[0]
@@ -123,6 +140,25 @@ class GraphFeedTests(unittest.TestCase):
         self.assertNotIn("dom_template_minhash", card["page"])
         card = projection(self.package([{"pixels": [], "dom_template_minhash": a}], linked=False))
         self.assertEqual(card["page"], {})
+
+    def test_projection_refreshes_when_evidence_is_corrupted_and_restored(self):
+        from scamgraph.discovery.graph_feed import package_stamp, projected_version
+
+        fp = sig(TWIN_A)[0]
+        folder = self.package([{"pixels": [], "dom_template_minhash": fp}])
+        initial = projected_version(folder, package_stamp(folder))
+        for filename, affected in (("landing/network.har", "infra"),
+                                   ("ad/original/source.html", "infra"),
+                                   ("landing/page-0.html", "page")):
+            with self.subTest(filename=filename):
+                path = folder / filename
+                original = path.read_bytes()
+                path.unlink()
+                current = projected_version(folder, package_stamp(folder))
+                self.assertNotEqual(current[affected], initial[affected])
+                self.assertNotIn("dom_template_minhash", current["page"])
+                path.write_bytes(original)
+                self.assertEqual(projected_version(folder, package_stamp(folder)), initial)
 
 
 if __name__ == "__main__":

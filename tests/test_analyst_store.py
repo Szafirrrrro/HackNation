@@ -45,7 +45,12 @@ class PrivateStoreTests(unittest.TestCase):
             source.write_text("original\n")
             target = private_corpus_path(source)
             target.parent.mkdir()
-            target.symlink_to(source)
+            try:
+                target.symlink_to(source)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("Windows user lacks permission to create a symbolic link")
+                raise
             with self.assertRaises(ValueError):
                 append_private_card(source, {"text": "secret"})
             self.assertEqual(source.read_text(), "original\n")

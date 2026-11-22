@@ -84,11 +84,14 @@ class DatabaseMirror(base.LiveScheduler):
 
         self.assertEqual(run["cards_sha256"], report["feed_sha256"])
         self.assertEqual(run["card_count"], 3)
-        self.assertEqual(run["config"], {"min_cluster": 3, "min_samples": 2, "min_edge": 0.25})
+        self.assertEqual(run["config"], {"min_cluster": 3, "min_samples": 2, "min_edge": 0.25, "min_campaign": 0.65})
         self.assertEqual(run["code_version"], report["code_version"])
+        self.assertEqual(run["engine_fingerprint"], report["engine_fingerprint"])
         self.assertEqual(run["results"]["edge"], report["edges"])
-        # Opis po poprawce TEXT_METHOD, ten sam co w pliku.
-        self.assertEqual([r["method"] for r in run["results"]["edge"][0]["reasons"]], [lines[0]["text"]["method"]])
+        reason, = run["results"]["edge"][0]["reasons"]
+        self.assertEqual(reason["method"], "cosine")
+        self.assertEqual(reason["method_a"], lines[0]["text"]["method"])
+        self.assertEqual(reason["method_b"], lines[1]["text"]["method"])
         self.assertEqual(sorted(m["ad_id"] for m in run["results"]["member"]), [r["ad_id"] for r in lines])
         ads = self.sql("SELECT ad_id, provider, ad_ref, source_kind, text, unavailable FROM ad ORDER BY ad_id")
         self.assertEqual([a[0] for a in ads], [r["ad_id"] for r in lines])
@@ -173,8 +176,45 @@ class DatabaseMirror(base.LiveScheduler):
         self.assertTrue((self.state / "graph" / "live.run.db-error").is_file())
 
     def test_adapter_version_matches_feed(self):
-        source = (ROOT / "scamgraph/discovery/graph_feed.py").read_text(encoding="utf8")
-        self.assertIn(f'json.dumps(["{db.ADAPTER_VERSION}"', source)
+        self.publish_three()
+        export_graph(self.state)
+        self.assertEqual(self.sql("SELECT DISTINCT adapter_version FROM card"), [(db.ADAPTER_VERSION,)])
+
+    def test_changed_engine_keeps_previous_run_for_the_same_feed(self):
+        feed = self.root / "replay.jsonl"
+        feed.write_text("", encoding="utf8")
+        policy = self.root / "trusted.txt"
+        policy.write_text("first.example\n", encoding="utf8")
+        with patch.dict(os.environ, {"FTF_TRUSTED_DOMAINS": str(policy)}):
+            update_campaigns(feed)
+            policy.write_text("second.example\n", encoding="utf8")
+            update_campaigns(feed)
+            update_campaigns(feed)
+        runs = self.sql("SELECT cards_sha256, engine_fingerprint FROM engine_run ORDER BY seq")
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(runs[0][0], runs[1][0])
+        self.assertNotEqual(runs[0][1], runs[1][1])
+
+    def test_schema_v3_reopens_and_preserves_previous_results(self):
+        feed = self.root / "replay.jsonl"
+        feed.write_text(json.dumps({"ad_id": "fixture"}) + "\n", encoding="utf8")
+        update_campaigns(feed)
+        previous = self.sql("SELECT run_id FROM engine_run")[0][0]
+        self.sql("SELECT key FROM run_result WHERE run_id = %s", previous)
+        with db.connect() as conn, conn.transaction():
+            conn.execute("ALTER TABLE engine_run DROP COLUMN engine_fingerprint")
+            conn.execute("UPDATE schema_version SET version = 3")
+        db._schema_ready.clear()
+
+        self.assertEqual(self.sql("SELECT version FROM schema_version"), [(4,)])
+        self.assertEqual(self.sql("SELECT run_id, engine_fingerprint FROM engine_run"), [(previous, None)])
+        self.assertEqual(self.sql("SELECT key FROM run_result WHERE run_id = %s", previous), [("fixture",)])
+        update_campaigns(feed)
+        with db.connect() as conn:
+            current = db.latest_run(conn, "replay")
+        self.assertNotEqual(current["run_id"], str(previous))
+        self.assertEqual(len(current["engine_fingerprint"]), 64)
+        self.assertEqual(self.sql("SELECT count(*) FROM engine_run"), [(2,)])
 
     def test_older_report_does_not_replace_newer(self):
         report = {"feed_sha256": "a" * 64, "computed_at": "2026-11-21T10:00:00.000+00:00", "edges": [],

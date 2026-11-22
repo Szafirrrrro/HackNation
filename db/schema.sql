@@ -64,8 +64,11 @@ CREATE TABLE IF NOT EXISTS card (
 DROP VIEW IF EXISTS card_current;
 CREATE VIEW card_current AS
     SELECT c.*, a.provider, a.ad_ref
-    FROM ad a JOIN card c ON c.dataset_id = a.dataset_id AND c.ad_id = a.ad_id
-        AND c.built_from = a.card_built_from;
+    FROM ad a JOIN LATERAL (
+        SELECT * FROM card
+        WHERE dataset_id = a.dataset_id AND ad_id = a.ad_id AND built_from = a.card_built_from
+        ORDER BY created_at DESC, adapter_version DESC LIMIT 1
+    ) c ON true;
 
 -- Ostatni eksport zbioru zapisany w bazie (pomija powtórki i spóźnione starsze eksporty).
 CREATE TABLE IF NOT EXISTS feed_export (
@@ -90,6 +93,8 @@ CREATE TABLE IF NOT EXISTS engine_run (
     card_count      integer     NOT NULL,
     frozen          boolean     NOT NULL DEFAULT false
 );
+-- Migracja v3 -> v4. Historyczne raporty nie zawierają odcisku metody.
+ALTER TABLE engine_run ADD COLUMN IF NOT EXISTS engine_fingerprint char(64);
 CREATE INDEX IF NOT EXISTS engine_run_latest ON engine_run (dataset_id, computed_at DESC, seq DESC);
 
 -- [4] Wyniki przebiegu. ZMIANA: kind 'unavailable' dla reklam pominiętych przez brak karty.

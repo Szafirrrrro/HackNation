@@ -15,8 +15,8 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "db" / "schema.sql"
-SCHEMA_VERSION = 3
-ADAPTER_VERSION = "graph-feed/4"  # musi odpowiadać wersji rewizji w graph_feed.export_graph
+SCHEMA_VERSION = 4
+ADAPTER_VERSION = "graph-feed/5"
 _schema_ready: set[str] = set()
 
 
@@ -70,13 +70,18 @@ def connect():
 
 def ensure_schema(conn) -> None:
     # Schemat wykonujemy tylko przy zmianie wersji: CREATE OR REPLACE VIEW bierze blokadę wyłączną.
-    if conn.execute("SELECT to_regclass('schema_version')").fetchone()[0]:
-        row = conn.execute("SELECT max(version) FROM schema_version").fetchone()
-        if row[0] is not None and row[0] >= SCHEMA_VERSION:
-            return  # ta sama albo nowsza wersja; starszy kod nie przestawia schematu
+    def current():
+        if conn.execute("SELECT to_regclass('schema_version')").fetchone()[0]:
+            return conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] or 0
+        return 0
+
+    if current() >= SCHEMA_VERSION:
+        return
     with conn.transaction():
         # Jeden proces naraz tworzy schemat; CREATE ... IF NOT EXISTS nie jest odporne na wyścig.
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('scamgraph-schema'))")
+        if current() >= SCHEMA_VERSION:
+            return
         conn.execute(SCHEMA.read_text(encoding="utf-8"))
         conn.execute("DELETE FROM schema_version")
         conn.execute("INSERT INTO schema_version VALUES (%s)", (SCHEMA_VERSION,))
@@ -146,33 +151,33 @@ def store_feed(conn, dataset_id: str, revision: str, written_ns: int, build) -> 
 
 
 def store_run(conn, dataset_id: str, report: dict, default_config: dict) -> str | None:
-    """Zapisuje raport update_campaigns jako przebieg. Konfiguracja i wersja kodu pochodzą
-    z raportu (chwila liczenia). Nie tworzy przebiegu, gdy najnowszy przebieg zbioru ma to samo
-    wejście, konfigurację i wersję kodu albo jest nowszy niż raport. Zwraca run_id albo None."""
+    """Zapisuje raport i zachowuje poprzednie przebiegi tego zbioru."""
     from datetime import datetime
     from psycopg.types.json import Jsonb
 
     config = report.get("engine_config") or default_config
     version = report.get("code_version") or "unknown"
+    fingerprint = report.get("engine_fingerprint")
     computed_at = datetime.fromisoformat(report["computed_at"])
     campaigns = report.get("campaigns", [])
     card_count = sum(len(c.get("members", [])) for c in campaigns) + len(report.get("unassigned", []))
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('scamgraph-run:' || %s))", (dataset_id,))
         last = conn.execute(
-            """SELECT run_id, cards_sha256, config, code_version, computed_at FROM engine_run
+            """SELECT run_id, cards_sha256, engine_fingerprint, computed_at, config, code_version FROM engine_run
                WHERE dataset_id = %s ORDER BY computed_at DESC, seq DESC LIMIT 1""", (dataset_id,)).fetchone()
-        if last and last[4] > computed_at:
+        if last and last[3] > computed_at:
             return None  # starszy raport dotarł po nowszym
-        if last and (last[1], last[2], last[3]) == (report["feed_sha256"], config, version):
-            return str(last[0])
+        if last and last[1] == report["feed_sha256"] and last[2] == fingerprint:
+            if fingerprint is not None or (last[4], last[5]) == (config, version):
+                return str(last[0])
         run_id = uuid.uuid4()
         conn.execute(
             """INSERT INTO engine_run (run_id, dataset_id, computed_at, code_version, config, backend,
-                                       cards_sha256, card_count)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                                       cards_sha256, card_count, engine_fingerprint)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (run_id, dataset_id, computed_at, version, Jsonb(config), report.get("clustering_backend", "none"),
-             report["feed_sha256"], card_count))
+             report["feed_sha256"], card_count, fingerprint))
         rows = []
         for edge in report.get("edges", []):
             rows.append(("edge", f'{edge["a"]}|{edge["b"]}', edge))
@@ -200,7 +205,8 @@ def load_cards(conn, dataset_id: str) -> list[dict]:
 
 def latest_run(conn, dataset_id: str) -> dict | None:
     """Najnowszy przebieg zbioru z wynikami pogrupowanymi wg rodzaju."""
-    fields = ("run_id", "computed_at", "code_version", "config", "backend", "cards_sha256", "card_count")
+    fields = ("run_id", "computed_at", "code_version", "config", "backend", "cards_sha256", "card_count",
+              "engine_fingerprint")
     run = conn.execute(
         f"""SELECT {", ".join(fields)} FROM engine_run WHERE dataset_id = %s
             ORDER BY computed_at DESC, seq DESC LIMIT 1""", (dataset_id,)).fetchone()

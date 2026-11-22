@@ -63,16 +63,78 @@ class URLCaptureTests(unittest.TestCase):
             self.assertEqual(card["page"]["tracking_ids"], {"meta_pixel": "123456789"})
             self.assertIn(digest(script), card["page"]["script_hashes"])
             self.assertEqual(card["extensions"]["page_observation"]["ad_page_links"], [])
+            manifest = read_json(folder / "manifest.json")
+            archived_script = next(a for a in manifest["artifacts"] if a["sha256"] == digest(script))
+            (folder / archived_script["path"]).write_text("changed script", encoding="utf8")
+            self.assertEqual(page_graph_card(folder)["page"]["script_hashes"], [])
 
             # Several observed IDs must not be resolved by document order.
             data = read_json(folder / "extracted.json")
             pixel = data["pages"][0]["pixels"][0]
             data["pixels"].append({**pixel, "value": {"provider": "meta", "id": "987654321"}})
             write_json(folder / "extracted.json", data)
-            manifest = read_json(folder / "manifest.json")
             manifest["result"]["sha256"] = digest(folder / "extracted.json")
             write_json(folder / "manifest.json", manifest)
             self.assertEqual(page_graph_card(folder)["page"]["tracking_ids"], {})
+
+    def test_page_projection_preserves_template_and_comparable_text_on_shared_host(self):
+        from scamgraph.analyst_store import read_private_cards
+        from scamgraph.capture import capture, write_json
+        from scamgraph.graph_features import TEXT_METHOD
+        from scamgraph.url_capture import page_graph_card
+        from tests.test_template_minhash import LAYOUT
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "page_files").mkdir()
+            body = "Projekt rowerowy oferuje używane rowery w pełni przygotowane do jazdy."
+            (source / "page.html").write_text(LAYOUT.format(title="Warsztat", body=f"<p>{body}</p>"), encoding="utf-8")
+            write_json(source / "metadata.json", {
+                "input_url": "https://docs.google.com/fixture", "final_url": "https://docs.google.com/fixture",
+                "captured_at": "2026-11-22T10:00:00+00:00", "errors": [], "status": "partial",
+                "http_status": 200, "target_kind": "web", "content_status": "usable"})
+            card = page_graph_card(capture(source, root / "captures"))
+            page = card["page"]
+            self.assertFalse(page["tracking_ids"])
+            self.assertEqual(page["text"]["method"], TEXT_METHOD)
+            self.assertIn(body, page["text"]["ad_text"])
+            self.assertNotIn("Stopka", page["text"]["ad_text"])
+            self.assertEqual(len(page["text"]["embedding"]), 1024)
+            self.assertEqual(page["text"]["source_refs"][0]["file"], "landing/page.html")
+            self.assertEqual(page["dom_template_minhash"]["origin_id"], page["text"]["origin_id"])
+            self.assertEqual(card["infra"]["origin_id"], page["text"]["origin_id"])
+
+            overlay = root / "saved.jsonl"
+            legacy = {**card, "page": {"tracking_ids": {"meta_pixel": "archived"}},
+                      "provenance": {**card["provenance"], "url_key": "test-url-key"}}
+            saved = json.dumps(legacy) + "\n"
+            overlay.write_text(saved, encoding="utf8")
+            with patch("scamgraph.url_capture.DEFAULT_STATE", root):
+                cards, skipped = read_private_cards(overlay)
+            self.assertEqual(skipped, 0)
+            self.assertEqual(cards[0]["page"], page)
+            self.assertEqual(cards[0]["provenance"]["url_key"], "test-url-key")
+            self.assertEqual(overlay.read_text(encoding="utf8"), saved)
+
+            snapshot = Path(card["provenance"]["snapshot"])
+            (snapshot / "landing/page.html").write_text("changed", encoding="utf8")
+            self.assertIsNone(page_graph_card(snapshot))
+            with patch("scamgraph.url_capture.DEFAULT_STATE", root):
+                cards, skipped = read_private_cards(overlay)
+            self.assertEqual(skipped, 0)
+            self.assertEqual(cards[0]["page"], {})
+            self.assertEqual(cards[0]["infra"], {})
+            self.assertEqual(cards[0]["provenance"], legacy["provenance"])
+            self.assertEqual(cards[0]["text"]["ad_text"], legacy["text"]["ad_text"])
+            self.assertIn("Brak zweryfikowanego pakietu", cards[0]["extraction"]["warnings"][0])
+            self.assertEqual(overlay.read_text(encoding="utf8"), saved)
+
+            overlay.write_text(json.dumps(card) + "\n", encoding="utf8")
+            with patch("scamgraph.url_capture.DEFAULT_STATE", root):
+                cards, _ = read_private_cards(overlay)
+            self.assertEqual(cards[0]["page"], {})
 
     def test_invalid_url_never_starts_visit(self):
         for url in ("", "file:///etc/passwd", "https://user:secret@example.org", "ftp://example.org"):

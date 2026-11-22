@@ -3,22 +3,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Iterable
 
 
 def read_jsonl(path: Path, errors: list[dict]) -> list[tuple[int, dict]]:
-    rows = []
     with path.open("rb") as stream:
-        for line, data in enumerate(stream, 1):
-            if not data.strip():
-                continue
-            try:
-                record = json.loads(data.decode("utf-8-sig"))
-                if not isinstance(record, dict):
-                    raise ValueError("expected JSON object")
-            except (ValueError, RecursionError) as exc:
-                errors.append({"file": str(path), "line": line, "error": f"invalid_jsonl: {exc}"})
-            else:
-                rows.append((line, record))
+        return parse_jsonl(stream, str(path), errors)
+
+
+def parse_jsonl(lines: Iterable[bytes], file: str, errors: list[dict]) -> list[tuple[int, dict]]:
+    rows = []
+    for line, data in enumerate(lines, 1):
+        if not data.strip():
+            continue
+        try:
+            record = json.loads(data.decode("utf-8-sig"))
+            if not isinstance(record, dict):
+                raise ValueError("expected JSON object")
+        except (ValueError, RecursionError) as exc:
+            errors.append({"file": file, "line": line, "error": f"invalid_jsonl: {exc}"})
+        else:
+            rows.append((line, record))
     return rows
 
 
@@ -28,9 +33,11 @@ def source_identity(row: dict) -> tuple[str, str] | None:
         if not isinstance(source, dict):
             continue
         provider = source.get("provider") or source.get("source")
+        ref = source.get("ad_ref")
+        if field == "provenance" and source.get("original_provider") and source.get("original_ad_ref"):
+            provider, ref = source["original_provider"], source["original_ad_ref"]
         if not isinstance(provider, str) or not provider.strip():
             continue
-        ref = source.get("ad_ref")
         if isinstance(ref, int) and not isinstance(ref, bool):
             ref = str(ref)
         ad_id = row.get("ad_id")
