@@ -1,0 +1,1 @@
+models/weights/effort/effort_clip_L14_trainOn_sdv14.pth filter=lfs diff=lfs merge=lfs -text
