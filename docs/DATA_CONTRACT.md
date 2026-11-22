@@ -185,3 +185,68 @@ Każde sprawdzenie adresu dostaje osobny katalog `pages/<id_pobrania>/` w prywat
 Techniczny `status` zachowuje wartości `success`, `partial` i `failed`. Nowe pola `target_kind`, `content_status` i `reason_code` opisują typ oraz dostępność treści. Na przykład wynik WWW z HTML-em oferty i niedostępnym zasobem ma `content_status: usable` oraz techniczny `status: partial`. Wizyta z HTTP 200 zwracająca ekran logowania ma `content_status: blocked`. Plik PDF, obraz albo obsługiwane audio/wideo otrzymuje ocenę na podstawie zweryfikowanego pliku. `content_evidence` w pakiecie wskazuje plik i jego SHA-256 oraz lokalizator dokumentu, jeśli dotyczy. Zapisany obraz lub film może uzupełnić dowód publicznego obiektu Facebooka z potwierdzonym ID.
 
 Paczka jest prywatnym źródłem. Samodzielna wizyta nie tworzy relacji z emisją. Scheduler wiąże kartę z paczką na podstawie elementu i atrybutu odnośnika oraz wpisu HAR. `target_basis` podaje pochodzenie wyboru celu (`label`, `preview` albo `analyst`). Użyteczne WWW trafia do `ad_page_links` i może zasilić graf. Dla potwierdzonych plików i publicznych obiektów Facebooka `ad_target_link` zachowuje ten sam ślad dowodowy. Wcześniejsze pakiety pozostają czytelne i mogą nie mieć nowych pól oceny.
+
+### Ręczne zapytanie URL w ekranie grafu (decyzja zespołu 2026-11-22)
+
+`scamgraph.url_capture.page_graph_card` automatycznie przekształca JSON ekstrakcji
+w zapytanie dla `ftf_graph`. Pole zgodności `ad_id` ma wartość `page:<capture_id>`,
+a `provenance.record_kind = page_capture` oznacza samodzielną obserwację strony.
+Nie powstaje emisja ani `AdPageLink`. Dla użytecznej strony WWW z HTTP 2xx
+zapytanie zawiera własną domenę końcową, jednoznaczny piksel Meta i sumy zapisanych
+skryptów. Pełne dane z pochodzeniem pozostają w `extensions.page_observation`.
+Tekst strony nie dostaje embeddingu innej metody niż korpus, a czas wizyty nie
+zastępuje publikacji. Ekran automatycznie porównuje zapytanie z wybranym korpusem;
+trwałe dopisanie wymaga osobnego kliknięcia. Błędy i blokady nie tworzą zapytania.
+
+Decyzja zespołu: formularz przed pobraniem sprawdza URL w wybranym korpusie grafu.
+Istniejące rekordy są wyróżniane bez nowej wizyty, zapytania lub zapisu. Nowa karta
+zachowuje `provenance.url_key` (SHA-256 z URL po normalizacji hosta/IDNA, portu
+domyślnego i pustej ścieżki, bez fragmentu). Schemat, ścieżka i parametry query
+pozostają rozróżniane; klucz nie ujawnia parametrów w karcie. Starsze karty z pełnym
+`provenance.url` są porównywane tą samą metodą. Dawne obserwacje zawierające tylko
+host/ścieżkę dopasowujemy przy braku query i redakcji ścieżki, bez rozróżnienia
+HTTP/HTTPS. Sama zgodność domeny nie wystarcza. Po zapisie znika aktywne zapytanie,
+a wyróżniony zostaje zapisany rekord. Nie zmienia to deduplikacji emisji silnika.
+
+Przed ręczną wizytą `capture_url` sprawdza współdzieloną listę
+`ftf_graph.trusted`: cały ranking `graph/data/tranco_46YVX.csv` bez limitu,
+ręczne wpisy i dotychczasowe wykluczenia PSL/CERT. Zbiór powstaje w pamięci
+i odświeża się po zmianie źródeł, bez zapisu wygenerowanego TXT. Jawny plik
+`FTF_TRUSTED_DOMAINS` pozostaje opcjonalnym nadpisaniem. Normalizacja hosta obejmuje
+IDNA, wielkość liter i końcową kropkę; dopasowanie obejmuje subdomeny z granicą
+etykiety DNS. Trafienie zwraca `report.status = trusted_domain`,
+`content_status = skipped`, `reason_code = trusted_domain` i `trusted_domain`
+z hostem. `archive`, `capture` i `card` mają wartość `null`. Nie powstaje wizyta
+ani zapytanie; UI pokazuje komunikat o klasyfikacji według listy zaufanych.
+Sprawdzenie dotyczy początkowego URL. Polityka bazy schedulera pozostaje osobna.
+
+### Zapytanie zdjęcia w ekranie grafu (decyzja zespołu 2026-11-22)
+
+`scamgraph.image_query` przyjmuje PNG/JPEG/WebP (20 MiB, 32 MP, pojedynczy kadr).
+Oryginalne bajty zapisuje prywatnie po SHA-256. Karta `image:<sha256[:24]>`
+ma `provenance.source=upload`, `record_kind=image_query` i wskazanie obrazu.
+To zgłoszenie materiału, bez wymyślonego ID dostawcy, daty emisji i `AdPageLink`.
+`visual.sha256`, `visual.phash`, `visual.origin_id`, `text.ocr_text` oraz
+`text.ocr_origin_id` są wejściem tej ścieżki dla silnika grafu. Tekst może być
+odczytem lokalnego OCR albo tekstem źródłowym referencji, z oznaczoną metodą.
+`extraction.evidence[]` zapisuje pole, `origin_id`, `source_ref` i `method_version`;
+odczyt OCR zachowuje lokalizatory linii. `extraction.warnings` wyjaśnia brak OCR.
+
+GUI automatycznie dołącza dostępny lokalny korpus NASK, bez pola ścieżki w formularzu.
+Przy jego braku pozostają karty z wybranego korpusu grafu. Adapter programowy
+nadal przyjmuje jawny katalog korpusu v0 lub luźnych plików. ID w grafie to
+`reference:<dataset_id>:<ad_id>`; oryginalne ID pozostaje w `provenance.original_ad_id`.
+Duplikat ID jest idempotentny; różne emisje tego samego pliku są zachowane.
+Niepoprawny obraz nie usuwa poprawnego tekstu. Ścieżki wychodzące poza katalog
+referencji nie są dopuszczane. Referencje są dołączane na czas aktywnego zapytania.
+
+SHA jest osobnym sygnałem ponownego użycia pliku o sile 0,95, bez filtra rzadkości.
+pHash64 i TF-IDF `char_wb` 3–5 korzystają z dotychczasowych progów opisanych
+w instrukcji grafu. Słownik i IDF powstają tylko z referencji; zapytanie jest
+transformowane. SHA/pHash i tekst o wspólnym pochodzeniu po obu stronach pary
+wchodzą do jednej grupy dowodowej (maksimum). Linki z OCR nie stają się
+potwierdzoną stroną docelową. DINOv2 pozostaje poza tą ścieżką; nie trafia do CLIP.
+Zapis zgłoszenia przyciskiem **Dopisz** zmienia jego `record_kind` na
+`image_reference`, zachowując ID, źródło i dowody. Ponowny import tego zgłoszenia
+nie mnoży rekordów. Klastrowanie pozostaje dotychczasowym HDBSCAN demonstratora;
+pełna reguła niezależnego przypisania kampanii wymaga dalszej integracji.

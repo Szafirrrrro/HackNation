@@ -1,0 +1,3 @@
+-r requirements.txt
+-r ../requirements-capture.txt
+ImageHash==4.3.1

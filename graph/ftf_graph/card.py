@@ -8,7 +8,7 @@ Puste pola (null, "", brak klucza) NIGDY nie tworzą śladu: brak artefaktu = br
 = brak porównania. Dwie reklamy bez twarzy nie są przez to ani podobne, ani "różne" — po prostu
 nic o sobie nie mówią.
 
-Zaufane domeny (data/trusted_domains.txt, np. youtube.com) nie tworzą artefaktów: wspólne przejście
+Zaufane domeny (pełny Tranco + ręczne wpisy z wykluczeniami) nie tworzą artefaktów: wspólne przejście
 przez YouTube niczego nie dowodzi. Lista trafionych zaufanych domen zostaje w karcie (trusted_hits).
 
 Szablon strony: dom_template_hash (identyczny szablon) to artefakt; dom_template_minhash (sygnatura MinHash
@@ -21,13 +21,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-from functools import lru_cache
-from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterator
+
+from .trusted import load_trusted
 
 
 @dataclass(frozen=True, order=True)
@@ -68,6 +67,10 @@ class Card:
     text_emb: list[float] = field(default_factory=list)
     clip_emb: list[float] = field(default_factory=list)
     phash: int | None = None
+    image_sha256: str = ""
+    image_origin: str = ""
+    image_text: str = ""
+    image_text_origin: str = ""
     faces: list[Face] = field(default_factory=list)
     # --- audio ---
     audio_transcript: str = ""
@@ -92,7 +95,7 @@ class Card:
             "śledzenie/skrypty": bool(kinds & {"tracking_id", "script", "form_endpoint", "template", "hidden_text"})
                                  or bool(self.template_minhash),
             "kontakty": bool(kinds & {"phone", "telegram", "crypto"}),
-            "tekst": bool(self.text_emb),
+            "tekst": bool(self.text_emb or self.image_text),
             "wygląd": bool(self.clip_emb) or self.phash is not None,
             "twarze": any(f.embedding for f in self.faces),
             "audio": bool(self.audio_fp or self.speaker_emb or self.audio_text_emb or self.audio_transcript),
@@ -101,20 +104,6 @@ class Card:
 
 
 SIGNAL_KINDS = 8  # liczba rodzajów w Card.signals()
-
-DEFAULT_TRUSTED_PATH = Path(__file__).resolve().parent.parent / "data" / "trusted_domains.txt"
-
-
-@lru_cache(maxsize=8)
-def load_trusted(path: str | None = None) -> frozenset[str]:
-    """Wczytuje listę zaufanych domen (jedna na linię, # = komentarz). Ścieżkę można podać
-    zmienną środowiskową FTF_TRUSTED_DOMAINS. Brak pliku = pusta lista."""
-    p = Path(path or os.getenv("FTF_TRUSTED_DOMAINS") or DEFAULT_TRUSTED_PATH)
-    if not p.exists():
-        return frozenset()
-    lines = (ln.split("#", 1)[0].strip().lower() for ln in p.read_text(encoding="utf-8").splitlines())
-    return frozenset(ln for ln in lines if ln)
-
 
 def is_trusted(host: str, trusted: frozenset[str]) -> bool:
     """host = domena z listy albo jej subdomena (m.youtube.com -> youtube.com)."""
@@ -282,6 +271,10 @@ def parse_card(j: dict, trusted: frozenset[str] | None = None) -> Card:
         add("keyword", k.lower())
     c.text_emb = _vec(text, "embedding")
     c.clip_emb = _vec(visual, "clip_embedding")
+    c.image_sha256 = _s(visual, "sha256")
+    c.image_origin = _s(visual, "origin_id")
+    c.image_text = _s(text, "ocr_text")
+    c.image_text_origin = _s(text, "ocr_origin_id")
     if ph := _s(visual, "phash"):
         c.phash = int(ph, 16)
 

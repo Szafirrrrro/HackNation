@@ -1,5 +1,5 @@
 # Ręczna lista zaufanych domen (uzupełnia ranking Tranco). Dopasowanie obejmuje subdomeny.
-# Plik data/trusted_domains.txt GENERUJE tools/build_trusted_list.py — edytuj ten plik, nie tamten.
+# Lista jest budowana w pamięci z Tranco i tego pliku — bez generowania TXT.
 #
 # UWAGA: nie wpisuj tu platform z treściami użytkowników (blogspot.com, github.io, sites.google.com,
 # wixsite.com, firebaseapp.com, pages.dev, vercel.app, netlify.app...). Oszuści hostują tam strony,

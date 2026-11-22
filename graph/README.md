@@ -40,6 +40,93 @@ docker compose up -d                           # Neo4j 5; Browser: http://localh
 python -m ftf_graph data/sample_cards.jsonl --neo4j bolt://localhost:7687 --neo4j-password hackathon123 --wipe
 ```
 
+### Przechwycenie strony przez URL
+
+Zainstaluj `requirements-app.txt` (obejmuje scraper) i Google Chrome, którego
+używa Playwright przez kanał `chrome`. Z katalogu głównego repozytorium:
+
+```bash
+python -m pip install -r graph/requirements-app.txt
+python -m streamlit run graph/app.py
+```
+
+W polu **Adres strony (HTTP lub HTTPS)** wklej publiczny URL i kliknij
+**Przechwyć stronę**. Formularz wywołuje `scamgraph.url_capture.capture_url`,
+który korzysta z tego samego `landing_visit.visit` co wyszukiwanie live,
+a następnie z istniejącej ekstrakcji `capture`. Nie potrzebuje schedulera ani tokenu Meta.
+Wynik pozostaje widoczny przy zmianie ustawień ekranu; nowe pobranie wymaga kliknięcia.
+Jeśli URL jest już w wybranym korpusie, panel pokazuje „Ten URL już jest w bazie
+danych” i wyróżnia istniejący materiał gwiazdką na grafie, także przy ukrytym
+szumie. Nie pobiera ponownie strony ani nie dopisuje kopii. Po użyciu **Dopisz**
+zapisana strona pozostaje wyróżniona, bez kolejnego zapytania z sufiksem `-2`.
+
+Oryginalny zapis trafia do `.private-discovery/analyst/pages/<id>/`,
+a pakiet do dalszej analizy do `.private-discovery/analyst/captures/<capture_id>/`.
+Ekran pokazuje screenshot i raport. JSON z ekstrakcji jest automatycznie
+przekształcany w kartę zapytania i przekazywany do tego samego silnika co korpus.
+Przy analizie URL nie trzeba wgrywać pliku. Zdjęcia mają osobny formularz poniżej.
+Źródłowe pliki nadal są zachowane w prywatnym katalogu.
+Podpowiedź węzła na grafie pokazuje tytuł, domenę, krótki fragment treści bez
+nawigacji oraz sygnały. Fragment ma limit 180 znaków i zawijane wiersze. Pełny
+tekst nowej strony jest dostępny w rozwijanych szczegółach „Pełny tekst strony”.
+To skrót prezentacji; treść źródłowa i dane dopasowania pozostają bez zmian.
+Przy braku Chrome może zostać tylko odpowiedź HTTP i częściowy zapis; błędy,
+blokady i timeout są widoczne w raporcie. Transport dopuszcza publiczne HTTP(S)
+na portach 80/443, bez danych logowania w adresie.
+
+Decyzja zespołu: zapytanie `page:<capture_id>` oznacza samodzielną obserwację
+strony, bez `AdPageLink` i bez automatycznego dopisania do korpusu reklam.
+Do analizy wchodzą użyteczne strony WWW z HTTP 2xx: domena końcowa,
+jednoznaczny piksel Meta i sumy zapisanych skryptów. Tekst i pełna ekstrakcja
+z pochodzeniem pozostają w karcie; nie tworzymy embeddingu inną metodą niż
+korpus ani nie traktujemy zrzutu strony jako kreacji reklamowej.
+Czas wizyty nie zastępuje daty publikacji. Błąd pobrania lub ekstrakcji usuwa
+poprzednie zapytanie z ekranu; zmiana parametrów nie uruchamia nowego pobrania.
+Realizuje to przyjmowanie URL oraz pozyskiwanie danych opisane
+w [zadaniu NASK, pkt 3](../docs/NASK_ZADANIE.md).
+
+### Analiza zdjęcia lub zrzutu reklamy
+
+Po instalacji `graph/requirements-app.txt` otwórz **Sprawdź zdjęcie lub zrzut reklamy**,
+wybierz PNG/JPEG/WebP i kliknij **Analizuj zdjęcie**. Limit wynosi 20 MiB i 32 MP;
+animacje oraz uszkodzone obrazy są odrzucane przed zapisem. Lokalny korpus NASK
+jest dołączany automatycznie, jeśli jest dostępny w `data/nask-hacknation-2026`.
+Formularz nie wymaga podawania ścieżek. Przy braku lokalnego korpusu porównanie
+korzysta tylko z kart JSONL wybranych w pasku bocznym;
+do porównania potrzebują `visual.phash`, `visual.sha256` lub `text.ocr_text`.
+
+Adapter `scamgraph.image_query` zachowuje oryginalne bajty w prywatnym
+`.private-discovery/analyst/images/`, liczy SHA-256 i pHash64 (ImageHash 4.3.1,
+po korekcji orientacji EXIF). Korzysta z istniejącego lokalnego OCR: Windows.Media.Ocr
+na Windows albo Tesseract na innych systemach. Dla Tesseract zainstaluj program
+systemowy i pakiety `pol`/`eng`; `tesseract --list-langs` pokazuje dostępne języki.
+Brak silnika/języków, timeout i pusty OCR są widoczne w raporcie. pHash i SHA
+działają dalej; przy braku OCR referencji adapter może wykorzystać jej tekst źródłowy.
+
+Referencje uzupełniają korpus grafu; ich ID zawiera przestrzeń nazw zbioru
+`reference:<dataset_id>:<ad_id>`. Różne emisje z tym samym obrazem pozostają osobne.
+Formularz nie pobiera stron ani linków odczytanych z obrazu. Wynik pozostaje
+w sesji podczas zmiany parametrów, bez ponownego OCR. Ponowna analiza wymaga
+przycisku i ponownie odczytuje referencję. **Usuń zapytanie ze zdjęcia** usuwa
+bieżące zapytanie i jego dodatkowe referencje z widoku. Trwały zapis karty wymaga
+przycisku **Dopisz**; ponowne przesłanie zapisanego zdjęcia nie dodaje kopii.
+
+Decyzja zespołu 2026-11-22: silnik używa bezpośrednio SHA (siła 0,95), pHash
+(dotychczasowe progi 4–12 bitów, waga 0,60) oraz TF-IDF `char_wb` 3–5 dla tekstu
+obrazów (dotychczasowe progi cos 0,75–0,95, waga 0,60). TF-IDF uczy się tylko
+na referencji, a zapytanie przechodzi przez `transform`. SHA/pHash/OCR tego samego
+materiału dają maksimum, nie sumę niezależnych dowodów. Szczegóły powiązania
+pokazują źródła i oba obrazy. Identyczność pliku nie potwierdza kampanii ani oszustwa.
+To integracja klasycznej ścieżki CPU; DINOv2 nie jest tutaj uruchamiane ani zapisywane
+jako CLIP. Nie zmieniamy obecnego HDBSCAN: przelicza on grupy korpusu z zapytaniem.
+Nie jest to jeszcze zamrożona referencja kampanii z docelowego kontraktu.
+Skuteczność na kadrach i p95 całej ścieżki nie zostały zmierzone.
+
+Przebieg realizuje wejście zdjęcia i porównanie cech z [pkt 3 zadania NASK](../docs/NASK_ZADANIE.md).
+Testy na własnych obrazach: `python -m unittest discover -s tests -p 'test_image_query*.py' -v`.
+
+### Opcje silnika
+
 Opcje CLI (`python -m ftf_graph KARTY.jsonl ...`):
 
 | Opcja | Domyślnie | Znaczenie |
@@ -235,27 +322,41 @@ Wszystkie wagi i progi są w `Config` (`ftf_graph/scoring.py`). To ręcznie dobr
 
 ## Zaufane domeny
 
-Domena z `data/trusted_domains.txt` (albo jej subdomena: `m.youtube.com` → `youtube.com`) **nie tworzy**
+Domena z listy wyliczanej w pamięci z Tranco i wpisów ręcznych (albo jej subdomena: `m.youtube.com` → `youtube.com`) **nie tworzy**
 artefaktów `domain_hop`, `domain_final` ani `nameserver`, a w Neo4j nie powstaje dla niej węzeł `:Domain`.
 Trafienia są zapisywane w `Card.trusted_hits` i `Ad.trusted_domains`. Lista **nie** wpływa na `ip`, `asn`,
 `form_endpoint` ani kontakty.
 
-Listę generuje `tools/build_trusted_list.py`:
+Moduł `ftf_graph.trusted` buduje listę bezpośrednio w pamięci:
 
-1. pierwsze `--top` domen (domyślnie 10 000) z rankingu **Tranco** (`data/tranco_46YVX.csv`, format `pozycja,domena`),
+1. wszystkie domeny z rankingu **Tranco**, bez limitu pozycji (`data/tranco_46YVX.csv`, format `pozycja,domena`),
 2. dodaje `data/trusted_manual.txt` (ręczne uzupełnienia: CDN-y, trackery, polskie serwisy),
 3. **usuwa platformy z treściami użytkowników** — wpisy z sekcji PRIVATE DOMAINS listy Public Suffix List
    (z pakietu `publicsuffixlist`) i każdą domenę, pod którą leży taki wpis (np. `s3.amazonaws.com` usuwa
    `amazonaws.com`). Na tych platformach subdomena (`krypto-bot.blogspot.com`) jest śladem oszusta,
 4. usuwa domeny z Listy Ostrzeżeń CERT Polska, jeśli istnieje `data/cert_domains.txt`.
 
+Opcjonalny plik `data/cert_domains.txt` można dostarczyć lokalnie. Zależność
+`publicsuffixlist` jest wymagana podczas działania aplikacji.
+
+Nie tworzymy `data/trusted_domains.txt`. Wynik jest współdzielonym zbiorem
+w pamięci, odświeżanym po zmianie CSV, wpisów ręcznych, CERT lub PSL. Dla
+obecnych źródeł zawiera 998 855 domen po wykluczeniu 1146 platform; lokalny plik
+CERT nie jest dostępny. Własną listę tekstową można nadal podać przez
+`FTF_TRUSTED_DOMAINS=ścieżka`.
+
+Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytorium:
+
 ```bash
-curl -o data/cert_domains.txt https://hole.cert.pl/domains/v2/domains.txt   # opcjonalnie
-python tools/build_trusted_list.py --top 10000
+python tools/build_trusted_list.py --out /tmp/trusted_domains.txt
 ```
 
-Obecna wersja pliku: 9843 domeny, 158 platform usuniętych, bez listy CERT. Inną listę można wskazać zmienną
-`FTF_TRUSTED_DOMAINS=ścieżka`.
+Ręczny formularz URL sprawdza tę listę przed pobraniem strony. Dla domeny lub
+jej subdomeny pokazuje komunikat „Domena … jest uznawana za bezpieczną na podstawie
+listy zaufanych. Pominięto skanowanie.” Nie uruchamia scrapera, ekstrakcji ani
+nowego zapytania grafu. To klasyfikacja według lokalnej listy zaufanych.
+Sprawdzenie obejmuje wprowadzony URL; scheduler nadal używa swojej osobnej bazy
+`trusted_domains`.
 
 ---
 
@@ -386,9 +487,9 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 | `ftf_graph/__main__.py` | CLI |
 | `app.py` | demonstrator Streamlit |
 | `tools/gen_sample_cards.py`, `tools/make_new_ad_examples.py` | dane testowe |
-| `tools/build_trusted_list.py` | generowanie listy zaufanych domen |
+| `tools/build_trusted_list.py` | opcjonalny eksport listy zaufanych domen |
 | `data/trusted_manual.txt` | ręczna lista zaufanych (edytuj ten plik) |
-| `data/trusted_domains.txt` | wygenerowana lista zaufanych (nie edytuj ręcznie) |
+| `ftf_graph/trusted.py` | budowanie i cache listy bezpośrednio z CSV |
 | `data/tranco_46YVX.csv` | ranking Tranco (1 mln domen) |
 | `docker-compose.yml` | Neo4j 5 |
 

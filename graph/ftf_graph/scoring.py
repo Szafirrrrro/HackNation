@@ -212,6 +212,43 @@ class Scorer:
             soft_from_matrix(V @ V.T, cfg.vis_lo, cfg.vis_hi, cfg.w_visual, "visual",
                              lambda c: f"podobny wygląd reklamy (CLIP cos={c:.2f})")
 
+        # Image upload path: fit the vocabulary on reference text only. SHA is a
+        # duplicate-file signal even in a two-card corpus, never a rarity/hub test.
+        def image_group(a: Card, b: Card) -> str:
+            same_source = (a.image_origin and b.image_origin
+                           and a.image_text_origin == a.image_origin
+                           and b.image_text_origin == b.image_origin)
+            return "phash" if same_source else "text"
+
+        by_sha: dict[str, list[int]] = defaultdict(list)
+        for i, card in enumerate(self.cards):
+            if card.image_sha256:
+                by_sha[card.image_sha256].append(i)
+        for sha, owners in by_sha.items():
+            for x, i in enumerate(owners):
+                for j in owners[x + 1:]:
+                    reasons[(i, j)].append(Reason("phash", "image_sha256", True, 0.95,
+                        f"identyczny plik obrazu (SHA-256: {sha}); to nie potwierdza wspólnej kampanii"))
+
+        reference = [i for i, c in enumerate(self.cards) if c.image_text.strip()
+                     and c.raw.get("provenance", {}).get("record_kind") != "image_query"]
+        if reference:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5))
+            try:
+                vectorizer.fit([self.cards[i].image_text for i in reference])
+            except ValueError:  # empty vocabulary (e.g. whitespace-only material)
+                pass
+            else:
+                matrix = vectorizer.transform([c.image_text for c in self.cards])
+                similarities = (matrix @ matrix.T).tocoo()
+                for i, j, sim in zip(similarities.row, similarities.col, similarities.data):
+                    if i < j and sim > cfg.text_lo:
+                        reasons[(int(i), int(j))].append(Reason(
+                            image_group(self.cards[i], self.cards[j]), "image_ocr", False,
+                            cfg.w_text * float(ramp(sim, cfg.text_lo, cfg.text_hi)),
+                            f"podobny tekst obrazu (TF-IDF char_wb 3–5, cos={sim:.2f})"))
+
         # --- audio ---
         if (A := _unit_matrix([c.audio_text_emb for c in self.cards])) is not None:
             soft_from_matrix(A @ A.T, cfg.text_lo, cfg.text_hi, cfg.w_audio_text, "text",
