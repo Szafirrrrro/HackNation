@@ -132,6 +132,7 @@ def collect_landing(stage, options, finding, *, defer=False):
     from .trusted_domains import match_url, skip_reason
     from .verified_entity import match_verified_entity
     from .authoritative_corpora import match_authoritative_corpus
+    from .bidirectional_verify import match_bidirectional_verification
 
     index = finding.card.get("cta_element")
     candidates = finding.card.get("landing_candidates", [])
@@ -155,6 +156,7 @@ def collect_landing(stage, options, finding, *, defer=False):
     verified = match_verified_entity(url, options)
     timeout = options.get("landing_timeout", 22)
     ranked_hit = match_authoritative_corpus(url)
+    closed_loop = match_bidirectional_verification(url)
 
     if host:
         outcome = {"status": "trusted_domain", "content_status": "skipped", "reason_code": "trusted_domain",
@@ -171,7 +173,14 @@ def collect_landing(stage, options, finding, *, defer=False):
             "reason_code": code,
             "reason": reason,
         }
-
+    elif closed_loop:
+        code, reason = closed_loop
+        outcome = {
+            "status": "skipped",
+            "content_status": "skipped",
+            "reason_code": code,
+            "reason": reason,
+        }
     elif defer:
         outcome = {"status": "queued", "content_status": "pending", "reason_code": "queued",
                    "reason": "Oczekuje na odczyt strony docelowej."}
