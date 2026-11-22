@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 from .card import Card
 from .cluster import ClusterResult
-from .scoring import Edge, Scorer
+from .scoring import ENGINE_VERSION, Edge, Reason, Scorer
 
 
 @dataclass
@@ -34,7 +34,9 @@ def summarize(cards: list[Card], scores: np.ndarray, res: ClusterResult, sc: Sco
     for i, lab in enumerate(res.labels):
         if lab >= 0:
             groups.setdefault(int(lab), []).append(i)
-    ordered = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    for members in groups.values():
+        members.sort(key=lambda i: cards[i].id)
+    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), [cards[i].id for i in kv[1]]))
     label_to_id = {lab: f"CMP-{k + 1}" for k, (lab, _) in enumerate(ordered)}
 
     out = []
@@ -51,7 +53,7 @@ def summarize(cards: list[Card], scores: np.ndarray, res: ClusterResult, sc: Sco
         c.final_domains = sorted({cards[i].final_domain for i in mem if cards[i].final_domain})
         c.persons = sorted({f.person for i in mem for f in cards[i].faces if f.person})
         cnt = Counter(a.key for i in mem for a in cards[i].artifacts if sc.rarity_of(a.key) > 0)
-        c.shared = [(k, v) for k, v in cnt.most_common() if v >= 2]
+        c.shared = sorted(((k, v) for k, v in cnt.items() if v >= 2), key=lambda item: (-item[1], item[0]))
         out.append(c)
     return out, label_to_id
 
@@ -62,12 +64,19 @@ def _r(x: float, nd: int = 3) -> float:
 
 def edge_json(e: Edge, cards: list[Card]) -> dict:
     return {"a": cards[e.a].id, "b": cards[e.b].id, "score": _r(e.score),
-            "reasons": [{"kind": r.kind, "hard": r.hard, "strength": _r(r.strength), "detail": r.detail}
-                        for r in e.reasons]}
+            "has_hard_evidence": e.has_hard, "campaign_score": _r(e.campaign_score),
+            "reasons": [_reason_json(r) for r in e.reasons],
+            "campaign_reasons": [_reason_json(r) for r in e.campaign_reasons],
+            "observations": [_reason_json(r) for r in e.observations]}
+
+
+def _reason_json(reason: Reason) -> dict:
+    return {**asdict(reason), "strength": _r(reason.strength)}
 
 
 def write_json(out_dir: str, cards: list[Card], edges: list[Edge], res: ClusterResult,
-               camps: list[Campaign]) -> None:
+               camps: list[Campaign], *, config: dict | None = None, fingerprint: str = "",
+               data_fingerprint: str = "", warnings: list[str] | None = None) -> None:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "edges.json").write_text(
@@ -82,5 +91,10 @@ def write_json(out_dir: str, cards: list[Card], edges: list[Edge], res: ClusterR
         } for c in camps],
         "unassigned": [cards[i].id for i, lab in enumerate(res.labels) if lab < 0],
         "clustering_backend": res.backend,
+        "engine_version": ENGINE_VERSION,
+        "config": config or {},
+        "reference_fingerprint": fingerprint,
+        "data_fingerprint": data_fingerprint,
+        "warnings": warnings or [],
     }
     (out / "campaigns.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
