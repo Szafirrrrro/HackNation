@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr \
     && tesseract --list-langs | grep -qx pol \
     && tesseract --list-langs | grep -qx eng \
     && rm -rf /var/lib/apt/lists/*
-COPY graph/app.py graph/
+COPY graph/app.py graph/analyst.css graph/node-inspector.html graph/
 COPY graph/ftf_graph/*.py graph/ftf_graph/
 COPY graph/data/sample_cards.jsonl graph/data/tranco_46YVX.csv graph/data/trusted_manual.txt graph/data/
 COPY graph/eval/reference.jsonl graph/eval/queries.jsonl graph/eval/labels.json graph/eval/

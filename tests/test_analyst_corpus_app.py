@@ -5,14 +5,17 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from xml.etree import ElementTree
 
 from streamlit.testing.v1 import AppTest
 
 from graph.ftf_graph.card import parse_card
+from scamgraph.image_query import analyze_image
 from scamgraph.analyst_corpus import identify_corpus, load_analyst_corpus
 from scamgraph.analyst_store import append_private_card, private_corpus_path
 from scamgraph.analyst_timeline import card_events, event
 from scamgraph.graph_features import text_features
+from test_image_query import picture
 
 
 APP = Path(__file__).resolve().parents[1] / "graph/app.py"
@@ -20,6 +23,13 @@ APP = Path(__file__).resolve().parents[1] / "graph/app.py"
 
 def jsonl(path, rows):
     path.write_text("\n".join(json.dumps(row) if isinstance(row, dict) else row for row in rows), encoding="utf-8")
+
+
+def timeline_rows(app):
+    markup = next(node.proto.body for node in app.get("html") if 'class="analyst-evidence-table"' in node.proto.body)
+    table = ElementTree.fromstring(markup)
+    labels = [cell.text for cell in table.findall(".//thead/tr/th")]
+    return [dict(zip(labels, (cell.text for cell in row))) for row in table.findall(".//tbody/tr")]
 
 
 class AnalystCorpusTests(unittest.TestCase):
@@ -69,13 +79,19 @@ class AnalystCorpusTests(unittest.TestCase):
         self.assertTrue(any("Zapisy stron: 2" in item.value for item in app.caption))
         self.assertTrue(any("Data publikacji nieustalona" in item.value and "fresh-B" in item.value
                             for item in app.caption))
-        rows = next(element.value for element in app.dataframe if "precyzja" in element.value.columns)
-        publication = rows[rows["rodzaj"] == "Publikacja"].iloc[0]
-        self.assertEqual(publication["data"], "2026-10-08")
-        self.assertEqual(publication["precyzja"], "dzień")
-        self.assertIn("ads.jsonl:1#source.published_at", publication["źródło"])
-        self.assertIn("har.document_started_at", " ".join(rows["źródło"]))
-        self.assertIn('"mode":"markers"', app.get("plotly_chart")[0].proto.spec)
+        rows = timeline_rows(app)
+        publication = next(row for row in rows if row["Zdarzenie"] == "Publikacja")
+        self.assertEqual(publication["Data źródłowa"], "2026-10-08")
+        self.assertEqual(publication["Precyzja"], "dzień")
+        self.assertIn("ads.jsonl:1#source.published_at", publication["Źródło"])
+        self.assertIn("har.document_started_at", " ".join(row["Źródło"] for row in rows))
+        lines = json.loads(app.get("plotly_chart")[0].proto.spec)["data"]
+        self.assertEqual({line["name"]: line["y"] for line in lines},
+                         {"Zapis strony": [2], "bez kampanii": [1]})
+        self.assertTrue(all(line["mode"] == "lines+markers" for line in lines))
+        self.assertEqual({line["name"]: line["marker"]["symbol"] for line in lines},
+                         {"Zapis strony": ["square"], "bez kampanii": ["square"]})
+        self.assertTrue(any(item.label == "Jak czytać oś czasu" for item in app.expander))
 
         app = app.sidebar.text_input[0].set_value(str(self.observations / "pages.jsonl")).run()
         self.assertFalse(app.exception)
@@ -102,12 +118,15 @@ class AnalystCorpusTests(unittest.TestCase):
     def test_engine_jsonl_keeps_good_rows_and_pair_sources(self):
         path = self.root / "cards.jsonl"
         shared = {"page": {"tracking_ids": {"meta_pixel": "own-123"}}}
-        a = {**shared, "ad_id": "x-1", "provenance": {"provider": "own", "ad_ref": "one", "source_ref": "raw-one"}}
+        source_ref = "raw-one  <source & evidence>\n next line"
+        a = {**shared, "ad_id": "x-1", "first_seen": "2026-10-08T12:00:00Z",
+             "provenance": {"provider": "own", "ad_ref": "one", "source_ref": source_ref}}
         b = {**shared, "ad_id": "x-2", "provenance": {"provider": "own", "ad_ref": "two", "source_ref": "raw-two"}}
         jsonl(path, [a, "{bad", {**a, "ad_id": "alias"}, {**a, "provenance": {"provider": "own", "ad_ref": "three"}}, b])
         app = self.open_local(path)
         self.assertFalse(app.exception)
         self.assertEqual(int(app.metric[0].value), 2)
+        self.assertEqual(timeline_rows(app)[0]["Źródło"], source_ref + "#first_seen")
         graph = app.get("iframe")[0].proto.srcdoc
         self.assertNotIn("https://cdn.jsdelivr.net/npm/bootstrap", graph)
         self.assertIn("Content-Security-Policy", graph)
@@ -163,8 +182,8 @@ class AnalystCorpusTests(unittest.TestCase):
 
         app = self.open_local(ads_path)
         self.assertFalse(app.exception)
-        rows = next(element.value for element in app.dataframe if "precyzja" in element.value.columns)
-        self.assertEqual(rows[rows["data"] == value].iloc[0]["precyzja"], "poza zakresem UTC")
+        row = next(row for row in timeline_rows(app) if row["Data źródłowa"] == value)
+        self.assertEqual(row["Precyzja"], "poza zakresem UTC")
 
     def test_ad_form_keeps_useful_input_and_distinguishes_engine_outcomes(self):
         path = self.root / "cards.jsonl"
@@ -177,22 +196,36 @@ class AnalystCorpusTests(unittest.TestCase):
         app = self.open_local(path)
         self.assertEqual(int(app.metric[1].value), 1)
         reference = app.session_state["engine_reference"][1]
+        app.sidebar.button(key="nav-ad").click().run()
+        self.assertFalse(app.get("iframe"))
 
         def submit(text, url):
-            next(widget for widget in app.text_area if widget.label == "Tekst reklamy").set_value(text)
-            next(widget for widget in app.text_input if widget.label == "Znany adres celu reklamy").set_value(url)
-            next(widget for widget in app.button if widget.label == "Porównaj reklamę").click().run()
+            tab = app.tabs[0]
+            tab.text_area[0].set_value(text)
+            tab.text_input[0].set_value(url)
+            tab.button[0].click().run()
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state["engine_reference"][1].fingerprint, reference.fingerprint)
 
-        app.file_uploader[0].set_value(("bad.png", b"broken", "image/png"))
         submit(description, "https://stars.example.test/offer")
-        self.assertTrue(any("Prawdopodobne dopasowanie" in item.value for item in app.success))
-        self.assertTrue(any("Nie udało się przeanalizować zdjęcia" in item.value for item in app.warning))
-        submit("Regularne pieczenie chleba zytniego i miesienie ciasta", "https://bread.example.test/")
-        self.assertTrue(any("Możliwy nowy wzorzec" in item.value for item in app.warning))
-        submit("x", "")
-        self.assertTrue(any("Niewystarczające dane" in item.value for item in app.warning))
+        self.assertTrue(any("Dodaj zdjęcie" in item.value for item in app.error))
+        self.assertEqual(app.text_area[0].value, description)
+        with (
+            patch("scamgraph.image_query.analyze_image",
+                  side_effect=lambda data: analyze_image(data, state_dir=self.root / "private")),
+            patch("scamgraph.image_query.ocr", return_value=[]),
+        ):
+            app.file_uploader[0].set_value(("bad.png", b"broken", "image/png"))
+            submit(description, "https://stars.example.test/offer")
+            self.assertTrue(any("Nie udało się przeanalizować" in item.value for item in app.error))
+            self.assertFalse(app.success)
+            app.file_uploader[0].set_value(("ad.png", picture(), "image/png"))
+            submit(description, "https://stars.example.test/offer")
+            self.assertTrue(any("Prawdopodobne dopasowanie" in item.value for item in app.success))
+            submit("Regularne pieczenie chleba zytniego i miesienie ciasta", "https://bread.example.test/")
+            self.assertTrue(any("Możliwy nowy wzorzec" in item.value for item in app.warning))
+            submit("x", "")
+            self.assertTrue(any("Niewystarczające dane" in item.value for item in app.warning))
 
 
 if __name__ == "__main__":

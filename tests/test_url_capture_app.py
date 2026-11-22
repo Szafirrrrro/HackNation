@@ -16,6 +16,18 @@ class URLFormTests(unittest.TestCase):
         private.start()
         self.addCleanup(private.stop)
 
+    def intake(self, app):
+        return app.sidebar.button(key="nav-ad").click().run()
+
+    def submit(self, app, url=None):
+        capture = app.tabs[1]
+        if url is not None:
+            capture.text_input[0].set_value(url)
+        capture.button[0].click().run()
+
+    def overview(self, app):
+        return app.sidebar.button(key="nav-overview").click().run()
+
     def test_existing_url_is_highlighted_without_fetch_or_duplicate_even_when_noise_hidden(self):
         import json
         import re
@@ -34,15 +46,16 @@ class URLFormTests(unittest.TestCase):
             app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(corpus)).run()
             app.sidebar.checkbox[1].set_value(False).run()
-            app.text_input[0].set_value("https://OWN.example/offer#details")
-            app.button[0].click().run()
+            self.intake(app)
+            self.submit(app, "https://OWN.example/offer#details")
             self.assertFalse(app.exception)
-            self.assertTrue(any("już jest w bazie danych" in item.value for item in app.info))
+            self.assertTrue(any("już jest w bazie danych" in item.value for item in app.tabs[1].info))
+            self.assertFalse(any(b.label.startswith("Dopisz page:") for b in app.button))
+            self.overview(app)
             self.assertEqual(int(app.metric[0].value), len(rows))
             document = app.get("iframe")[0].proto.srcdoc
             nodes = json.loads(re.search(r"nodes = new vis.DataSet\((\[.*?\])\);", document, re.S)[1])
             self.assertEqual(next(n for n in nodes if n["id"] == "page:existing")["shape"], "star")
-            self.assertFalse(any(b.label.startswith("Dopisz page:") for b in app.button))
             app.sidebar.slider[0].set_value(4).run()
             self.assertFalse(app.exception)
             self.assertEqual(int(app.metric[0].value), len(rows))
@@ -63,14 +76,14 @@ class URLFormTests(unittest.TestCase):
             app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(corpus)).run()
             count = int(app.metric[0].value)
-            app.text_input[0].set_value("https://own.example/?offer=1")
-            app.button[0].click().run()
-            next(b for b in app.button if b.label.startswith("Dopisz page:")).click().run()
+            self.intake(app)
+            self.submit(app, "https://own.example/?offer=1")
+            next(b for b in app.tabs[1].button if b.label.startswith("Dopisz page:")).click().run()
             self.assertFalse(app.exception)
-            self.assertEqual(int(app.metric[0].value), count + 1)
             self.assertFalse(any(b.label.startswith("Dopisz page:") for b in app.button))
-            self.assertTrue(any("już jest w bazie danych" in item.value for item in app.info))
-            app.button[0].click().run()
+            self.assertTrue(any("już jest w bazie danych" in item.value for item in app.tabs[1].info))
+            self.submit(app)
+            self.overview(app)
             self.assertFalse(app.exception)
             self.assertEqual(int(app.metric[0].value), count + 1)
             fetch.assert_called_once()
@@ -96,11 +109,12 @@ class URLFormTests(unittest.TestCase):
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
             app.session_state["url_capture"] = {"archive": tmp, "card": card,
                 "report": {"status": "success", "content_status": "usable"}}
-            app.run()
+            self.intake(app)
             self.assertFalse(app.exception)
-            text = next(field for field in app.text_area if field.label == "Tekst z pobranej strony")
+            text = next(field for field in app.tabs[1].text_area if field.label == "Tekst z pobranej strony")
             self.assertEqual(text.value, full_text)
             self.assertTrue(text.disabled)
+            self.overview(app)
             document = app.get("iframe")[0].proto.srcdoc
             nodes = json.loads(re.search(r"nodes = new vis.DataSet\((\[.*?\])\);", document, re.S)[1])
             title = next(node["title"] for node in nodes if node["id"] == "page:long")
@@ -130,13 +144,13 @@ class URLFormTests(unittest.TestCase):
                 return_value={"page_id": "fixture", "status": "failed"}) as visit, patch(
                 "scamgraph.url_capture.capture", side_effect=OSError("fixture")):
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
-            app.text_input[0].set_value("https://bit.ly/x")
-            app.button[0].click().run()
+            self.intake(app)
+            self.submit(app, "https://bit.ly/x")
             self.assertFalse(app.exception)
             self.assertFalse(any("bezpieczn" in s.value for s in app.success))
             visit.assert_called_once()
 
-    def test_capture_automatically_enters_graph_alongside_separate_image_form(self):
+    def test_capture_and_ad_forms_share_intake_and_capture_updates_the_graph(self):
         from streamlit.testing.v1 import AppTest
 
         app_file = Path(__file__).resolve().parents[1] / "graph/app.py"
@@ -151,12 +165,20 @@ class URLFormTests(unittest.TestCase):
                                   "archive": str(archive), "capture": str(archive), "card": card}
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
             count = int(app.metric[0].value)
-            app.text_input[0].set_value("https://own.example/")
-            app.button[0].click().run()
+            self.assertFalse(app.get("file_uploader"))
+            self.assertFalse(app.get("text_input"))
+            self.intake(app)
+            self.assertEqual([tab.label for tab in app.tabs], ["Nowa reklama", "Przechwyć stronę"])
+            self.assertEqual(len(app.tabs[0].get("file_uploader")), 1)
+            self.assertFalse(app.tabs[1].get("file_uploader"))
+            self.submit(app, "https://own.example/")
             self.assertFalse(app.exception)
+            self.assertTrue(any("page:fixture" in w.value for w in app.tabs[1].warning))
+            self.assertFalse(any("page:fixture" in w.value for w in app.tabs[0].warning))
+            self.assertFalse(app.get("iframe"))
+            self.overview(app)
             self.assertEqual(int(app.metric[0].value), count + 1)
-            self.assertTrue(any("page:fixture" in w.value for w in app.warning))
-            self.assertEqual(len(app.get("file_uploader")), 1)
+            self.assertFalse(app.get("file_uploader"))
             self.assertFalse(app.get("download_button"))
             app.sidebar.slider[0].set_value(4).run()
             self.assertFalse(app.exception)
@@ -165,9 +187,11 @@ class URLFormTests(unittest.TestCase):
 
             # A failed replacement must remove the previous query from analysis.
             fetch.side_effect = RuntimeError("capture failed")
-            app.button[0].click().run()
+            self.intake(app)
+            self.submit(app, "https://own.example/")
             self.assertFalse(app.exception)
             self.assertTrue(app.error)
+            self.overview(app)
             self.assertEqual(int(app.metric[0].value), count)
 
     def test_submit_rerun_and_missing_corpus(self):
@@ -184,8 +208,8 @@ class URLFormTests(unittest.TestCase):
             fetch.assert_not_called()
             app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(archive / "missing.jsonl")).run()
-            app.text_input[0].set_value("https://own.example/")
-            app.button[0].click().run()
+            self.intake(app)
+            self.submit(app, "https://own.example/")
             self.assertFalse(app.exception)
             self.assertTrue(app.success)
             fetch.assert_called_once_with("https://own.example/")
@@ -199,8 +223,8 @@ class URLFormTests(unittest.TestCase):
         app_file = Path(__file__).resolve().parents[1] / "graph/app.py"
         with patch("scamgraph.url_capture.visit") as fetch:
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
-            app.text_input[0].set_value("file:///etc/passwd")
-            app.button[0].click().run()
+            self.intake(app)
+            self.submit(app, "file:///etc/passwd")
             self.assertFalse(app.exception)
             self.assertTrue(app.error)
             fetch.assert_not_called()

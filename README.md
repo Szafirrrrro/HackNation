@@ -17,10 +17,10 @@ Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live
 ## Od pliku do wyniku
 
 Streamlit przyjmuje też link do strony: `python -m pip install -r graph/requirements-app.txt`,
-następnie `python -m streamlit run graph/app.py`. Wklej publiczny URL i kliknij
+następnie `python -m streamlit run graph/app.py`. Otwórz **Dodaj materiał** i wybierz kartę **Przechwyć stronę**. Wklej publiczny URL i kliknij
 **Przechwyć stronę**, aby pobrać stronę i automatycznie wczytać jej dane do analizy oraz grafu. Ręcznie podany URL jest pobierany niezależnie od rankingu popularności domen. Ranking nie potwierdza bezpieczeństwa treści. Wymagany jest Google Chrome. [Zapis URL i pliki wynikowe](graph/README.md#przechwycenie-strony-przez-url)
 
-Wybierz w panelu demo syntetyczne, korpus organizatora lub własne źródło lokalne. Prześlij zdjęcie PNG/JPEG/WebP albo podaj URL. Karta wyniku pokazuje decyzję względem wybranej referencji, braki i dowody. SHA-256 rozpoznaje kopię pliku, pHash porównuje wygląd, a lokalny OCR udostępnia tekst. [Obsługa zdjęć i lokalizowanie dowodów](graph/README.md#analiza-zdjęcia-lub-zrzutu-reklamy)
+Wybierz w panelu demo syntetyczne, korpus organizatora lub własne źródło lokalne. W **Dodaj materiał** otwórz kartę **Nowa reklama** i prześlij zdjęcie PNG/JPEG/WebP. Tekst, jego pochodzenie i znany adres celu są opcjonalne. Karta wyniku pokazuje decyzję względem wybranej referencji, braki i dowody. SHA-256 rozpoznaje kopię pliku, pHash porównuje wygląd, a lokalny OCR udostępnia tekst. [Obsługa zdjęć i lokalizowanie dowodów](graph/README.md#analiza-zdjęcia-lub-zrzutu-reklamy)
 
 ### Uruchomienie na CPU w Dockerze
 
@@ -37,7 +37,7 @@ Z katalogu projektu uruchom `python -m scamgraph.live --config discovery.demo.js
 
 | Krok | Technologia i wynik | Wymaganie NASK |
 | --- | --- | --- |
-| 1. Wczytaj materiały | Panel przyjmuje katalog, manifest, emisje, obserwacje stron lub karty JSONL. Nowe zgłoszenie może zawierać zdjęcie PNG/JPEG/WebP, tekst i znany adres celu. Pobranie URL zapisuje HTML i HAR. Raport importu pokazuje błędy i duplikaty. SHA-256 rozpoznaje kopie pliku, a ID dostawcy rozróżnia emisje. | Import, deduplikacja, obsługa niepełnych danych |
+| 1. Wczytaj materiały | Panel przyjmuje katalog, manifest, emisje, obserwacje stron lub karty JSONL. Zgłoszenie reklamy wymaga zdjęcia PNG/JPEG/WebP i przyjmuje dodatkowy tekst oraz znany adres celu. Osobne pobranie URL zapisuje HTML i HAR. Raport importu pokazuje błędy i duplikaty. SHA-256 rozpoznaje kopie pliku, a ID dostawcy rozróżnia emisje. | Import, deduplikacja, obsługa niepełnych danych |
 | 2. Znajdź podobne kreacje | Pillow i pHash porównują wygląd całego obrazu. ORB pozostaje metodą laboratoryjną. Tesseract odczytuje polski i angielski tekst, a znakowy TF-IDF w scikit-learn porównuje jego fragmenty. Analityk zobaczy oba kadry lub wspólną frazę. | Automatyczna ekstrakcja cech i rozpoznawanie wariantów |
 | 3. Porównaj strony | Python odczytuje hosty i ścieżki z adresów, nagłówki z zapisanych stron oraz piksele śledzące z logów HAR. Udokumentowane połączenie reklama–strona pozwala wykorzystać znalezisko przy ocenie postu. | Różnorodne ślady i możliwość wskazania źródła |
 | 4. Zbuduj grupy | Silnik ocenia pary postów. Przy scalaniu dwóch grup każda para między grupami musi mieć mocne powiązanie (*complete-link*). Pojedynczy post może pozostać poza grupą. | Korelacja i klastrowanie materiałów |

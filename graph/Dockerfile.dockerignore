@@ -3,6 +3,8 @@
 !graph/
 !graph/requirements*.txt
 !graph/app.py
+!graph/analyst.css
+!graph/node-inspector.html
 !graph/ftf_graph/
 !graph/ftf_graph/*.py
 !graph/data/
