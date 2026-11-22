@@ -91,13 +91,41 @@ def code_version() -> str:
         return "unknown"
 
 
+def store_raw(conn, batch, kind, payload):
+    from psycopg.types.json import Jsonb
+
+    fingerprint = sha256(canonical(payload))
+    row = conn.execute(
+        """INSERT INTO raw_record (import_batch, kind, payload, payload_sha256)
+           VALUES (%s, %s, %s, %s) ON CONFLICT (payload_sha256) DO NOTHING RETURNING id""",
+        (batch, kind, Jsonb(payload), fingerprint)).fetchone()
+    if row:
+        return row[0]
+    return conn.execute("SELECT id FROM raw_record WHERE payload_sha256 = %s", (fingerprint,)).fetchone()[0]
+
+
+def store_page(conn, batch, page):
+    from psycopg.types.json import Jsonb
+
+    raw = {key: page[key] for key in ("capture_id", "url", "fetched_at", "status", "http_status")}
+    raw["metadata_sha256"] = page["sections"]["metadata_sha256"]
+    raw_id = store_raw(conn, batch, "page", raw)
+    conn.execute(
+        """INSERT INTO page_capture (capture_id, url, fetched_at, status, http_status, sections,
+                                     package_path, raw_record_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (capture_id) DO NOTHING""",
+        (page["capture_id"], page["url"], page["fetched_at"], page["status"], page["http_status"],
+         Jsonb(page["sections"]), page["package_path"], raw_id))
+
+
 def store_feed(conn, dataset_id: str, revision: str, written_ns: int, build) -> bool:
     """Zapisuje jeden eksport graph_feed: surowe obserwacje, emisje i karty.
 
     revision i written_ns pochodzą z export_graph. Gdy baza ma już ten albo nowszy eksport
     zbioru, kończy po jednym zapytaniu. build() zwraca wpisy dopiero wtedy, gdy trzeba pisać:
     record (linia JSONL), provider, ad_ref, run_id, seq, card (karta obserwacji ze scrapera),
-    observed_at (ISO albo None), found_at (ISO), source_kind. Zwraca True, gdy zapisał.
+    observed_at (ISO albo None), found_at (ISO), source_kind oraz pola emisji i wizyty z pakietu.
+    Zwraca True, gdy zapisał.
     """
     from psycopg.types.json import Jsonb
 
@@ -111,27 +139,31 @@ def store_feed(conn, dataset_id: str, revision: str, written_ns: int, build) -> 
             record = e["record"]
             raw = {"provider": e["provider"], "ad_ref": e["ad_ref"], "observation_seq": e["seq"],
                    "card": e["card"]}
-            raw_sha = sha256(canonical(raw))
-            row = conn.execute(
-                """INSERT INTO raw_record (import_batch, kind, payload, payload_sha256)
-                   VALUES (%s, 'ad', %s, %s) ON CONFLICT (payload_sha256) DO NOTHING RETURNING id""",
-                (e["run_id"], Jsonb(raw), raw_sha)).fetchone()
-            raw_id = row[0] if row else conn.execute(
-                "SELECT id FROM raw_record WHERE payload_sha256 = %s", (raw_sha,)).fetchone()[0]
+            raw_id = store_raw(conn, e["run_id"], "ad", raw)
             built_from = None if "unavailable" in record else sha256(canonical(record))
-            origin = (record.get("text") or {}).get("origin_id")
-            text = (e["card"] or {}).get("text")
+            ad = e.get("ad") or {}
+            source = ad.get("source", {})
+            origins = {key: ad[key] for key in ("text_origin", "url_origin", "image_origin", "audio_origin",
+                                               "video_origin") if ad.get(key)}
+            text = ad.get("text") or (e["card"] or {}).get("text")
             conn.execute(
                 """INSERT INTO ad (dataset_id, ad_id, provider, ad_ref, source_kind, collected_at, text,
-                                   origins, unavailable, card_built_from, raw_record_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                   published_at, landing_url, image_sha256, audio_sha256, origins,
+                                   unavailable, card_built_from, raw_record_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (dataset_id, ad_id) DO UPDATE SET
                        source_kind = EXCLUDED.source_kind, collected_at = EXCLUDED.collected_at,
-                       text = EXCLUDED.text, origins = EXCLUDED.origins, unavailable = EXCLUDED.unavailable,
+                       text = EXCLUDED.text, published_at = EXCLUDED.published_at, landing_url = EXCLUDED.landing_url,
+                       image_sha256 = EXCLUDED.image_sha256, audio_sha256 = EXCLUDED.audio_sha256,
+                       origins = EXCLUDED.origins, unavailable = EXCLUDED.unavailable,
                        card_built_from = EXCLUDED.card_built_from, raw_record_id = EXCLUDED.raw_record_id""",
-                (dataset_id, record["ad_id"], e["provider"], e["ad_ref"], e["source_kind"],
+                (dataset_id, record["ad_id"], e["provider"], e["ad_ref"], source.get("kind") or e["source_kind"],
                  e["observed_at"] or e["found_at"], text if isinstance(text, str) else None,
-                 Jsonb({"text_origin": origin} if origin else {}), record.get("unavailable"), built_from, raw_id))
+                 ad.get("published_at") or source.get("published_at"), ad.get("landing_url"),
+                 origins.get("image_origin"), origins.get("audio_origin"), Jsonb(origins),
+                 record.get("unavailable"), built_from, raw_id))
+            if e.get("page"):
+                store_page(conn, e["run_id"], e["page"])
             if built_from:
                 conn.execute(
                     """INSERT INTO card (dataset_id, ad_id, adapter_version, card, built_from)

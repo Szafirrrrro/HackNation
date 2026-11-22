@@ -7,6 +7,7 @@ Bez TEST_DATABASE_URL testy są pomijane. Każdy test czyści schemat public tej
 import json
 import os
 import socket
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -15,10 +16,10 @@ import unittest
 from unittest.mock import patch
 
 from scamgraph import db
-from scamgraph.capture import read_json
+from scamgraph.capture import read_json, staging, write_json
 from scamgraph.discovery import landing_visit, meta
 from scamgraph.discovery.engine import connection, store_card
-from scamgraph.discovery.graph_feed import export_graph, update_campaigns
+from scamgraph.discovery.graph_feed import capture_metadata, export_graph, update_campaigns
 from scamgraph.discovery.service import publish
 
 from tests import test_live_scheduler as base
@@ -33,6 +34,39 @@ def reset():
     with psycopg.connect(URL, autocommit=True) as conn:
         conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
     db._schema_ready.clear()
+
+
+def write_capture(folder, ad, page_id):
+    landing = folder / "landing"
+    landing.mkdir(parents=True, exist_ok=True)
+    write_json(landing / "metadata.json", {
+        "input_url": "https://shop.example/offer?tracking=123",
+        "captured_at": "2026-11-21T10:00:00+00:00", "status": "failed", "http_status": 502,
+    })
+    write_json(folder / "extracted.json", {"ad": ad, "landing_visit": {"page_id": page_id}})
+    artifact = {"path": "landing/metadata.json", "sha256": db.sha256((landing / "metadata.json").read_bytes())}
+    write_json(folder / "manifest.json", {
+        "capture_id": folder.name, "artifacts": [artifact],
+        "result": {"path": "extracted.json", "sha256": db.sha256((folder / "extracted.json").read_bytes())},
+    })
+
+
+class PageMetadata(unittest.TestCase):
+    def test_failed_visit_keeps_redacted_url_and_stable_identity(self):
+        with staging(Path(tempfile.gettempdir())) as root:
+            ad = {"text": "Opisana reklama", "image_origin": "a" * 64}
+            first = root / "capture1"
+            second = root / "capture2"
+            for folder in (first, second):
+                write_capture(folder, ad, "page1")
+                actual, page = capture_metadata(folder)
+                self.assertEqual(actual, ad)
+                self.assertEqual(page["capture_id"], "page1")
+                self.assertEqual(page["url"], "https://shop.example/offer")
+                self.assertEqual((page["status"], page["http_status"]), ("failed", 502))
+                self.assertEqual(page["package_path"], f"captures/{folder.name}/landing")
+            (first / "landing/metadata.json").write_text("{}", encoding="utf8")
+            self.assertEqual(capture_metadata(first), (ad, None))
 
 
 @unittest.skipUnless(URL, "brak TEST_DATABASE_URL")
@@ -142,6 +176,30 @@ class DatabaseMirror(base.LiveScheduler):
             run = db.latest_run(conn, "replay")
         self.assertEqual(len(run["results"]["campaign"]), len(report["campaigns"]))
         self.assertEqual(len(run["results"]["edge"]), len(report["edges"]))
+
+    def test_existing_export_backfills_ad_and_page_metadata(self):
+        cids = self.publish_three()
+        ad = {"text": "Przykładowa reklama", "image_origin": "a" * 64, "audio_origin": "b" * 64,
+              "landing_url": "https://shop.example/offer", "url_origin": "c" * 64}
+        write_capture(self.state / "captures" / cids["81"], ad, "page1")
+        feed = export_graph(self.state)
+        before = feed.read_bytes()
+        with db.connect() as conn:
+            # Naśladuj zawartość sprzed wdrożenia metadanych przy tej samej dacie eksportu.
+            conn.execute("UPDATE ad SET image_sha256=NULL, audio_sha256=NULL, landing_url=NULL")
+            conn.execute("DELETE FROM page_capture")
+            conn.execute("DELETE FROM raw_record WHERE kind='page'")
+            conn.execute("UPDATE feed_export SET revision=%s", ("0" * 64,))
+        export_graph(self.state)
+        export_graph(self.state)
+        self.assertEqual(feed.read_bytes(), before)
+        self.assertEqual(self.sql("SELECT url, status, http_status FROM page_capture"),
+                         [("https://shop.example/offer", "failed", 502)])
+        self.assertEqual(self.sql("SELECT image_sha256, audio_sha256, landing_url FROM ad WHERE ad_ref='81'"),
+                         [("a" * 64, "b" * 64, "https://shop.example/offer")])
+        self.assertEqual(self.sql("SELECT kind, count(*) FROM raw_record GROUP BY kind ORDER BY kind"),
+                         [("ad", 3), ("page", 1)])
+        self.assertEqual(self.sql("SELECT count(*) FROM card"), [(3,)])
 
     def test_silent_database_does_not_hang(self):
         """Serwer przyjmuje TCP i milczy: limit połączenia kończy zapis, pliki powstają."""

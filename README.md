@@ -14,6 +14,8 @@ Aby wykonać jeden przebieg odpowiadający przyciskowi **Uruchom teraz**, otwór
 
 Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live/captures/`, a pliki z wizyt na stronach docelowych w `.private-discovery/browser-live/pages/`. Instrukcja pokazuje, jak uruchomić demo lub tryb live i przejść od reklamy w panelu do jej HTML-a, zrzutu ekranu i pliku HAR. [Instrukcja obsługi panelu reklam](docs/PANEL_REKLAM.md)
 
+Aby zapisywać emisje, wizyty, karty i raporty kampanii również w PostgreSQL, uruchom usługę `postgres` w Docker Compose i ustaw `DATABASE_URL` przed uruchomieniem panelu lub schedulera. [Start i sprawdzenie PostgreSQL](docs/BAZA_DANYCH.md#uruchomienie)
+
 ## Od pliku do wyniku
 
 Streamlit przyjmuje też link do strony: `python -m pip install -r graph/requirements-app.txt`,

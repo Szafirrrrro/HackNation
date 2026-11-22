@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS ad (
     UNIQUE (dataset_id, provider, ad_ref)
 );
 
--- [2] Zapisy stron (jeszcze niezapełniane, patrz docs/BAZA_DANYCH.md)
+-- [2] Wizyty na stronach z pakietów reklam.
 CREATE TABLE IF NOT EXISTS page_capture (
     capture_id      text        PRIMARY KEY,
     url             text        NOT NULL,
@@ -70,7 +70,7 @@ CREATE VIEW card_current AS
 -- Ostatni eksport zbioru zapisany w bazie (pomija powtórki i spóźnione starsze eksporty).
 CREATE TABLE IF NOT EXISTS feed_export (
     dataset_id      text        PRIMARY KEY,
-    revision        char(64)    NOT NULL,          -- rewizja z graph/export.sqlite3
+    revision        char(64)    NOT NULL,          -- rewizja eksportu i formatu zapisu SQL
     written_ns      bigint      NOT NULL,          -- czas zapisu pliku JSONL
     stored_at       timestamptz NOT NULL DEFAULT now()
 );

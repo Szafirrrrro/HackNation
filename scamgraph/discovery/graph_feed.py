@@ -17,6 +17,7 @@ from ..capture import read_json, staging, write_json
 from ..catalog import artifact_path
 from ..sources import address
 from .engine import connection, iso
+from .landing_fetch import public_url
 
 TEXT_METHOD = "char-wb-3-5-hash1024-l2/v1"
 # Parametry silnika przekazywane jawnie, żeby zapis przebiegu w bazie odpowiadał wywołaniu.
@@ -165,17 +166,52 @@ def export_graph(state, mode="live"):
             written = (time.time_ns(),)
             index.execute("INSERT INTO export_times VALUES (?,?)", (mode, written[0]))
     # Baza poza blokadą SQLite; store_feed najpierw sprawdza, czy ma już ten eksport.
+    # Zapisz metadane także dla feedów wyeksportowanych przez poprzednią wersję zapisu SQL.
+    db_revision = pgdb.sha256("capture-metadata-v1:" + revision)
     mirror(folder, mode + ".feed", lambda conn: pgdb.store_feed(
-        conn, mode, revision, written[0], lambda: feed_entries(state, mode, output, rows)))
+        conn, mode, db_revision, written[0], lambda: feed_entries(state, mode, output, rows)))
     return output
+
+
+def capture_metadata(folder):
+    """Odczytaj pola emisji i udokumentowaną wizytę z lokalnego pakietu."""
+    try:
+        manifest = read_json(folder / "manifest.json")
+        if manifest["capture_id"] != folder.name:
+            return {}, None
+        result = read_json(artifact_path(folder, manifest["result"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}, None
+
+    ad = result.get("ad") or {}
+    visit = result.get("landing_visit") or {}
+    meta = next((a for a in manifest.get("artifacts", []) if a["path"] == "landing/metadata.json"), None)
+    if not (visit.get("page_id") and meta):
+        return ad, None
+    try:
+        metadata = read_json(artifact_path(folder, meta))
+        raw_url = metadata.get("final_url") or metadata.get("input_url")
+        url = public_url(raw_url) if address(raw_url) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return ad, None
+    if not url or not metadata.get("captured_at") or metadata.get("status") not in {"success", "partial", "failed"}:
+        return ad, None
+    return ad, {
+        "capture_id": visit["page_id"], "url": url, "fetched_at": metadata["captured_at"],
+        "status": metadata["status"], "http_status": metadata.get("http_status"),
+        "package_path": f"captures/{folder.name}/landing",
+        "sections": {"visit": visit, "ad_page_links": result.get("ad_page_links", []), "metadata_sha256": meta["sha256"]},
+    }
 
 
 def feed_entries(state, mode, output, rows):
     """Linie opublikowanego JSONL z surową kartą obserwacji, do zapisu w bazie. Czyta plik,
     a nie przelicza projekcji, więc baza dostaje dokładnie to, co plik."""
     records = [json.loads(line) for line in output.read_text(encoding="utf8").splitlines() if line.strip()]
-    if len(records) != len(rows) or any(rec["provenance"]["observation_seq"] != row["seq"]
-                                        for rec, row in zip(records, rows)):
+    if len(records) != len(rows) or any(
+        (rec["provenance"]["observation_seq"], rec["provenance"]["capture_id"]) != (row["seq"], row["capture_id"])
+        for rec, row in zip(records, rows)
+    ):
         raise pgdb.Stale("Plik grafu zmienił się w trakcie zapisu do bazy.")
     seqs = [row["seq"] for row in rows]
     extra = {}
@@ -184,11 +220,13 @@ def feed_entries(state, mode, output, rows):
             chunk = seqs[i:i + 500]
             extra.update({seq: (run_id, card) for seq, run_id, card in source.execute(
                 f"SELECT seq, run_id, card FROM observations WHERE seq IN ({','.join('?' * len(chunk))})", chunk)})
-    return [{"record": rec, "provider": row["provider"], "ad_ref": row["ad_ref"],
-             "seq": row["seq"], "run_id": extra[row["seq"]][0], "card": json.loads(extra[row["seq"]][1]),
-             "observed_at": row["observed_at"], "found_at": iso(row["found_at"]),
-             "source_kind": "library" if mode == "live" else "upload"}
-            for row, rec in zip(rows, records)]
+    for row, rec in zip(rows, records):
+        run_id, card = extra[row["seq"]]
+        ad, page = capture_metadata(state / "captures" / row["capture_id"]) if "unavailable" not in rec else ({}, None)
+        yield {"record": rec, "provider": row["provider"], "ad_ref": row["ad_ref"], "seq": row["seq"],
+               "run_id": run_id, "card": json.loads(card), "observed_at": row["observed_at"],
+               "found_at": iso(row["found_at"]), "source_kind": "library" if mode == "live" else "upload",
+               "ad": ad, "page": page}
 
 
 def update_campaigns(feed):

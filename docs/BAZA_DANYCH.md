@@ -204,18 +204,21 @@ Samo przeniesienie kart do bazy nie przyspieszy obliczeń, bo `psycopg` i tak pa
 
 ## Uruchomienie
 
-```bash
-cd graph && docker compose up -d postgres
-export DATABASE_URL=postgresql://scamgraph:scamgraph@localhost:5432/scamgraph
+Z katalogu głównego projektu w PowerShell, przy działającym Dockerze i zainstalowanych zależnościach z `requirements-capture.txt`:
+
+```powershell
+docker compose -f graph/docker-compose.yml up -d --wait postgres
+$env:DATABASE_URL = 'postgresql://scamgraph:scamgraph@127.0.0.1:5432/scamgraph'
+.\.venv\Scripts\python.exe -c "from scamgraph.db import connect; c = connect(); print('Wersja schematu:', c.execute('SELECT version FROM schema_version').fetchone()[0]); c.close()"
 ```
 
-Usługa `pgvector/pgvector:pg17` w `graph/docker-compose.yml` słucha tylko na `127.0.0.1`. Hasło inne niż domyślne ustawia `POSTGRES_PASSWORD` w `graph/.env`. Schemat leży w [`db/schema.sql`](../db/schema.sql). `scamgraph.db` wykonuje go, gdy tabela `schema_version` ma inną wersję niż `SCHEMA_VERSION`. Plik jest idempotentny, ale nie migruje istniejących tabel: na etapie MVP po zmianie schematu usuń wolumin (`docker compose down -v` usuwa też dane Neo4j) albo schemat `public`. Zależność: `psycopg[binary]` w `requirements-capture.txt`.
+Panel lub scheduler uruchom z tej samej sesji PowerShell, aby odziedziczył `DATABASE_URL`. Usługa `pgvector/pgvector:pg17` słucha na `127.0.0.1` i zapisuje dane w woluminie `postgres_data`. Przy pierwszej inicjalizacji własne hasło można ustawić przez `POSTGRES_PASSWORD` w środowisku Compose i użyć jego odpowiednika zakodowanego do URL w `DATABASE_URL`. Schemat zakłada `scamgraph.db` przy pierwszym połączeniu. Obecny zapis korzysta ze schematu w wersji 3, także w istniejącym woluminie. Przyszłe zmiany struktury tabel wymagają migracji. [Schemat SQL](../db/schema.sql)
 
 Zapis działa w `scamgraph/discovery/graph_feed.py`, w tych samych miejscach, w których powstają pliki:
 
 | Krok | Pliki | Baza |
 | --- | --- | --- |
-| `export_graph()` | `graph/<tryb>.jsonl` | `raw_record` (surowa karta obserwacji), `ad`, `card` (`adapter_version='graph-feed/4'`) z linii opublikowanego pliku. Przy braku karty: `ad.unavailable` z powodem. `feed_export` pamięta ostatni zapisany eksport. |
+| `export_graph()` | `graph/<tryb>.jsonl` | `raw_record`, `ad`, `card` z opublikowanego pliku oraz `page_capture` dla dostępnych pakietów z zakończoną wizytą. Przy braku karty `ad.unavailable` zawiera powód. `feed_export` pamięta ostatni zapisany eksport i wersję zapisu SQL. |
 | `update_campaigns()` | `graph/<tryb>.campaigns.json` | `engine_run` i `run_result` z tego samego raportu, czyli już z opisami poprawionymi dla `TEXT_METHOD`. |
 
 Bez `DATABASE_URL` zmieniają się tylko dwie rzeczy: raport dostaje pola `engine_config` i `code_version`, a `graph/export.sqlite3` zapisuje czas eksportu w tabeli `export_times`. Zapis do bazy odbywa się po zwolnieniu blokad SQLite, z limitami: połączenie 3 s, zapytanie 30 s, blokada 5 s (`connect_timeout`, `options` i ustawienia keepalive w URL-u mają pierwszeństwo). Keepalive TCP kończy połączenie po zerwaniu sieci. Nie obejmuje serwera, który przyjął połączenie, a potem zamarzł (np. wstrzymany kontener): wtedy wątek grafu czeka, ale nie trzyma blokad SQLite. Zostaje to jako ograniczenie MVP. Przy niezmienionym eksporcie i raporcie każdy tick zegara kończy się jednym zapytaniem na każdy z nich. Błąd bazy nie zatrzymuje pipeline'u: pliki powstają, a traceback trafia na stderr i do `graph/<tryb>.feed.db-error` lub `graph/<tryb>.run.db-error`. Znacznik znika po udanym zapisie. Raport policzony przed włączeniem bazy trafia do niej przy następnym przebiegu zegara. Odczyt: `scamgraph.db.load_cards(conn, tryb)` i `scamgraph.db.latest_run(conn, tryb)`.
@@ -226,7 +229,8 @@ Testy: `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_db`. Ka
 
 - `dataset_id` = tryb źródła (`live`, `replay`, `import`), a `ad_id` = `provider/ad_ref`, jak w `graph_feed`.
 - Unikalność `(provider, ad_ref)` obowiązuje w obrębie `dataset_id`, bo ta sama reklama bywa w kilku trybach.
-- `source_kind`: `library` dla trybu `live`, `upload` dla pozostałych. Graph_feed nie zna flagi `synthetic` z konfiguracji źródła.
+- `source_kind`, skróty mediów i pochodzenie pól pochodzą z pakietu. Gdy brakuje informacji o rodzaju źródła, używamy `library` dla trybu `live` i `upload` dla pozostałych.
+- `page_capture.capture_id` to stały identyfikator wizyty (`landing_visit.page_id`). `package_path` wskazuje zapis z pakietu dowodowego, a `sections.ad_page_links` zawiera dostępne dowody relacji przy pierwszym zapisie. Status i czas pochodzą z metadanych pobrania. Zapis dotyczy wizyt obecnych w pakietach bieżącego feedu, także zakończonych jako `partial` lub `failed`. Kolejny eksport uzupełnia te dane także dla istniejącego feedu. HTML, HAR i zrzuty pozostają w pakietach na dysku.
 - `engine_run` ma kolumny `dataset_id`, `computed_at` (z raportu) i `seq`. `cards_sha256` to SHA-256 pliku JSONL (`feed_sha256` raportu). `config` (`ENGINE_CONFIG`, przekazywane jawnie do `ftf_graph`) i `code_version` (`git describe --always --dirty`) są zapisywane w raporcie w chwili liczenia, nie w chwili zapisu do bazy.
 - Nowy przebieg nie powstaje, gdy najnowszy przebieg trybu ma to samo wejście, konfigurację i wersję kodu albo gdy jest nowszy od raportu. Kolejność ustala `computed_at`, a przy remisie `seq`. Dzięki temu `latest_run` odpowiada bieżącemu plikowi raportu.
 - Eksporty porządkuje czas zapisu pliku (`export_times` w `graph/export.sqlite3`). Starszy eksport, który dotrze później, jest pomijany.
@@ -236,7 +240,6 @@ Testy: `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_db`. Ka
 
 ### Jeszcze niezrobione
 
-- `page_capture` istnieje, ale nie jest zapełniana. Zapisy stron trafiają do bazy tylko przez kartę.
 - Panel, Streamlit i Neo4j nadal czytają pliki. Przepięcie na `latest_run` to następny krok.
 - `frozen`, zapytania `query`, tabele `feature` i `embedding` (rozszerzenia po MVP).
 
