@@ -1,6 +1,6 @@
 # Baza danych ScamGraph
 
-Dokument opisuje dwie rzeczy: **stan obecny**, czyli bazy SQLite i pliki, które dziś zapisuje scraper `scamgraph.discovery`, oraz **projekt bazy dla silnika**, czyli PostgreSQL z pgvector jako jedno trwałe źródło danych dla `ftf_graph`. Projekt jest propozycją zespołu z 2026-11-21. Nie jest jeszcze wdrożony. Reguła grupowania odpowiada [kontraktowi](DATA_CONTRACT.md#reguła-silnika-ftf_graph-decyzja-zespołu-2026-11-21): wynik pary 0–1 z uzasadnieniami i HDBSCAN.
+Dokument opisuje dwie rzeczy: **stan obecny**, czyli bazy SQLite i pliki, które dziś zapisuje scraper `scamgraph.discovery`, oraz **projekt bazy dla silnika**, czyli PostgreSQL z pgvector jako jedno trwałe źródło danych dla `ftf_graph`. Projekt jest decyzją zespołu z 2026-11-21. Wersja MVP jest wdrożona jako opcjonalny zapis obok plików, opis w sekcji [Uruchomienie](#uruchomienie). Reguła grupowania odpowiada [kontraktowi](DATA_CONTRACT.md#reguła-silnika-ftf_graph-decyzja-zespołu-2026-11-21): wynik pary 0–1 z uzasadnieniami i HDBSCAN.
 
 Materiały NASK i wyniki pochodne zostają lokalnie. Baza działa w Dockerze na maszynie zespołu, bez usług chmurowych. [Zasady danych, pkt 8 zadania](NASK_ZADANIE.md)
 
@@ -159,9 +159,10 @@ CREATE TABLE run_result (
 | `kind` | `payload` |
 | --- | --- |
 | `edge` | `{a, b, score, has_hard_evidence, reasons: [{group, kind, hard, strength, detail}]}` |
-| `member` | `{ad_id, label, strength}`, gdzie `label = -1` oznacza reklamę poza kampaniami |
+| `member` | `{ad_id, campaign, strength}`, gdzie `campaign = null` oznacza reklamę poza kampaniami |
 | `campaign` | `{campaign, size, mean_edge_score, first_seen, last_seen, alive, dead, sources, final_domains, persons, shared_artifacts}` |
-| `query` | `MatchResult` z kontraktu: status, kampania, krawędzie zapytania, braki karty |
+| `query` | `MatchResult` z kontraktu: status, kampania, krawędzie zapytania, braki karty (jeszcze niezapisywane) |
+| `unavailable` | `{ad_id, capture_id, reason}`: reklama pominięta, bo z pakietu nie dało się zbudować karty |
 
 ### Rozszerzenia po MVP
 
@@ -180,7 +181,7 @@ CREATE TABLE run_result (
 | `observations.card`, oryginał w `captures/<id>/` | `raw_record` (`kind='ad'`) i `ad` |
 | `pages/<id_pobrania>/metadata.json` | `raw_record` (`kind='page'`) i `page_capture` |
 | `landing/` pakietu + `extracted.json.ad_page_links` | `raw_record` (`kind='link'`), na start pole w karcie |
-| `graph/<tryb>.jsonl` | `card` (`adapter_version='graph-feed/3'`) |
+| `graph/<tryb>.jsonl` | `card` (`adapter_version='graph-feed/4'`) |
 | `graph/<tryb>.campaigns.json` | `engine_run` + `run_result` |
 | `graph/export.sqlite3`, `graph/analysis.sqlite3` | `card.built_from` i `engine_run.cards_sha256` |
 | `runs`, `schedules`, `page_jobs`, `trusted_domains` | Zostają w SQLite scrapera: to stan operacyjny zegara, nie dane silnika |
@@ -201,12 +202,46 @@ Po obliczeniu zapis trafia do `engine_run` i `run_result`, a `neo4j_store.write`
 
 Samo przeniesienie kart do bazy nie przyspieszy obliczeń, bo `psycopg` i tak parsuje JSONB do słowników. Przyspieszenie dają: przyrostowe liczenie nowej emisji wobec zamrożonego przebiegu (`frozen`), wektory zapisane binarnie (`embedding`) i wybór kandydatów przez kNN.
 
-## Uruchomienie (plan)
+## Uruchomienie
 
-Do `graph/docker-compose.yml` dochodzi usługa `pgvector/pgvector:pg17` obok `neo4j:5`, z woluminem na dane. Migracje to pliki SQL w repozytorium, dostęp z Pythona przez `psycopg` 3. Hasła trafiają przez zmienne środowiskowe, nie do Gita.
+```bash
+cd graph && docker compose up -d postgres
+export DATABASE_URL=postgresql://scamgraph:scamgraph@localhost:5432/scamgraph
+```
+
+Usługa `pgvector/pgvector:pg17` w `graph/docker-compose.yml` słucha tylko na `127.0.0.1`. Hasło inne niż domyślne ustawia `POSTGRES_PASSWORD` w `graph/.env`. Schemat leży w [`db/schema.sql`](../db/schema.sql). `scamgraph.db` wykonuje go, gdy tabela `schema_version` ma inną wersję niż `SCHEMA_VERSION`. Plik jest idempotentny, ale nie migruje istniejących tabel: na etapie MVP po zmianie schematu usuń wolumin (`docker compose down -v` usuwa też dane Neo4j) albo schemat `public`. Zależność: `psycopg[binary]` w `requirements-capture.txt`.
+
+Zapis działa w `scamgraph/discovery/graph_feed.py`, w tych samych miejscach, w których powstają pliki:
+
+| Krok | Pliki | Baza |
+| --- | --- | --- |
+| `export_graph()` | `graph/<tryb>.jsonl` | `raw_record` (surowa karta obserwacji), `ad`, `card` (`adapter_version='graph-feed/4'`) z linii opublikowanego pliku. Przy braku karty: `ad.unavailable` z powodem. `feed_export` pamięta ostatni zapisany eksport. |
+| `update_campaigns()` | `graph/<tryb>.campaigns.json` | `engine_run` i `run_result` z tego samego raportu, czyli już z opisami poprawionymi dla `TEXT_METHOD`. |
+
+Bez `DATABASE_URL` zmieniają się tylko dwie rzeczy: raport dostaje pola `engine_config` i `code_version`, a `graph/export.sqlite3` zapisuje czas eksportu w tabeli `export_times`. Zapis do bazy odbywa się po zwolnieniu blokad SQLite, z limitami: połączenie 3 s, zapytanie 30 s, blokada 5 s (`connect_timeout`, `options` i ustawienia keepalive w URL-u mają pierwszeństwo). Keepalive TCP kończy połączenie po zerwaniu sieci. Nie obejmuje serwera, który przyjął połączenie, a potem zamarzł (np. wstrzymany kontener): wtedy wątek grafu czeka, ale nie trzyma blokad SQLite. Zostaje to jako ograniczenie MVP. Przy niezmienionym eksporcie i raporcie każdy tick zegara kończy się jednym zapytaniem na każdy z nich. Błąd bazy nie zatrzymuje pipeline'u: pliki powstają, a traceback trafia na stderr i do `graph/<tryb>.feed.db-error` lub `graph/<tryb>.run.db-error`. Znacznik znika po udanym zapisie. Raport policzony przed włączeniem bazy trafia do niej przy następnym przebiegu zegara. Odczyt: `scamgraph.db.load_cards(conn, tryb)` i `scamgraph.db.latest_run(conn, tryb)`.
+
+Testy: `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_db`. Każdy test czyści schemat `public` wskazanej bazy, więc wskazuj pustą bazę testową.
+
+### Decyzje wdrożenia MVP (zespół, 2026-11-21)
+
+- `dataset_id` = tryb źródła (`live`, `replay`, `import`), a `ad_id` = `provider/ad_ref`, jak w `graph_feed`.
+- Unikalność `(provider, ad_ref)` obowiązuje w obrębie `dataset_id`, bo ta sama reklama bywa w kilku trybach.
+- `source_kind`: `library` dla trybu `live`, `upload` dla pozostałych. Graph_feed nie zna flagi `synthetic` z konfiguracji źródła.
+- `engine_run` ma kolumny `dataset_id`, `computed_at` (z raportu) i `seq`. `cards_sha256` to SHA-256 pliku JSONL (`feed_sha256` raportu). `config` (`ENGINE_CONFIG`, przekazywane jawnie do `ftf_graph`) i `code_version` (`git describe --always --dirty`) są zapisywane w raporcie w chwili liczenia, nie w chwili zapisu do bazy.
+- Nowy przebieg nie powstaje, gdy najnowszy przebieg trybu ma to samo wejście, konfigurację i wersję kodu albo gdy jest nowszy od raportu. Kolejność ustala `computed_at`, a przy remisie `seq`. Dzięki temu `latest_run` odpowiada bieżącemu plikowi raportu.
+- Eksporty porządkuje czas zapisu pliku (`export_times` w `graph/export.sqlite3`). Starszy eksport, który dotrze później, jest pomijany.
+- `card_current` to karta z ostatniego eksportu (`ad.card_built_from`). Reklamy niedostępne przy tym eksporcie nie mają karty. `load_cards` zwraca karty w kolejności pliku JSONL.
+- `card` i `raw_record` dostają nowy wiersz przy każdej nowej obserwacji reklamy, bo karta zawiera `last_seen` i `provenance`. To zamierzona historia.
+- Jedna baza obsługuje jeden katalog stanu. Dwa katalogi z tym samym trybem (np. `scripts/e2e_pipeline.py` z produkcyjnym `DATABASE_URL`) nadpisują sobie `ad`, `feed_export` i `latest_run`. Testy i e2e uruchamiaj na osobnej bazie.
+
+### Jeszcze niezrobione
+
+- `page_capture` istnieje, ale nie jest zapełniana. Zapisy stron trafiają do bazy tylko przez kartę.
+- Panel, Streamlit i Neo4j nadal czytają pliki. Przepięcie na `latest_run` to następny krok.
+- `frozen`, zapytania `query`, tabele `feature` i `embedding` (rozszerzenia po MVP).
 
 ## Otwarte decyzje
 
 1. Kto przejmuje schemat: import (para A) czy silnik i karty (para C). Zmiana na granicy modułów wymaga uzgodnienia kontraktu.
-2. Czy scraper pisze do bazy bezpośrednio, czy importer wsadowo czyta jego katalog stanu.
+2. ~~Czy scraper pisze do bazy bezpośrednio, czy importer wsadowo czyta jego katalog stanu.~~ Rozstrzygnięte: zapis w `graph_feed`, obok plików.
 3. Czy wektory z `models/vectors/` trafiają do bazy, czy baza trzyma tylko odnośniki.
