@@ -8,11 +8,15 @@
 3. Pod grafem oś czasu: kiedy każda kampania publikowała reklamy.
 
 Korzysta wyłącznie z paczki ftf_graph (card, scoring, cluster, report) — bez jej modyfikacji.
+Karty czyta z bazy PostgreSQL (widok card_current, gdy ustawiono DATABASE_URL) albo z pliku JSONL.
 """
 from __future__ import annotations
 
+from contextlib import closing
 import json
+import os
 from pathlib import Path
+import sys
 
 import pandas as pd
 import plotly.express as px
@@ -24,6 +28,9 @@ from ftf_graph.card import SIGNAL_KINDS, parse_card
 from ftf_graph.cluster import cluster
 from ftf_graph.report import summarize
 from ftf_graph.scoring import Config, Scorer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # scamgraph z katalogu projektu
+from scamgraph import db as pgdb  # noqa: E402  (psycopg ładowany dopiero przy połączeniu)
 
 PALETTE = ["#1F77B4", "#2CA02C", "#9467BD", "#FF7F0E", "#17BECF", "#8C564B",
            "#E377C2", "#BCBD22", "#393B79", "#637939", "#8C6D31", "#7B4173"]
@@ -39,6 +46,28 @@ st.set_page_config(page_title="Follow the Fake — kampanie", layout="wide")
 def read_jsonl(path: str, mtime: float) -> list[dict]:  # mtime: odśwież cache, gdy plik się zmieni
     with open(path, encoding="utf-8") as fh:
         return [json.loads(line) for line in fh if line.strip()]
+
+
+# url w argumentach rozróżnia cache przy zmianie DATABASE_URL; ttl odświeża dane z pipeline'u.
+@st.cache_data(ttl=15)
+def db_datasets(url: str) -> list[tuple[str, int]]:
+    with closing(pgdb.connect()) as conn:
+        return conn.execute("SELECT dataset_id, count(*) FROM card_current GROUP BY 1 ORDER BY 1").fetchall()
+
+
+@st.cache_data(ttl=15)
+def db_cards(url: str, dataset: str) -> list[dict]:
+    with closing(pgdb.connect()) as conn:
+        return pgdb.load_cards(conn, dataset)
+
+
+@st.cache_data(ttl=15)
+def db_last_run(url: str, dataset: str) -> dict | None:
+    with closing(pgdb.connect()) as conn:
+        run = pgdb.latest_run(conn, dataset)
+    if run:
+        run["campaigns"] = len(run.pop("results")["campaign"])
+    return run
 
 
 def parse_json_text(text: str) -> list[dict]:
@@ -170,7 +199,34 @@ st.title("Follow the Fake — mapa kampanii")
 
 with st.sidebar:
     st.header("Korpus")
-    corpus_path = st.text_input("Plik z kartami (JSONL)", "data/sample_cards.jsonl")
+    sources = ["Baza PostgreSQL", "Plik JSONL"]
+    source = st.radio("Źródło kart", sources, index=0 if pgdb.enabled() else 1,
+                      help="Baza: karty z ostatniego eksportu pipeline'u (DATABASE_URL). Plik: dowolny JSONL.")
+    from_db = source == sources[0]
+    corpus_path = dataset = None
+    if from_db:
+        url = os.environ.get("DATABASE_URL", "")
+        if not url:
+            st.error("Ustaw DATABASE_URL przed uruchomieniem Streamlit, np. "
+                     "postgresql://scamgraph:scamgraph@localhost:5432/scamgraph")
+            st.stop()
+        try:
+            datasets = db_datasets(url)
+        except Exception as exc:  # brak bazy, zły adres, brak uprawnień
+            st.error(f"Nie mogę połączyć się z bazą: {type(exc).__name__}: {exc}")
+            st.stop()
+        if not datasets:
+            st.warning("Baza nie ma jeszcze kart. Uruchom pipeline z ustawionym DATABASE_URL.")
+            st.stop()
+        dataset = st.selectbox("Tryb źródła", [d for d, _ in datasets],
+                               format_func=lambda d: f"{d} ({dict(datasets)[d]} kart)")
+        last = db_last_run(url, dataset)
+        if last:
+            st.caption(f"Ostatni przebieg silnika w bazie: {last['computed_at']:%Y-%m-%d %H:%M}, "
+                       f"{last['campaigns']} kampanii z {last['card_count']} kart, parametry {last['config']}, "
+                       f"kod {last['code_version']}. Graf poniżej silnik liczy na żywo z suwaków.")
+    else:
+        corpus_path = st.text_input("Plik z kartami (JSONL)", "data/sample_cards.jsonl")
     st.header("Parametry")
     min_cluster = st.slider("min. reklam w kampanii", 2, 10, 3)
     min_samples = st.slider("HDBSCAN min_samples", 1, 10, 2)
@@ -186,10 +242,13 @@ with st.sidebar:
                                     "stronie, ale powiązana z kampanią (np. tą samą twarzą lub głosem), zostaje.")
     graph_height = st.slider("wysokość grafu", 400, 1000, 650, 50)
 
-if not Path(corpus_path).exists():
-    st.error(f"Nie ma pliku {corpus_path}. Uruchom najpierw: python tools/gen_sample_cards.py")
-    st.stop()
-corpus = read_jsonl(corpus_path, Path(corpus_path).stat().st_mtime)
+if from_db:
+    corpus = db_cards(url, dataset)
+else:
+    if not Path(corpus_path).exists():
+        st.error(f"Nie ma pliku {corpus_path}. Uruchom najpierw: python tools/gen_sample_cards.py")
+        st.stop()
+    corpus = read_jsonl(corpus_path, Path(corpus_path).stat().st_mtime)
 
 # --- nowa reklama ---
 st.subheader("Nowa reklama")
@@ -261,7 +320,8 @@ for nid in sorted(new_ids):
             st.markdown(f"**{other.id}** ({camp_of[idx[other.id]] or NOISE_LABEL}) — score **{e.score:.2f}**")
             st.markdown("\n".join(f"- {'🟥 twardy' if r.hard else '🟦 miękki'} +{r.strength:.2f} — {r.detail}"
                                   for r in e.reasons))
-    if st.button(f"Dopisz {nid} do korpusu ({corpus_path})", key=f"save-{nid}"):
+    # Bazę zasila pipeline; ręczne dopisywanie dotyczy tylko pliku JSONL.
+    if not from_db and st.button(f"Dopisz {nid} do korpusu ({corpus_path})", key=f"save-{nid}"):
         with open(corpus_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(next(c for c in new_raw if c["ad_id"] == nid), ensure_ascii=False) + "\n")
         st.toast(f"Dopisano {nid}. Martwych reklam nie usuwamy — korpus tylko rośnie.")

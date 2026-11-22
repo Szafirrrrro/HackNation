@@ -237,7 +237,17 @@ Testy: `TEST_DATABASE_URL=postgresql://... python -m unittest tests.test_db`. Ka
 ### Jeszcze niezrobione
 
 - `page_capture` istnieje, ale nie jest zapełniana. Zapisy stron trafiają do bazy tylko przez kartę.
-- Panel, Streamlit i Neo4j nadal czytają pliki. Przepięcie na `latest_run` to następny krok.
+- Panel schedulera i Neo4j nadal czytają pliki.
+
+### Streamlit (`graph/app.py`)
+
+Gdy ustawiono `DATABASE_URL`, Streamlit domyślnie czyta karty z `card_current`. Tryb źródła wybierasz w panelu bocznym, a pod nim widać ostatni przebieg silnika z bazy. Graf i oś czasu silnik liczy na żywo z suwaków, tak jak dla pliku. Plik JSONL zostaje do wyboru w panelu i jest domyślny bez `DATABASE_URL`. W trybie bazy nie ma przycisku dopisywania nowej reklamy do korpusu, bo bazę zasila pipeline.
+
+```bash
+cd graph && DATABASE_URL=postgresql://scamgraph:scamgraph@localhost:5432/scamgraph streamlit run app.py
+```
+
+Przykładowe karty `graph/data/new_ad_*.json` mają syntetyczne wektory tekstu (32 wymiary), a karty ze scrapera 1024 wymiary. Na kartach z bazy kończą się więc komunikatem „embeddingi mają różne wymiary”. Do sprawdzania nowej reklamy wgraj kartę w formacie pipeline'u.
 - `frozen`, zapytania `query`, tabele `feature` i `embedding` (rozszerzenia po MVP).
 
 ## Otwarte decyzje
