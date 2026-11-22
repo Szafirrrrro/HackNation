@@ -35,6 +35,7 @@ class DomainEvidenceAppTests(unittest.TestCase):
                                '{"ad_id":"wide","visual":{"phash":"' + "f" * 40 + '"}}\n'
                                '{"ad_id":"shape","extensions":{"page_observation":"x"}}\n', encoding="utf-8")
         app = AppTest.from_file(str(APP), default_timeout=60).run()
+        app.sidebar.radio[0].set_value("Korpus lokalny").run()
         app.sidebar.text_input[0].set_value(str(corpus)).run()
         return app
 

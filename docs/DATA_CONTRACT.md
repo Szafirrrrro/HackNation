@@ -22,6 +22,10 @@ Wejście do grafu zawiera ostatnią obserwację każdej pary dostawca–ID w dan
 
 Decyzja zespołu dla tekstu karty z potwierdzonym pochodzeniem: co najmniej cztery słowa i 24 znaki pozwalają wyliczyć znormalizowany wektor znakowych n-gramów długości 3–5 w obrębie słów (1024 wymiary, podpisany hashing). Pole `text.origin_id` wskazuje plik źródłowy cechy, a `text.method` wersję obliczenia. Silnik stosuje własne progi podobieństwa kosinusowego. Zgodność tekstu daje jedną miękką przesłankę, również gdy wiele fragmentów pochodzi z tego samego opisu. Próg długości i podobieństwo leksykalne wymagają oceny jakości na rzeczywistych kampaniach. Raport zachowuje wersję metody przy uzasadnieniu tekstowym.
 
+`graph-feed/5` dodaje obraz emisji po sprawdzeniu sumy w manifeście i po dekodowaniu pojedynczego kadru PNG, JPEG lub WebP do 20 MiB i 32 mln pikseli. `visual.sha256` opisuje oryginalne bajty, a `visual.phash` to pHash64 zgodny z formularzem obrazu po uwzględnieniu orientacji EXIF. `visual.origin_id` oraz `visual.source_ref` wskazują ten sam artefakt. Załączniki karty oraz zrzuty strony docelowej pozostają w pakiecie. Projekcja sprawdza sumy oryginałów użytych do cech i do potwierdzenia relacji reklama–strona. Brak lub uszkodzenie oryginału wyłącza zależne cechy przy następnym eksporcie.
+
+Ręczne przechwycenie URL oraz udokumentowany cel emisji używają tej samej projekcji strony. `page.text` przechowuje porównywalny wektor tekstu głównego z `reading_text`, a w starszych pakietach korzysta z `content`. `page.dom_template_minhash` przekazuje sygnaturę, gdy w pakiecie jest jednoznaczna. `page.origin_id` łączy sygnały zależne od tego samego zapisu strony, a `source_ref` lub `source_refs` lokalizują oryginalny HTML, żądanie HAR albo zapisany zasób. Porównanie tekstu strony korzysta z pola `page.text`. Samodzielna obserwacja URL zachowuje typ `page_capture`.
+
 Scheduler zatwierdza obserwację karty i zlecenie pobrania jej udokumentowanego celu w jednej transakcji SQLite. Od tego momentu analityk może otworzyć pakiet karty. Po zebraniu strony worker publikuje nowy pakiet dowodowy i aktualizuje wskazanie tej samej obserwacji. Numer obserwacji, emisja i powody wyszukania zachowują tożsamość. Stan wizyty oraz stan wyszukiwania źródła mają oddzielne pola. Po przerwaniu procesu zegar podejmuje niedokończone zlecenia. Tryby import i replay działają lokalnie.
 
 W `landing/3` pole `pages[].reading_text` przechowuje tekst w kolejności DOM oraz lokalizator HTML dla każdego fragmentu. Opcjonalne `reading_source` wskazuje pierwotną odpowiedź HTTP, gdy dostarczyła treści pominiętej w zapisanym widoku. Manifest wymienia eksport TXT i jego sumę kontrolną w `derived_files`. Pełny zrzut, początkowy widok i kadr ograniczony rozmiarem mają osobne nazwy. W starszych paczkach dla skryptu zapisanego w ZIP pola HAR `_artifact`, `_member` i `_sha256` identyfikują oryginalną odpowiedź.
@@ -88,23 +92,15 @@ Rozszerzeniem jest osobny, opcjonalny plik `observations/ad_page_links.jsonl`. W
 | --- | --- |
 | `Feature` i `Evidence` | Cecha wskazuje typ obiektu i jego ID, rodzinę (`text`, `visual`, `infrastructure`, `audio`), pole, wartość, `origin_id`, lokalizację źródła oraz wersję ekstraktora. Rodzina `audio` (decyzja zespołu 2026-11-21) obejmuje `audio.fingerprint` (Chromaprint) i `audio.speaker_embedding` (odcisk głosu); transkrypcja `asr.text` należy do rodziny `text`. Klasyfikację śladów audio jako twardych lub miękkich ustala para C. Dowód wskazuje oba końce porównania, relację, metrykę, zmierzoną wartość, próg i siłę sygnału. Zachowujemy oryginalne wartości obok normalizacji. |
 | Podobieństwo kreacji i wzorzec stron | Identyczne bajty, powtórzona kreacja i podobieństwo dwóch zapisów stron mają osobne znaczenia w wyniku. Przy parze stron pokaż np. tekst nagłówków i ślad HAR wraz z ich źródłami. Można zwrócić te wyniki nawet wtedy, gdy brakuje danych do oceny kampanii. |
-| `Edge` — ocena pary emisji | Zwraca `score` w przedziale 0–1, `has_hard_evidence` oraz listę `reasons`. Każdy powód ma `group`, `kind`, `hard`, `strength` i czytelny `detail`, malejąco według siły. Do grafu i eksportu trafiają pary z `score >= min_edge`. Do klastrowania liczą się wszystkie pary. |
-| `Campaign` | Klaster HDBSCAN o identyfikatorze `CMP-<n>`, numerowany malejąco według liczby członków w danym przebiegu. Zawiera członków z `strength` (0–1, jak bardzo reklama należy do rdzenia klastra), średni `score` par wewnątrz klastra, okres aktywności, liczbę reklam aktywnych i martwych, źródła, domeny docelowe, osoby oraz wspólne ślady o niezerowej rzadkości z liczbą reklam, w których występują. Reklamy poza klastrami (`unassigned`, szum) pozostają widoczne. |
-| `MatchResult` | Zawiera ID zapytania, odcisk korpusu referencji, konfigurację (`Config`, `min_cluster_size`, `min_samples`, `min_edge`), backend klastrowania, status, kampanię zapytania z `strength`, najsilniejsze krawędzie zapytania z powodami oraz listę braków karty zapytania. |
+| `Edge` | Para indeksów, podobieństwo, wynik dla kampanii oraz lista przyczyn z rodzajem, siłą i opisem. Próg przeglądu wynosi domyślnie 0,25. |
+| `Campaign` | Grupa emisji spełniająca kryterium complete-link. Identyfikator CMP odnosi się do konkretnej referencji. |
+| Wynik zapytania | Status, proponowana kampania, kandydaci, kopie obrazu, najsilniejsze pary oraz informacja o porównywalnych i brakujących cechach. |
 
-### Reguła silnika `ftf_graph` (decyzja zespołu 2026-11-21)
+### Reguła silnika `ftf_graph` (decyzja zespołu)
 
-Zespół przyjmuje regułę zaimplementowaną w `graph/ftf_graph` (`scoring.py`, `cluster.py`) zamiast oceny `strong`/`similar`/`none` z grupowaniem complete-link. Kryteria NASK „jakość metody korelacji i grupowania” oraz „czytelność i interpretowalność prezentowanych powiązań” (pkt 9 zadania) obsługują `reasons` każdej krawędzi i profil kampanii. Wagi i progi poniżej są punktami startowymi zespołu, nie wynikiem pomiaru. Aktualne wartości są w `Config` w `scoring.py` i opisie w [README silnika](../graph/README.md).
+Indeks porównuje karty na podstawie artefaktów, zgodnych wektorów, odcisków i tekstu. Wspólne pochodzenie po którejkolwiek stronie ogranicza wkład pochodnych do decyzji. Silnik porównuje wektory tej samej metody i wymiaru. Starsze karty bez wersji metody mają osobną ścieżkę zgodności. Powody porównania i ich wagi można odczytać w szczegółach pary. [Opis cech i wag](../graph/README.md)
 
-**Ślady twarde.** Artefakt to dyskretna, znormalizowana wartość, która może powtórzyć się w innej reklamie: domena z łańcucha przekierowań lub docelowa, o ile nie jest hostem wspólnym, identyfikator śledzący, endpoint formularza, kontakt, certyfikat, favicona, szablon DOM, skrypt, IP, serwer nazw, o ile nie jest hostem wspólnym, rejestrator, słowo kluczowe, odcisk audio, transkrypcja. Wspólna wartość daje siłę `waga_rodzaju × rzadkość`, gdzie `rzadkość = log(N/df) / log(N/2)`. Artefakt obecny w jednej reklamie albo w ponad `max_df_frac` (30%) korpusu ma rzadkość 0.
-
-**Ślady miękkie.** Podobieństwo w stopniu: embedding tekstu, embedding obrazu, odległość pHash, twarz ważona gorszą z dwóch jakości, hurtowa rejestracja domen, narracja lektora, głos lektora i przybliżony odcisk audio. Siła to `waga × ramp(miara, próg_dolny, próg_górny)`. Twarz sama daje najwyżej 0.5, a głos najwyżej 0.45, bo wizerunek i sklonowany głos celebryty występują w niezależnych kampaniach.
-
-**Wynik pary.** Z każdej grupy śladów liczy się tylko najsilniejszy. Domeny z jednego łańcucha tworzą grupę `domain`, kontakty grupę `contact`, a tekst reklamy, narracja i transkrypcja lektora grupę `text`. Każdy inny rodzaj śladu stanowi osobną grupę. Najsilniejsze ślady z różnych grup łączymy jak niezależne dowody: `score = 1 − Π(1 − sᵢ)`.
-
-**Kampanie.** HDBSCAN dostaje pełną macierz odległości `d = 1 − score`. Pary bez wspólnych śladów mają `d = 1`. Domyślnie `min_cluster_size = 3` i `min_samples = 2`. Silnik używa pakietu `hdbscan`, a przy jego braku `sklearn.cluster.HDBSCAN`. Wynik przebiegu zapisuje backend i parametry. Numeracja `CMP-<n>` obowiązuje tylko w danym przebiegu.
-
-**Znane ograniczenia reguły.** Obraz i jego OCR z tego samego zrzutu mogą trafić do różnych grup i liczą się wtedy jako dwa ślady, choć mają wspólny `origin_id`. Jeden rzadki ślad twardy, np. piksel śledzący, sam daje wysoki `score`. Brak pola po jednej stronie daje siłę 0, więc „nie dało się porównać” wygląda tak samo jak „różne wartości”; tę różnicę pokazuje dopiero lista braków karty. Rzadkość zależy od składu korpusu, więc dodanie reklam może zmienić `score` istniejących par. Kampanie są hipotezą do oceny analityka. Trafność wymaga pomiaru na oznaczonym zbiorze (purity, pairwise F1).
+Silnik buduje grupy metodą complete-link. Każda para członków spełnia próg kampanii (domyślnie 0,65), a grupa ma co najmniej trzy emisje. To próg zespołu. Dokładna kopia pliku jest osobną informacją o kreacji. Sama zgodność SHA nie kwalifikuje pary do kampanii. Wynik kampanii nie jest prawdopodobieństwem oszustwa. Grupy referencji, częstość śladów i słownik są ustalane przed wniesieniem zapytania.
 
 ### Odcisk struktury strony `dom-shingle-minhash-v1` (decyzja zespołu 2026-11-22)
 
@@ -116,67 +112,30 @@ Zespół przyjmuje regułę zaimplementowaną w `graph/ftf_graph` (`scoring.py`,
 
 **Porównanie.** `scamgraph.landing.template_similarity` zwraca odsetek pozycji, na których dwie sygnatury są równe. To estymator Jaccarda zbiorów fragmentów z błędem standardowym ok. 0,04 przy 128 permutacjach. Porównujemy tylko odciski o tej samej `method`, `k` i `num_perm`; w innym przypadku wynik to `null`.
 
-**Karta grafu.** `discovery/graph_feed.py` przepisuje odcisk do `card.page.dom_template_minhash` tylko przy warunkach, które obowiązują dla `final_domain`, pikseli i skryptów: zweryfikowany `AdPageLink` i odpowiedź dokumentu 2xx. Pole trafia do karty, gdy pakiet ma dokładnie jeden odcisk. Kilka różnych odcisków pozostawia pole puste. Wersja eksportu to `graph-feed/4`.
+**Karta grafu.** `discovery/graph_feed.py` przepisuje odcisk do `card.page.dom_template_minhash` przy tych samych warunkach, które obowiązują dla `final_domain`, pikseli i skryptów. Potrzebny jest zweryfikowany `AdPageLink` i odpowiedź dokumentu 2xx. Pole trafia do karty, gdy dostępne odciski mają jedną wartość. Wersję eksportu przechowuje adapter bazy i klucz projekcji.
 
-**Znaczenie.** Odcisk mierzy podobieństwo w stopniu, nie równość. Pochodzi z tego samego zapisu strony co skrypty i piksele, więc nie jest od nich niezależnym dowodem. Obecny `ftf_graph` nie czyta tego pola, więc krawędzie i kampanie pozostają bez zmian. Włączenie odcisku do scorera (waga, próg, grupa śladu) jest osobną decyzją pary C po pomiarze na oznaczonych parach. Kontrola na 15 prywatnych zapisach stron z 2026-11-22 to sprawdzenie poprawności, nie pomiar trafności: odcisk różnił się od dokładnego Jaccarda najwyżej o 0,03.
+**Znaczenie.** Scorer porównuje odciski tej samej metody i rozmiaru. Odcisk oraz pozostałe cechy tej samej obserwacji strony dzielą pochodzenie.
 
 ## Decyzja dla nowej emisji
 
-Zapytanie wczytujemy razem z kartami referencji i przeliczamy krawędzie oraz klastry na zbiorze referencja + zapytanie, tak jak `graph/app.py`. Wynik nie zmienia zapisanej referencji. Do referencji emisję dodaje osobna, jawna akcja. Pierwszy pasujący wiersz określa status (decyzja zespołu 2026-11-21).
+GUI i ewaluacja wywołują `build_reference(...).match(query)`. Każde zapytanie jest oceniane osobno. Silnik zachowuje grupy i wyniki par referencyjnych aż do świadomej zmiany korpusu lub parametrów.
 
-| Kolejność | Warunek | Status | Komunikat dla analityka |
-| --- | --- | --- | --- |
-| 1 | Pusta referencja albo karta zapytania bez artefaktu i bez wektora, które silnik potrafi porównać | `insufficient_evidence` | Wskaż brakujące pola karty i przyczyny z `extraction.warnings`. |
-| 2 | HDBSCAN przypisał zapytanie do kampanii | `probable_match` | Pokaż kampanię, `strength` zapytania, najsilniejsze krawędzie do jej członków z powodami i wspólne ślady profilu. |
-| 3 | Zapytanie jest poza klastrami, ale ma co najmniej jedną krawędź `score >= min_edge` | `review_needed` | Pokaż najsilniejsze krawędzie z powodami i kampanie, do których należą ich drugie końce. |
-| 4 | Brak krawędzi `score >= min_edge` | `no_match` | Możliwy nowy wzorzec względem tej referencji. Jedna emisja może rozpocząć dochodzenie. |
+| Status | Interpretacja |
+| --- | --- |
+| `insufficient_evidence` | Pusta referencja albo brak porównywalnych cech. Wynik wskazuje braki i ostrzeżenia. |
+| `probable_match` | Zapytanie spełnia próg powiązania z każdym członkiem dokładnie jednej grupy. |
+| `review_needed` | Istnieje podobna para, kopia albo więcej niż jedna kwalifikująca się grupa. Analityk może porównać przesłanki. |
+| `no_match` | Są porównywalne dane, lecz brak dostatecznej relacji z referencją. Materiał może reprezentować nowy wzorzec. |
 
-Ten sam zestaw kart referencji, to samo zapytanie i ta sama konfiguracja dają ten sam status, kampanię i krawędzie zapytania. Test odbiorowy sprawdza powtarzalność dwóch kolejnych zapytań A oraz to, że zapytanie B nie zmienia zapisanej referencji. Osobny test sprawdza wiersz 1 dla karty bez porównywalnych pól i wiersz 4 dla karty z polami, ale bez krawędzi powyżej progu. Przy pełnym przeliczeniu numer kampanii może się zmienić, dlatego eksport identyfikuje kampanię także listą członków.
+Wynik zawiera osobną listę dokładnych kopii pliku także wtedy, gdy przypisanie pozostaje otwarte. Metryki jakości i zestaw kontrolny stosują te same progi co demonstrator. [Pomiar kampanii](../graph/eval/README.md)
 
 ## Lokalny korpus NASK
 
-Adapter v0 może użyć obecnego katalogu od razu po implementacji. Inwentarz, przypadki do pokazu i źródła obserwacji zebrano w [przewodniku po danych](NASK_DATA.md). Sumy SHA-256 obrazów sprawdzisz zgodnie z [instrukcją repozytorium](../README.md).
+W ekranie analityka wybór danych określa referencję. Import przyjmuje katalog v0, manifest, plik emisji, obserwacje stron albo JSONL kart silnika. Raport opisuje odrzucone wiersze, duplikaty i konflikty ID. Obserwacje stron zachowują odrębne identyfikatory i dowody. [Formaty i granice danych](NASK_DATA.md)
 
-## JSON przekazywany Emilce (adapter `feature-join-v2`)
+## Cechy laboratorium i karty silnika
 
-Decyzja integracyjna zespołu 2026-11-21: wyjście Witka w `models/` pozostaje
-bez zmian (`ads.jsonl`, `corpus.json`, `features/`, `runs/`, `vectors/`, `arrays/`).
-Adapter `ftf_graph merge-features` materializuje cechy wybranej emisji i łączy je
-z obserwacją URL/HTML/HAR. Nie uruchamia modeli ani pobierania sieciowego.
-
-| Pole JSON-a | Źródło |
-| --- | --- |
-| `infra`, `page`, `provenance` | Obserwacje URL/HTML/HAR z `extract-snapshot`; brakujące RDAP/ASN/TLS pozostają puste. Włączenie do karty reklamy wymaga jawnego `--ad-page-link`. |
-| `text`, `visual`, `faces` | Dotychczasowy adapter modeli obrazu i tekstu. DINOv2 pozostaje w `extensions.image_embedding`, nie w polu CLIP. |
-| `audio.transcript`, `audio.segments`, `audio.asr_duration_s` | `asr.text`, `asr.segments`, `asr.duration_s` (Whisper). |
-| `audio.duration_s` | `audio.duration_s` (Chromaprint, potencjalnie inny zakres nagrania). |
-| `audio.fingerprint` | `audio.fingerprint`: obiekt z `array` jako listą int32, `key`, `shape`, `dtype`, `n_frames`. |
-| `audio.speaker_embedding` | `audio.speaker_embedding` (ECAPA); lista liczb, bez rozpoznania nazwiska mówcy. |
-| `audio.text_embedding` | `text.embedding` tylko dla `source_field=asr.text@<metoda>`; nie zastępuje embeddingu tekstu/OCR. |
-| `extensions.model_features[]` | Wszystkie poprawne cechy modeli, również QR, ORB, dHash i pozostałe pola. Referencje `vector`/`array` zawierają listy zamiast odnośników wymagających plików bocznych. Oryginalne metadane i ścieżki są w evidence. `grouping:false` pozostaje informacją, bez promocji do pól korelacyjnych. |
-| `extensions.model_unavailable[]`, `extraction.warnings` | Przyczyny braków oraz odrzuconych, nieaktualnych lub niejednoznacznych wyników. |
-| `extraction.evidence` | Źródło, wiersz cechy, metoda, parametry, rodzina, pochodzenie, ID emisji i fingerprint korpusu. |
-
-Audio i jego transkrypcja/embedding tekstowy dzielą `audio_origin` (domyślnie
-`<ad_id>#audio_path` lub `#video_path`). Brak audio daje puste pola, nigdy odcisk
-ciszy. Obraz nadal wymaga potwierdzenia SHA-256 jawnie wybranego zrzutu; wejście
-bez obrazu może zostać połączone po jawnym ID korpusu. Zachowujemy różne emisje
-nawet dla identycznych mediów. Konflikt ID, fingerprintu, pochodzenia lub metody
-nie jest rozstrzygany na podstawie kolejności plików.
-
-Bez `AdPageLink` strona trafia do `extensions.page_observation`, a `infra/page`
-reklamy pozostają puste. Podobieństwo tytułu, nazwa katalogu i wspólny screenshot
-nie potwierdzają przejścia z reklamy do strony. Link przekazany przez wywołującego
-musi mieć `ad_id`, `capture_id`, `origin_id`, `observed_at` i `source_ref` z plikiem,
-polem oraz URL odpowiadającym URL snapshotu. Wywołujący odpowiada za rzeczywistą
-weryfikację wskazanego dowodu; adapter sprawdza zgodność deklaracji.
-
-To kompletny **format przekazania cech**, nie zmiana reguły punktowania. Obecny
-`Scorer` nie porównuje jeszcze audio ani DINOv2; Emilka otrzymuje audio przez
-`Card.audio`, pozostałe cechy przez `Card.raw`. Progi podobieństwa audio i włączenie
-ich do decyzji kampanii wymagają odrębnej implementacji i pomiaru.
-
-Komendy i własny przykład syntetyczny: [instrukcja integracji](../graf/ftf-graph-py/HANDOFF.md).
+Laboratorium zapisuje wyniki eksperymentów do własnego magazynu. Silnik przyjmuje gotowe pola kart, m.in. odciski obrazu, embeddingi o zgodnej metodzie i wymiarze, odciski audio, embedding głosu i transkrypcję. W GUI klasyczna ścieżka zdjęcia oblicza SHA-256, pHash64 i OCR lokalnie. Wpięcie zewnętrznych wag lub przeniesienie wyników z laboratorium wymaga przygotowania zgodnych kart i pochodzenia poszczególnych cech. [Laboratorium](../models/README.md) · [Format kart silnika](../graph/README.md)
 
 ## Zapis jednej wizyty HTTP
 
@@ -193,10 +152,13 @@ w zapytanie dla `ftf_graph`. Pole zgodności `ad_id` ma wartość `page:<capture
 a `provenance.record_kind = page_capture` oznacza samodzielną obserwację strony.
 Nie powstaje emisja ani `AdPageLink`. Dla użytecznej strony WWW z HTTP 2xx
 zapytanie zawiera własną domenę końcową, jednoznaczny piksel Meta i sumy zapisanych
-skryptów. Pełne dane z pochodzeniem pozostają w `extensions.page_observation`.
-Tekst strony nie dostaje embeddingu innej metody niż korpus, a czas wizyty nie
-zastępuje publikacji. Ekran automatycznie porównuje zapytanie z wybranym korpusem;
+skryptów. Gdy ekstrakcja dostarczy porównywalną treść lub sygnaturę DOM,
+oba adaptery przekazują również tekst strony i MinHash szablonu z lokalizatorami.
+Pełne dane z pochodzeniem pozostają w `extensions.page_observation`.
+Tekst i odcisk DOM strony mają pochodzenie obserwacji. Czas wizyty opisuje pobranie. Ekran automatycznie porównuje zapytanie z wybranym korpusem;
 trwałe dopisanie wymaga osobnego kliknięcia. Błędy i blokady nie tworzą zapytania.
+
+Przy odczycie zapisanej karty analityka zapisany, zweryfikowany pakiet dostarcza cech bez ponowienia wizyty. Bez pakietu ekran pokazuje dawną obserwację i ostrzeżenie. Decyzję porównawczą zasilają cechy ze zweryfikowanych źródeł. Plik prywatnego korpusu zachowuje kompletną dawną kartę.
 
 Decyzja zespołu: formularz przed pobraniem sprawdza URL w wybranym korpusie grafu.
 Istniejące rekordy są wyróżniane bez nowej wizyty, zapytania lub zapisu. Nowa karta
@@ -208,7 +170,7 @@ host/ścieżkę dopasowujemy przy braku query i redakcji ścieżki, bez rozróż
 HTTP/HTTPS. Sama zgodność domeny nie wystarcza. Po zapisie znika aktywne zapytanie,
 a wyróżniony zostaje zapisany rekord. Nie zmienia to deduplikacji emisji silnika.
 
-Korekta decyzji zespołu 2026-11-22: ręczne żądanie analityka zawsze uruchamia
+Korekta decyzji zespołu 2026-11-22: ręczne żądanie analityka dla nowego URL uruchamia
 pobranie, niezależnie od rankingu domen. Nie zwracamy klasyfikacji bezpieczeństwa
 na podstawie popularności. Polityka automatycznego schedulera pozostaje osobna.
 Pobranie i ślad w grafie to osobne decyzje. Host wspólny nie jest śladem, co nie
@@ -237,21 +199,6 @@ odczytem lokalnego OCR albo tekstem źródłowym referencji, z oznaczoną metod�
 `extraction.evidence[]` zapisuje pole, `origin_id`, `source_ref` i `method_version`;
 odczyt OCR zachowuje lokalizatory linii. `extraction.warnings` wyjaśnia brak OCR.
 
-GUI automatycznie dołącza dostępny lokalny korpus NASK, bez pola ścieżki w formularzu.
-Przy jego braku pozostają karty z wybranego korpusu grafu. Adapter programowy
-nadal przyjmuje jawny katalog korpusu v0 lub luźnych plików. ID w grafie to
-`reference:<dataset_id>:<ad_id>`; oryginalne ID pozostaje w `provenance.original_ad_id`.
-Duplikat ID jest idempotentny; różne emisje tego samego pliku są zachowane.
-Niepoprawny obraz nie usuwa poprawnego tekstu. Ścieżki wychodzące poza katalog
-referencji nie są dopuszczane. Referencje są dołączane na czas aktywnego zapytania.
+Zdjęcie jest porównywane z wybraną referencją. Demo wykorzystuje dane syntetyczne. Analityk wybiera korpus NASK albo inną lokalną referencję osobno. Karty źródłowe zachowują oryginalne ID w pochodzeniu. Odmienne emisje tego samego pliku pozostają odrębne.
 
-SHA jest osobnym sygnałem ponownego użycia pliku o sile 0,95, bez filtra rzadkości.
-pHash64 i TF-IDF `char_wb` 3–5 korzystają z dotychczasowych progów opisanych
-w instrukcji grafu. Słownik i IDF powstają tylko z referencji; zapytanie jest
-transformowane. SHA/pHash i tekst o wspólnym pochodzeniu po obu stronach pary
-wchodzą do jednej grupy dowodowej (maksimum). Linki z OCR nie stają się
-potwierdzoną stroną docelową. DINOv2 pozostaje poza tą ścieżką; nie trafia do CLIP.
-Zapis zgłoszenia przyciskiem **Dopisz** zmienia jego `record_kind` na
-`image_reference`, zachowując ID, źródło i dowody. Ponowny import tego zgłoszenia
-nie mnoży rekordów. Klastrowanie pozostaje dotychczasowym HDBSCAN demonstratora;
-pełna reguła niezależnego przypisania kampanii wymaga dalszej integracji.
+Kopia SHA daje sygnał podobieństwa plików o sile 0,95. Słownik i IDF tekstu powstają na referencji. Prywatny zapis zmienia `record_kind` zgłoszenia obrazu na `image_reference`. Powtórny import tego samego zgłoszenia jest idempotentny.

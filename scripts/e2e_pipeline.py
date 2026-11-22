@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED = ("playwright", "sklearn", "numpy", "hdbscan")
+REQUIRED = ("playwright", "sklearn", "numpy", "scipy")
 
 
 def build_config(base_file: Path, state: Path, args) -> Path:

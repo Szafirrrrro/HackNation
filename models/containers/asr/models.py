@@ -178,11 +178,11 @@ class ECAPA(Extractor):
         self.m.eval()
 
     def extract(self, item):
-        import torch
         sr = self.params["sample_rate"]
         wav = load_audio(item.path, self.params["max_seconds"])   # głos tylko z początku nagrania
         if wav.size < self.params["min_seconds"] * sr:
             raise Unavailable("audio_too_short")
+        import torch
         with torch.no_grad():
             emb = self.m.encode_batch(torch.from_numpy(wav).unsqueeze(0)).reshape(-1).numpy()
         return [Out("audio.speaker_embedding", l2(emb))]

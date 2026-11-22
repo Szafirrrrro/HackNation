@@ -25,6 +25,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+if __package__:
+    from .import_rows import deduplicate_rows, read_jsonl
+else:
+    from import_rows import deduplicate_rows, read_jsonl
+
 IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".mp4", ".webm", ".mov", ".mkv"}
 TEXT_EXT = {".txt"}
@@ -43,6 +48,7 @@ class Ad:
     audio_origin: str | None = None
     audio_field: str = "audio_path"                # pole źródłowe nagrania: audio_path | video_path
     missing: dict = field(default_factory=dict)   # modality -> przyczyna (plik zadeklarowany, ale niedostępny)
+    source_line: int | None = None
 
     @property
     def ref(self) -> str:
@@ -79,6 +85,7 @@ class Corpus:
     ads: list[Ad]
     report: dict = field(default_factory=dict)
     fingerprint: str = ""
+    ads_path: Path | None = None
 
     def items(self, modality: str) -> list[Item]:
         out = []
@@ -105,20 +112,6 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-def _jsonl(p: Path, errors: list) -> list[tuple[int, dict]]:
-    rows = []
-    if not p.exists():
-        return rows
-    for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            rows.append((i, json.loads(line)))
-        except json.JSONDecodeError as e:
-            errors.append({"file": p.name, "line": i, "error": f"invalid_json: {e}"})
-    return rows
-
-
 def _host_name(root: Path) -> str:
     name = os.environ.get("CORPUS_NAME") or Path(os.environ.get("CORPUS_HOST_PATH", "")).name
     return name or root.name
@@ -126,11 +119,11 @@ def _host_name(root: Path) -> str:
 
 def _confined(root: Path, rel: str) -> Path | None:
     """Ścieżka mediów wewnątrz katalogu korpusu (kontrakt: „Błędy i czas”), inaczej None."""
-    if not rel or os.path.isabs(rel):
+    if not isinstance(rel, str) or not rel or os.path.isabs(rel):
         return None
     try:
         (root / rel).resolve().relative_to(root.resolve())
-    except ValueError:
+    except (ValueError, OSError, RuntimeError):
         return None
     return root / rel
 
@@ -145,29 +138,39 @@ def _fingerprint(ads: list[Ad]) -> str:
     return h.hexdigest()[:16]
 
 
-def _load_v0(root: Path) -> Corpus:
+def _load_v0(root: Path, path: Path) -> Corpus:
     errors: list = []
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8")) \
-        if (root / "manifest.json").exists() else {}
-    shots = {r["ad_id"]: r for _, r in _jsonl(root / "observations" / "screenshots.jsonl", errors)
-             if "ad_id" in r}
-    ads, seen, skipped = [], set(), []
-    for line, rec in _jsonl(root / "ads.jsonl", errors):
-        ad_id = rec.get("ad_id")
-        if not ad_id:
-            errors.append({"file": "ads.jsonl", "line": line, "error": "missing_ad_id"})
+    manifest, manifest_path = {}, root / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+            if not isinstance(manifest, dict):
+                raise ValueError("expected JSON object")
+        except (ValueError, RecursionError) as exc:
+            errors.append({"file": str(manifest_path), "error": f"invalid_manifest: {exc}"})
+            manifest = {}
+    ds = manifest.get("dataset_id")
+    ds = ds if isinstance(ds, str) and ds.strip() else _host_name(root)
+    shots_path = root / "observations" / "screenshots.jsonl"
+    shots = {r["ad_id"]: r for _, r in read_jsonl(shots_path, errors)
+             if isinstance(r.get("ad_id"), str)} if shots_path.is_file() else {}
+    rows = []
+    for line, rec in (read_jsonl(path, errors) if path.is_file() else []):
+        if not isinstance(rec.get("source", {}), dict):
+            errors.append({"file": str(path), "line": line, "error": "invalid_source"})
             continue
-        if ad_id in seen:  # ponowny import tego samego ID jest idempotentny
-            skipped.append(ad_id)
-            continue
-        seen.add(ad_id)
+        rows.append((line, rec))
+    rows, duplicates = deduplicate_rows(rows, ds, str(path), errors)
+    ads = []
+    for line, rec in rows:
+        ad_id = rec["ad_id"]
 
         def err(msg):
             errors.append({"file": "ads.jsonl", "line": line, "ad_id": ad_id, "error": msg})
 
         shot = shots.get(ad_id, {})
         group = rec.get("observation_group") or shot.get("observation_group")
-        a = Ad(ad_id, rec)
+        a = Ad(ad_id, rec, source_line=line)
         a.image_origin = rec.get("image_origin") or group or f"{ad_id}#image_path"
         if rec.get("image_path"):
             p = _confined(root, rec["image_path"])
@@ -189,19 +192,22 @@ def _load_v0(root: Path) -> Corpus:
                     a.audio, a.audio_field = p, k
                     a.audio_origin = rec.get("audio_origin") or f"{ad_id}#{k}"
                 break
-        if (rec.get("text") or "").strip():
+        if isinstance(rec.get("text"), str) and rec["text"].strip():
             a.text = rec["text"].strip()
             # domyślnie tekst reklamy z obrazem dziedziczy pochodzenie obrazu
             a.text_origin = rec.get("text_origin") or (
                 a.image_origin if rec.get("image_path") else f"{ad_id}#text")
+        elif rec.get("text") is not None and not isinstance(rec["text"], str):
+            err("invalid_text")
         if not (a.text or rec.get("image_path") or rec.get("landing_url")
                 or rec.get("audio_path") or rec.get("video_path")):
             err("no_usable_field")
         ads.append(a)
-    ds = manifest.get("dataset_id") or _host_name(root)
     return Corpus(root, ds, "v0", ads,
-                  {"errors": errors, "duplicate_ad_ids": skipped,
-                   "manifest_schema": manifest.get("schema_version")}, _fingerprint(ads))
+                  {"errors": errors, "duplicate_ad_ids": [r["ad_id"] for r in duplicates],
+                   "duplicates": duplicates, "manifest_schema": manifest.get("schema_version"),
+                   "source_description": manifest.get("source_description"),
+                   "collected_at": manifest.get("collected_at")}, _fingerprint(ads), ads_path=path)
 
 
 def _load_files(root: Path) -> Corpus:
@@ -214,7 +220,7 @@ def _load_files(root: Path) -> Corpus:
         if ext not in IMG_EXT | AUDIO_EXT | TEXT_EXT:
             continue
         ad_id = "file-" + _sha256(p)[:16]
-        rel = str(p.relative_to(root))
+        rel = p.relative_to(root).as_posix()
         if ad_id in ads:
             dups.append({"ad_id": ad_id, "path": rel, "same_as": ads[ad_id].record["source"]["ad_ref"]})
             continue
@@ -241,8 +247,8 @@ def _load_files(root: Path) -> Corpus:
                   {"duplicate_files": dups, "errors": errors}, _fingerprint(lst))
 
 
-def load_corpus(root: str | Path) -> Corpus:
+def load_corpus(root: str | Path, *, ads_path: Path | None = None) -> Corpus:
     root = Path(root)
-    if (root / "ads.jsonl").exists():
-        return _load_v0(root)
+    if ads_path is not None or (root / "ads.jsonl").is_file() or (root / "manifest.json").is_file():
+        return _load_v0(root, ads_path or root / "ads.jsonl")
     return _load_files(root)

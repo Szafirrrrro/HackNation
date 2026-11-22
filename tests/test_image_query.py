@@ -84,7 +84,9 @@ class ImageQueryTests(unittest.TestCase):
         result = analyze_image(picture(), str(root), self.root / "private")
         refs = result["references"]
         self.assertEqual(len(refs), 4)
-        self.assertEqual(result["report"]["duplicate_ad_ids"], ["fresh-1"])
+        self.assertEqual(result["report"]["duplicate_ad_ids"], [])
+        self.assertTrue(any(e["error"] == "conflicting_local_record" and e["ad_id"] == "fresh-1"
+                            for e in result["report"]["errors"]))
         self.assertTrue(any("path_outside_corpus" in e["error"] for e in result["report"]["errors"]))
         self.assertEqual(refs[0]["visual"]["sha256"], refs[1]["visual"]["sha256"])
         self.assertNotEqual(refs[0]["ad_id"], refs[1]["ad_id"])
@@ -102,7 +104,12 @@ class ImageQueryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             image_references(empty)
         (self.root / "secret.png").write_bytes(picture())
-        (empty / "escape.png").symlink_to(self.root / "secret.png")
+        try:
+            (empty / "escape.png").symlink_to(self.root / "secret.png")
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows user lacks permission to create a symbolic link")
+            raise
         with self.assertRaisesRegex(ValueError, "poza katalogiem"):
             image_references(empty)
 

@@ -2,7 +2,7 @@
 
 Silnik bierze **karty reklam** (jedna reklama = jeden obiekt JSON z danymi z crawlera i analizatorów),
 porównuje każdą parę reklam, wylicza **wynik podobieństwa z uzasadnieniem**, grupuje reklamy w **kampanie**
-algorytmem HDBSCAN, a wynik zapisuje do JSON i opcjonalnie do **Neo4j**. Demonstrator w Streamlicie
+metodą complete-link, a wynik zapisuje do JSON i opcjonalnie do **Neo4j**. Demonstrator w Streamlicie
 pokazuje graf kampanii, oś czasu i to, gdzie trafia nowo wgrana reklama.
 
 ```
@@ -12,16 +12,16 @@ karty.jsonl
    │  scoring.py   każda para kart → ślady twarde i miękkie → max na grupę → noisy-OR → score 0..1
    ▼
 macierz score N×N  ──►  edges.json / krawędzie :SIMILAR (score ≥ min_edge, z listą powodów)
-   │  cluster.py   HDBSCAN na odległości 1 − score
+   │  cluster.py   complete-link na wynikach kampanijnych par
    ▼
-kampanie  ──►  campaigns.json  ──►  Neo4j (neo4j_store.py)  ──►  Streamlit (app.py)
+kampanie  ──►  Streamlit (app.py) lub eksport CLI do JSON / Neo4j
 ```
 
 ---
 
 ## Szybki start
 
-Wymagania: Python 3.10+ (testowane na 3.12 i 3.13), opcjonalnie Docker (dla Neo4j).
+Do poniższych poleceń użyj Pythona 3.12 lub 3.13 i katalogu `graph/`. Opcjonalny Neo4j działa przez Docker.
 
 ```bash
 pip install -r requirements-app.txt            # silnik + Streamlit (sam silnik: requirements.txt)
@@ -36,8 +36,9 @@ streamlit run app.py                                         # demonstrator w pr
 Z zapisem do Neo4j:
 
 ```bash
-docker compose up -d                           # Neo4j 5; Browser: http://localhost:7474 (neo4j / hackathon123)
-python -m ftf_graph data/sample_cards.jsonl --neo4j bolt://localhost:7687 --neo4j-password hackathon123 --wipe
+export NEO4J_PASSWORD='własne-długie-hasło'    # ustaw własną wartość przed pierwszym startem
+docker compose up -d neo4j                     # Neo4j Browser na localhost:7474
+python -m ftf_graph data/sample_cards.jsonl --neo4j bolt://localhost:7687 --neo4j-user neo4j
 ```
 
 ### Przechwycenie strony przez URL
@@ -77,9 +78,7 @@ na portach 80/443, bez danych logowania w adresie.
 Decyzja zespołu: zapytanie `page:<capture_id>` oznacza samodzielną obserwację
 strony, bez `AdPageLink` i bez automatycznego dopisania do korpusu reklam.
 Do analizy wchodzą użyteczne strony WWW z HTTP 2xx: domena końcowa,
-jednoznaczny piksel Meta i sumy zapisanych skryptów. Tekst i pełna ekstrakcja
-z pochodzeniem pozostają w karcie; nie tworzymy embeddingu inną metodą niż
-korpus ani nie traktujemy zrzutu strony jako kreacji reklamowej.
+jednoznaczny piksel Meta, sumy skryptów, tekst strony i dostępny odcisk DOM. Adapter ręczny i scheduler stosują wspólną reprezentację tekstu i szablonu. Zgłoszenie strony może dać przesłanki do przeglądu. Do przypisania tych śladów emisji potrzebny jest udokumentowany związek reklamy ze stroną.
 Czas wizyty nie zastępuje daty publikacji. Błąd pobrania lub ekstrakcji usuwa
 poprzednie zapytanie z ekranu; zmiana parametrów nie uruchamia nowego pobrania.
 Realizuje to przyjmowanie URL oraz pozyskiwanie danych opisane
@@ -87,43 +86,11 @@ w [zadaniu NASK, pkt 3](../docs/NASK_ZADANIE.md).
 
 ### Analiza zdjęcia lub zrzutu reklamy
 
-Po instalacji `graph/requirements-app.txt` otwórz **Sprawdź zdjęcie lub zrzut reklamy**,
-wybierz PNG/JPEG/WebP i kliknij **Analizuj zdjęcie**. Limit wynosi 20 MiB i 32 MP;
-animacje oraz uszkodzone obrazy są odrzucane przed zapisem. Lokalny korpus NASK
-jest dołączany automatycznie, jeśli jest dostępny w `data/nask-hacknation-2026`.
-Formularz nie wymaga podawania ścieżek. Przy braku lokalnego korpusu porównanie
-korzysta tylko z kart JSONL wybranych w pasku bocznym;
-do porównania potrzebują `visual.phash`, `visual.sha256` lub `text.ocr_text`.
+Formularz przyjmuje pojedynczy PNG, JPEG lub WebP do 20 MiB i 32 mln pikseli. SHA-256 identyfikuje plik, pHash64 opisuje wygląd po korekcji EXIF. OCR korzysta z Windows.Media.Ocr albo lokalnego Tesseract z językiem polskim lub angielskim. Przy niedostępnym OCR pozostaje porównanie obrazu. Zapis prywatny przechowuje oryginalne bajty i lokalizatory cech.
 
-Adapter `scamgraph.image_query` zachowuje oryginalne bajty w prywatnym
-`.private-discovery/analyst/images/`, liczy SHA-256 i pHash64 (ImageHash 4.3.1,
-po korekcji orientacji EXIF). Korzysta z istniejącego lokalnego OCR: Windows.Media.Ocr
-na Windows albo Tesseract na innych systemach. Dla Tesseract zainstaluj program
-systemowy i pakiety `pol`/`eng`; `tesseract --list-langs` pokazuje dostępne języki.
-Brak silnika/języków, timeout i pusty OCR są widoczne w raporcie. pHash i SHA
-działają dalej; przy braku OCR referencji adapter może wykorzystać jej tekst źródłowy.
+Wskaż w panelu bocznym zbiór odniesienia. Wbudowane demo zawiera wyłącznie przykłady syntetyczne. Korpus NASK i pliki lokalne analizuje się po ich wyborze. Wgraj zdjęcie lub podaj tekst, opcjonalnie wskaż znany adres celu, a następnie wybierz **Porównaj reklamę**. Wynik pokazuje osobno kopie pliku, decyzję o kampanii, dostępne porównania i brakujące rodzaje danych. Zapis przyciskiem **Dopisz** tworzy prywatny dodatek do wybranego korpusu, poza plikami źródłowymi.
 
-Referencje uzupełniają korpus grafu; ich ID zawiera przestrzeń nazw zbioru
-`reference:<dataset_id>:<ad_id>`. Różne emisje z tym samym obrazem pozostają osobne.
-Formularz nie pobiera stron ani linków odczytanych z obrazu. Wynik pozostaje
-w sesji podczas zmiany parametrów, bez ponownego OCR. Ponowna analiza wymaga
-przycisku i ponownie odczytuje referencję. **Usuń zapytanie ze zdjęcia** usuwa
-bieżące zapytanie i jego dodatkowe referencje z widoku. Trwały zapis karty wymaga
-przycisku **Dopisz**; ponowne przesłanie zapisanego zdjęcia nie dodaje kopii.
-
-Decyzja zespołu 2026-11-22: silnik używa bezpośrednio SHA (siła 0,95), pHash
-(dotychczasowe progi 4–12 bitów, waga 0,60) oraz TF-IDF `char_wb` 3–5 dla tekstu
-obrazów (dotychczasowe progi cos 0,75–0,95, waga 0,60). TF-IDF uczy się tylko
-na referencji, a zapytanie przechodzi przez `transform`. SHA/pHash/OCR tego samego
-materiału dają maksimum, nie sumę niezależnych dowodów. Szczegóły powiązania
-pokazują źródła i oba obrazy. Identyczność pliku nie potwierdza kampanii ani oszustwa.
-To integracja klasycznej ścieżki CPU; DINOv2 nie jest tutaj uruchamiane ani zapisywane
-jako CLIP. Nie zmieniamy obecnego HDBSCAN: przelicza on grupy korpusu z zapytaniem.
-Nie jest to jeszcze zamrożona referencja kampanii z docelowego kontraktu.
-Skuteczność na kadrach i p95 całej ścieżki nie zostały zmierzone.
-
-Przebieg realizuje wejście zdjęcia i porównanie cech z [pkt 3 zadania NASK](../docs/NASK_ZADANIE.md).
-Testy na własnych obrazach: `python -m unittest discover -s tests -p 'test_image_query*.py' -v`.
+Testy dla tego wejścia: `python -m unittest discover -s tests -p 'test_image_query*.py'` z katalogu głównego.
 
 ### Opcje silnika
 
@@ -132,10 +99,12 @@ Opcje CLI (`python -m ftf_graph KARTY.jsonl ...`):
 | Opcja | Domyślnie | Znaczenie |
 |---|---|---|
 | `--out DIR` | `out` | katalog na `edges.json` i `campaigns.json` |
-| `--min-cluster N` | 3 | minimalna liczba reklam w kampanii (HDBSCAN `min_cluster_size`) |
-| `--min-samples K` | 2 | HDBSCAN `min_samples` |
-| `--min-edge X` | 0.25 | minimalny score krawędzi zapisywanej do `edges.json` / Neo4j; także minimalne powiązanie reklamy z jej kampanią |
-| `--query AD_ID` | — | wypisuje kampanię reklamy i 5 najsilniejszych powiązań z powodami |
+| `--min-cluster N` | 3 | minimalna liczba członków grupy complete-link |
+| `--min-samples K` | 2 | opcja zgodności dla starszych wywołań |
+| `--min-edge X` | 0.25 | minimalny score krawędzi zapisywanej do `edges.json` / Neo4j |
+| `--min-campaign X` | 0.65 | próg wymagany dla każdej pary w kampanii |
+| `--query AD_ID` | — | wyłącza emisję z referencji, porównuje ją z pozostałymi, zapisuje `query.json` |
+| `--query-file FILE` | — | porównuje osobną kartę JSON z referencją |
 | `--neo4j URI` | — | zapis do Neo4j (np. `bolt://localhost:7687`) |
 | `--neo4j-user`, `--neo4j-password` | `neo4j`, `""` | albo zmienne `NEO4J_USER`, `NEO4J_PASSWORD` |
 | `--wipe` | wyłączone | czyści **całą** bazę Neo4j przed zapisem (do powtarzalnego demo) |
@@ -153,7 +122,7 @@ Opcje CLI (`python -m ftf_graph KARTY.jsonl ...`):
 | **ślad miękki** | `Reason.hard = False` | karty są **podobne** w jakimś stopniu (wektory, odciski, daty) |
 | **grupa** | `Reason.group` | kategoria spokrewnionych śladów; z każdej grupy liczy się tylko najsilniejszy |
 | **krawędź** | `Edge`, `:SIMILAR` | wynik dla pary kart: `score` + lista śladów jako uzasadnienie |
-| **kampania** | `Campaign`, `:Campaign` | klaster **reklam** wyznaczony przez HDBSCAN (artefakty nie są członkami kampanii) |
+| **kampania** | `Campaign`, `:Campaign` | klaster **reklam** wyznaczony metodą complete-link (artefakty nie są członkami kampanii) |
 | **szum** | etykieta `-1`, `unassigned` | reklama bez kampanii — **nie** oznacza „bezpieczna” |
 
 „Twardy” nie znaczy „mocny”: wspólny rejestrator to ślad twardy o sile 0.05, a podobna twarz to ślad
@@ -271,54 +240,15 @@ tylko z 5 z 8 reklam).
 Twarz daje najwyżej 0.5, a głos najwyżej 0.45. Ten sam wizerunek lub sklonowany głos celebryty pojawia się
 w wielu niezależnych kampaniach, więc sam nie może skleić dwóch reklam.
 
-### 3. Grupy i łączenie
+### 3. Zależność dowodów i decyzja o kampanii
 
-Ślady tej samej grupy opisują jedną informację, więc z każdej grupy liczy się **tylko najsilniejszy**.
-Pozostałe są dopisywane w opisie jako `[+N podobnych śladów w tej grupie]`. Grupy wieloelementowe:
+Silnik ogranicza wkład cech o wspólnym pochodzeniu po obu stronach pary. Z wielu pomiarów zależnych przyjmuje najsilniejszy. Dla rozłącznych wkładów liczy `1 − iloczyn(1 − siła)`. To wynik podobieństwa. Próg do prezentacji powiązania wynosi domyślnie 0,25. Bezpośrednią zgodność pliku pokazuje również jako kopię, z siłą 0,95.
 
-| Grupa | Rodzaje |
-|---|---|
-| `domain` | `domain_hop`, `domain_final` |
-| `contact` | `phone`, `telegram`, `crypto` |
-| `text` | `text`, `audio_text`, `transcript` |
-| `audio_fp` | `audio_fp` (twardy), `audio_fp_sim` (miękki) |
-| `template` | `template` (twardy), `template_sim` (miękki) |
+## Klastrowanie i zapytania
 
-Każdy inny rodzaj jest swoją własną grupą. Siły najsilniejszych śladów z różnych grup łączymy wzorem noisy-OR:
+Grupy referencyjne powstają przez complete-link na wynikach kampanijnych. Przy scaleniu dwóch grup każda para pomiędzy grupami musi spełnić próg (domyślnie 0,65). Minimum to trzy materiały. Pojedyncza mocna para nadal może być widoczna w grafie. Samo ponowne użycie identycznego pliku daje podstawę do porównania kreacji.
 
-```
-score = 1 − Π (1 − s_i)
-```
-
-Intuicja: `Π (1 − s_i)` to szansa, że **wszystkie** ślady są przypadkowe. Wynik zawsze mieści się w [0, 1],
-każdy kolejny ślad podnosi go coraz mniej, a jeden słaby ślad nie da wysokiego wyniku. Przykłady:
-0.5 i 0.5 → 0.75; 0.3 → 0.30; cokolwiek + 0.9 → co najmniej 0.90.
-
-Para bez żadnego śladu ma score 0, czyli **brak dowodu, a nie dowód różnicy**. Silnik nie ma śladów ujemnych.
-
-### 4. Co trafia dalej
-
-- **HDBSCAN** dostaje pełną macierz `score` N×N (pary bez śladów = 0, przekątna = 1).
-- **`edges.json` i Neo4j** dostają tylko krawędzie z `score ≥ min_edge` (domyślnie 0.25).
-
-Wszystkie wagi i progi są w `Config` (`ftf_graph/scoring.py`). To ręcznie dobrane punkty startowe, a nie wartości wyuczone.
-
----
-
-## Klastrowanie (HDBSCAN)
-
-- Wejście: odległość `1 − score` (`ftf_graph/cluster.py`), `metric="precomputed"`.
-- Biblioteka: pakiet `hdbscan`, a gdy nie jest zainstalowany — `sklearn.cluster.HDBSCAN`. Na danych testowych obie dają ten sam wynik.
-- Parametry: `min_cluster_size` (`--min-cluster`, 3) i `min_samples` (`--min-samples`, 2).
-- **Kampania musi mieć dowody.** Reklamy bez żadnych wspólnych śladów są od siebie równo odległe (odległość 1),
-  a HDBSCAN potrafi uznać taką grupę za skupisko. Dlatego po klastrowaniu każda reklama musi mieć w swojej
-  kampanii co najmniej jedną krawędź o score ≥ `min_edge`, inaczej trafia do szumu. Kampania, która po tym ma
-  mniej niż `min_cluster_size` reklam, jest rozwiązywana. Bez tego zabezpieczenia wersja sklearn na danych
-  testowych tworzyła fałszywą kampanię z trzech niezwiązanych reklam szumu.
-- Wynik: etykieta kampanii albo `-1` (szum) oraz `strength` z `probabilities_` HDBSCAN-a. `strength` mówi, jak blisko „rdzenia” kampanii leży reklama — to **nie** jest pewność przypisania.
-- Numeracja: kampanie są sortowane malejąco według liczby reklam i nazywane `CMP-1`, `CMP-2`, … **przy każdym uruchomieniu od nowa**, więc numer kampanii nie jest stały między przebiegami.
-
----
+Nowe zgłoszenie jest oceniane względem już zbudowanych grup. Przy dokładnie jednej kwalifikującej się grupie silnik zwraca `probable_match`. Podobne pary i konkurencyjne grupy mogą skutkować `review_needed`. Brak porównywalnych danych daje `insufficient_evidence`, a brak powiązania przy porównywalnych danych daje `no_match`. Odcisk referencji pozwala określić, którego zbioru dotyczy wynik. [Reguły i dowody](../docs/DATA_CONTRACT.md) · [Próba odłożona](eval/README.md)
 
 ## Zaufane domeny
 
@@ -346,7 +276,7 @@ obecnych źródeł ma mniej niż 10 000 wpisów po wykluczeniach. Wspólna polit
 hosting i serwisy z treściami użytkowników. Wykluczenie jest dokładne: `docs.google.com`
 nie usuwa `google.com`, a wpis PSL pod `co.uk` nie usuwa `bbc.co.uk`.
 
-Pobieranie i ślad w grafie to dwie osobne decyzje. Ręczny URL pobieramy zawsze.
+Pobieranie i ślad w grafie to dwie osobne decyzje. Znany adres można ponownie otworzyć z istniejącego zapisu. Nowy ręczny URL pomija filtr rankingu przy pozyskaniu.
 O tym, czy host jest śladem, decyduje najdłuższy pasujący sufiks:
 
 | Host | Przykład | Czy jest śladem |
@@ -359,9 +289,7 @@ O tym, czy host jest śladem, decyduje najdłuższy pasujący sufiks:
 | każda inna | `dorquesio.click` | tak |
 
 Reguła platform i hostów wspólnych działa także przy `FTF_TRUSTED_DOMAINS` (bez pakietu PSL: tylko jawne listy).
-Po zmianie tej polityki usuń zapisane `*.campaigns.json` schedulera, bo przeliczają się tylko po zmianie wejścia,
-a Neo4j zapisz z `--wipe`.
-Popularność nie stanowi oceny bezpieczeństwa.
+Scheduler uwzględnia wersję obliczenia, konfigurację i politykę domen przy wyborze raportu. Po aktualizacji uruchom zwykłe odświeżenie.
 
 Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytorium:
 
@@ -369,7 +297,7 @@ Eksport TXT jest opcjonalny i wymaga jawnego wskazania pliku, np. poza repozytor
 python tools/build_trusted_list.py --out /tmp/trusted_domains.txt
 ```
 
-Ręczny formularz URL zawsze pobiera stronę na jawne żądanie analityka,
+Ręczny formularz pobiera nowy URL na jawne żądanie analityka,
 niezależnie od rankingu. Nie pokazuje komunikatu o bezpieczeństwie na jego podstawie.
 Scheduler zachowuje własne reguły automatycznego pomijania pobrań.
 
@@ -381,7 +309,7 @@ Scheduler zachowuje własne reguły automatycznego pomijania pobrań.
   Dwie reklamy bez twarzy nie są przez to ani podobne, ani różne.
 - `Card.signals()` zwraca, które z 8 rodzajów sygnałów karta ma: domeny, infrastruktura, śledzenie/skrypty,
   kontakty, tekst, wygląd, twarze, audio. W Neo4j to `Ad.signals` i `Ad.signals_present` (np. `"5/8"`).
-  Demonstrator ostrzega, gdy nowa reklama ma 3 lub mniej rodzajów: brak kampanii może wtedy wynikać z braku danych.
+  Wynik zapytania podaje, których obserwacji brakuje i które rodziny można było porównać z referencją.
 
 ---
 
@@ -412,7 +340,7 @@ docelowych, reklamy, osoby i 5 najczęstszych wspólnych artefaktów; lista rekl
 | `Ad` | `id`, `source`, `url`, `fetched_at`, `first_seen`, `last_seen`, `status`, `text`, `transcript`, `audio_duration_s`, `trusted_domains`, `signals`, `signals_present` | karta |
 | `Domain` | `value` | łańcuch przekierowań, domena docelowa, SAN certyfikatu (bez zaufanych) |
 | `IP`, `ASN`, `Registrar`, `Nameserver`, `Certificate`, `Favicon`, `TrackingID`, `Script`, `FormEndpoint`, `Phone`, `Telegram`, `CryptoAddress`, `Template`, `HiddenText`, `Keyword`, `Person`, `AudioFingerprint`, `Transcript` | `value`, `ads`, `rarity` | artefakty |
-| `Campaign` | `id`, `size`, `mean_edge`, `first_seen`, `last_seen` | wynik HDBSCAN |
+| `Campaign` | `id` (odcisk składu), `campaign` (lokalny numer CMP), `size`, `mean_edge`, `first_seen`, `last_seen` | wynik complete-link |
 
 | Relacja | Właściwości |
 |---|---|
@@ -424,10 +352,7 @@ docelowych, reklamy, osoby i 5 najczęstszych wspólnych artefaktów; lista rekl
 | `(Ad)-[:SIMILAR]-(Ad)` | `score`, `has_hard_evidence`, `reasons` (lista tekstów) |
 | `(Ad)-[:IN_CAMPAIGN]->(Campaign)` | `strength` |
 
-Zachowanie przy kolejnych zapisach: węzły i relacje są tworzone przez `MERGE`, więc nic się nie dubluje,
-a reklam i domen nic nie usuwa (stare kampanie łączą się z nowymi domenami przez wspólne piksele, favicony,
-twarze). Usuwane są tylko wszystkie `IN_CAMPAIGN` (tworzone od nowa) oraz węzły `Campaign`, które zostały
-bez reklam. `--wipe` czyści całą bazę.
+Zapis aktualizuje powiązania obliczone dla analizowanych materiałów. Opcja administracyjna `--wipe` czyści całą wybraną bazę.
 
 Przydatne zapytania (Neo4j Browser):
 
@@ -435,12 +360,12 @@ Przydatne zapytania (Neo4j Browser):
 // kampanie i ich reklamy
 MATCH (a:Ad)-[:IN_CAMPAIGN]->(k:Campaign) RETURN a, k;
 // jedna kampania: reklamy i krawędzie podobieństwa między nimi
-MATCH (a:Ad)-[:IN_CAMPAIGN]->(k:Campaign {id:'CMP-2'})<-[:IN_CAMPAIGN]-(b:Ad)
+MATCH (a:Ad)-[:IN_CAMPAIGN]->(k:Campaign {campaign:'CMP-2'})<-[:IN_CAMPAIGN]-(b:Ad)
 MATCH (a)-[s:SIMILAR]-(b) RETURN a, s, b;
 // dlaczego reklama jest połączona z innymi
 MATCH (a:Ad {id:'B03'})-[r:SIMILAR]-(b) RETURN b.id, r.score, r.reasons ORDER BY r.score DESC;
 // rzadkie artefakty kampanii (uzasadnienie)
-MATCH (k:Campaign {id:'CMP-1'})<-[:IN_CAMPAIGN]-(a:Ad)-[:USES]->(x) WHERE x.rarity > 0 RETURN k, a, x;
+MATCH (k:Campaign {campaign:'CMP-1'})<-[:IN_CAMPAIGN]-(a:Ad)-[:USES]->(x) WHERE x.rarity > 0 RETURN k, a, x;
 // pośrednicy w przekierowaniach
 MATCH (s:Domain)-[:REDIRECTS_TO]->(d:Domain) RETURN d.value, count(s) AS wejscia ORDER BY wejscia DESC;
 ```
@@ -453,25 +378,9 @@ W Browserze kliknij etykietę `Ad` w wyniku i ustaw *Caption* na `id`, żeby wid
 
 `streamlit run app.py` (zależności: `requirements-app.txt`).
 
-- **Nowy materiał:** URL albo zdjęcie PNG/JPEG/WebP przez osobne formularze.
-  Wgrywanie kart JSON i wybór `data/new_ad_*.json` nie są obecnie dostępne w GUI.
-  Duplikat `ad_id` dostaje przyrostek (`-2`, `-3`…). Silnik przelicza cały korpus razem z nową reklamą
-  i pokazuje jej kampanię albo informację, że nie pasuje, oraz 5 najsilniejszych powiązań z listą śladów.
-  Przycisk **„Dopisz … do prywatnego korpusu”** zapisuje kartę w ignorowanym przez Git
-  `.private-discovery/analyst/corpora/`. Źródłowy JSONL (w tym demo) pozostaje tylko
-  do odczytu. Prywatne dodatki są osobne dla każdej ścieżki korpusu i wczytują się
-  ponownie po restarcie; zapisane materiały są deduplikowane jak pozostałe rekordy.
-- **Graf** (pyvis): ◆ kampanie, ● reklamy w kolorze kampanii (szare = szum), ★ czerwona = nowa reklama.
-  Krawędź ciągła = jest co najmniej jeden ślad twardy, przerywana = tylko miękkie; grubość rośnie ze score.
-  Dymki pokazują szczegóły i uzasadnienie.
-- **Oś czasu** (plotly): każda reklama jako pasek `first_seen → last_seen` (brak lub błędne `last_seen` → +12 h),
-  pogrupowane według kampanii. Reklamy bez `first_seen` nie są na osi.
-- **Pasek boczny:** plik korpusu, `min_cluster_size`, `min_samples`, `min_edge`, pokazywanie krawędzi SIMILAR,
-  pokazywanie szumu, ukrywanie reklam na wspólnych hostach (domyślnie wyłączone), wysokość grafu.
-- **Ukrywanie wspólnych hostów:** działa tylko po włączeniu. Reklama jest ukryta, gdy jej cel to wspólny lub popularny host **i** nie
-  należy do żadnej kampanii **i** nie jest nowo wgrana. Film na YouTube powiązany z kampanią (np. tą samą twarzą) zostaje.
+Wybrany zbiór i jego pochodzenie są widoczne w panelu. Można wnieść nowy URL lub zdjęcie, obejrzeć obie strony istniejącego powiązania oraz chronologię dat źródłowych. Oś odróżnia rodzaje zdarzeń, w tym moment pozyskania. Wybór pary w panelu dowodów pozwala wrócić do przesłanek po opuszczeniu dymku grafu. GUI używa pyvis i Plotly.
 
----
+Prywatne dodatki są zapisywane w `.private-discovery/analyst/corpora/`. Zmiana danych referencyjnych wymaga ich jawnego wyboru albo zapisu. [Uruchomienie na stanowisku i w kontenerze](../README.md)
 
 ## Dane testowe
 
@@ -484,13 +393,7 @@ W Browserze kliknij etykietę `Ad` w wyniku i ustaw *Caption* na `id`, żeby wid
 | C | 6 | wspólny certyfikat, favicon, szablon (identyczny hash i MinHash J ≈ 0.94), ukryty tekst, GA, skrypt, Telegram, serwery nazw; domeny zarejestrowane w odstępach 7 min; twarz `prezenter_A`; bez audio |
 | N | 6 | szum: wspólny IP Cloudflare z grupą A, popularne słowa, losowe treści; część z rozmytą twarzą `prezenter_A`, część z losowym audio |
 
-Wynik (`python -m ftf_graph data/sample_cards.jsonl`): **3 kampanie** (A, B, C), **6 reklam szumu**,
-88 krawędzi; ten sam wynik daje `hdbscan` i `sklearn`. Między A i C są 24 krawędzie oparte **wyłącznie na
-twarzy** (score do 0.44), a wewnątrz kampanii średnio 1.00 (A), 0.93 (B) i 1.00 (C), więc HDBSCAN ich nie skleja.
-
-`tools/make_new_ad_examples.py` tworzy 3 nowe reklamy: `new_ad_krypto.json` trafia do kampanii C (favicon,
-szablon, Telegram), `new_ad_usmiech.json` do kampanii B (twarz, głos, tekst, bez wspólnej infrastruktury),
-a `new_ad_nieznana.json` zostaje bez kampanii.
+Aktualne liczniki uzyskasz przez `python -m ftf_graph data/sample_cards.jsonl`. Skrypt `tools/make_new_ad_examples.py` przygotowuje trzy dodatkowe przykłady demonstracyjne. Oddzielny pomiar na stałej referencji ma własne zapytania i etykiety. [Wyniki i instrukcja](eval/README.md)
 
 ---
 
@@ -500,7 +403,7 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 |---|---|
 | `ftf_graph/card.py` | parsowanie karty, normalizacje, artefakty, zaufane domeny, `signals()` |
 | `ftf_graph/scoring.py` | `Config` (wagi i progi), ślady twarde i miękkie, grupy, noisy-OR |
-| `ftf_graph/cluster.py` | HDBSCAN + zabezpieczenie „kampania musi mieć dowody” |
+| `ftf_graph/cluster.py` | deterministyczne grupowanie complete-link |
 | `ftf_graph/report.py` | podsumowanie kampanii, `edges.json`, `campaigns.json` |
 | `ftf_graph/neo4j_store.py` | zapis do Neo4j (paczki `UNWIND`, `MERGE`) |
 | `ftf_graph/__main__.py` | CLI |
@@ -510,7 +413,7 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
 | `data/trusted_manual.txt` | ręczna lista zaufanych (edytuj ten plik) |
 | `ftf_graph/trusted.py` | budowanie i cache listy bezpośrednio z CSV |
 | `data/tranco_46YVX.csv` | ranking Tranco (1 mln domen) |
-| `docker-compose.yml` | Neo4j 5 |
+| `docker-compose.yml` | lokalne usługi Neo4j i PostgreSQL |
 
 ---
 
@@ -521,18 +424,15 @@ a `new_ad_nieznana.json` zostaje bez kampanii.
   IP, favicon, szablon czy certyfikat (piksel, telefon, endpoint itp. zostają dzięki wyjątkowi).
 - **Wyjątek tożsamościowy ma koszt:** jeśli niezwiązane reklamy podają ten sam publiczny numer (np. infolinię banku),
   zostaną mocno połączone. Takie wartości trzeba wtedy wykluczyć ręcznie.
-- **Pamięć i czas:** pełna macierz N×N i HDBSCAN na niej (ok. 200 MB przy 5000 reklam); porównanie odcisków audio to pętla po parach w Pythonie, a MinHash szablonów liczy F×F porównań.
-- **Pola nieużywane w wyniku:** `favicon.phash`, `text.ocr_text`, `faces[].deepfake_score`, `cert.san`
+- **Pamięć i czas:** macierze N×N dla materiałów referencyjnych; porównanie odcisków audio to pętla po parach w Pythonie, a MinHash szablonów liczy F×F porównań.
+- **Pola nieużywane w wyniku:** `favicon.phash`, `faces[].deepfake_score`, `cert.san`
   (tylko w Neo4j), segmenty audio. Odcisk audio musi być w `fingerprint.array` — sam `key` nie jest obsługiwany.
 - **Ślad domenowy działa na poziomie hosta.** Wspólny host nie jest śladem, nawet gdy oszustwa rozróżnia jego ścieżka (`sites.google.com/view/x`, `bit.ly/abc`). Listy hostów są wyliczeniem: brakujący serwis wspólny połączy niezależne reklamy, a subdomena platformy spoza list może stracić ślad. Popularność w rankingu nie oznacza bezpieczeństwa.
 - **Numery kampanii** (`CMP-n`) zmieniają się między przebiegami.
-- **Brak oceny ryzyka pojedynczej reklamy** (świeża domena, Lista Ostrzeżeń CERT, deepfake) — szum HDBSCAN-a to nie to samo.
+- **Brak oceny ryzyka pojedynczej reklamy** (świeża domena, Lista Ostrzeżeń CERT, deepfake) — materiał poza kampaniami może wymagać dalszej analizy.
 
 ---
 
 ## Licencje komponentów
 
-numpy (BSD-3), scikit-learn (BSD-3), hdbscan (BSD-3), neo4j Python driver (Apache 2.0), Streamlit (Apache 2.0),
-pyvis (BSD), plotly (MIT), pandas (BSD-3), publicsuffixlist (MPL 2.0; dane Public Suffix List — MPL 2.0),
-ranking Tranco (cytowanie: Le Pochat i in., *Tranco: A Research-Oriented Top Sites Ranking Hardened Against
-Manipulation*, NDSS 2019), Neo4j Community Edition (GPLv3, uruchamiany jako osobna usługa w Dockerze).
+Biblioteki aplikacji, przeglądarka, OCR, bazy, zasady wykorzystania list oraz odnośniki do licencji modeli są opisane we [wspólnym wykazie](../docs/KOMPONENTY.md).

@@ -62,7 +62,10 @@ class MetaPublicTests(unittest.TestCase):
             node = Document(p.read_text(encoding="utf8")).nodes[index-1]
             self.assertIn(f.ad_ref, node.words())
         # Mock transport only; normalization and evidence for both modes stay identical.
-        with patch.object(meta, "_live", return_value=[(p, first.source_sha256, meta._parse_html(CARDS, QUERY), None)]):
+        def live_batches(options, query):
+            yield p, first.source_sha256, meta._parse_html(CARDS, query), None
+
+        with patch.object(meta, "_live", side_effect=live_batches):
             live = list(meta.fetch({"mode":"live", "permission":"test"}, QUERY))
         self.assertEqual([f.card for f in imported], [f.card for f in live])
         self.assertEqual(live[0].source_kind, "library")

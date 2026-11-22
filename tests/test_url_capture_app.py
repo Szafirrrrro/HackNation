@@ -31,6 +31,7 @@ class URLFormTests(unittest.TestCase):
             corpus.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
             original = corpus.read_bytes()
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
+            app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(corpus)).run()
             app.sidebar.checkbox[1].set_value(False).run()
             app.text_input[0].set_value("https://OWN.example/offer#details")
@@ -59,6 +60,7 @@ class URLFormTests(unittest.TestCase):
             fetch.return_value = {"archive": tmp, "report": {"status": "success", "content_status": "usable"},
                 "card": {"ad_id": "page:new", "provenance": {"record_kind": "page_capture", "url": "own.example/"}}}
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
+            app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(corpus)).run()
             count = int(app.metric[0].value)
             app.text_input[0].set_value("https://own.example/?offer=1")
@@ -96,8 +98,9 @@ class URLFormTests(unittest.TestCase):
                 "report": {"status": "success", "content_status": "usable"}}
             app.run()
             self.assertFalse(app.exception)
-            self.assertEqual(app.text_area[0].value, full_text)
-            self.assertTrue(app.text_area[0].disabled)
+            text = next(field for field in app.text_area if field.label == "Tekst z pobranej strony")
+            self.assertEqual(text.value, full_text)
+            self.assertTrue(text.disabled)
             document = app.get("iframe")[0].proto.srcdoc
             nodes = json.loads(re.search(r"nodes = new vis.DataSet\((\[.*?\])\);", document, re.S)[1])
             title = next(node["title"] for node in nodes if node["id"] == "page:long")
@@ -155,7 +158,6 @@ class URLFormTests(unittest.TestCase):
             self.assertTrue(any("page:fixture" in w.value for w in app.warning))
             self.assertEqual(len(app.get("file_uploader")), 1)
             self.assertFalse(app.get("download_button"))
-            self.assertFalse(app.selectbox)
             app.sidebar.slider[0].set_value(4).run()
             self.assertFalse(app.exception)
             self.assertEqual(int(app.metric[0].value), count + 1)
@@ -180,6 +182,7 @@ class URLFormTests(unittest.TestCase):
             app = AppTest.from_file(str(app_file), default_timeout=30).run()
             self.assertFalse(app.exception)
             fetch.assert_not_called()
+            app.sidebar.radio[0].set_value("Korpus lokalny").run()
             app.sidebar.text_input[0].set_value(str(archive / "missing.jsonl")).run()
             app.text_input[0].set_value("https://own.example/")
             app.button[0].click().run()
