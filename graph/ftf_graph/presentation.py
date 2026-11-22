@@ -37,7 +37,7 @@ def card_tooltip(card, campaign: str) -> str:
     signals = card.signals()
     lines.append(f"sygnały: {len(signals)}/{SIGNAL_KINDS} ({', '.join(signals) or 'brak'})")
     if card.trusted_hits:
-        lines.append("pominięte zaufane domeny: " + compact(", ".join(card.trusted_hits), 100))
+        lines.append("wspólne hosty, nie są śladem: " + compact(", ".join(card.trusted_hits), 100))
     # Bundled vis-network displays string titles via innerText, so keep plain text.
     return "\n".join(fill(line, width=64, break_long_words=True, break_on_hyphens=False)
                      for line in lines if line)

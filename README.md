@@ -18,7 +18,7 @@ Domyślny profil live zapisuje pakiety reklam w `.private-discovery/browser-live
 
 Streamlit przyjmuje też link do strony: `python -m pip install -r graph/requirements-app.txt`,
 następnie `python -m streamlit run graph/app.py`. Wklej publiczny URL i kliknij
-**Przechwyć stronę**, aby pobrać stronę i automatycznie wczytać jej dane do analizy oraz grafu. Domeny z listy zaufanych (cały ranking Tranco z wykluczeniami) są pomijane przed pobraniem, z komunikatem na ekranie. Wymagany jest Google Chrome. [Zapis URL i pliki wynikowe](graph/README.md#przechwycenie-strony-przez-url)
+**Przechwyć stronę**, aby pobrać stronę i automatycznie wczytać jej dane do analizy oraz grafu. Ręcznie podany URL jest pobierany niezależnie od rankingu popularności domen. Ranking nie potwierdza bezpieczeństwa treści. Wymagany jest Google Chrome. [Zapis URL i pliki wynikowe](graph/README.md#przechwycenie-strony-przez-url)
 
 W tym samym panelu sekcja **Sprawdź zdjęcie lub zrzut reklamy** przyjmuje PNG/JPEG/WebP.
 Wgraj zdjęcie i kliknij **Analizuj zdjęcie** — dostępna baza jest dołączana automatycznie.

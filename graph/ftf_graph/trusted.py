@@ -1,10 +1,14 @@
-"""Trusted domains derived in memory from the complete local Tranco ranking."""
+"""Trusted domains derived in memory from the limited local Tranco ranking."""
 from __future__ import annotations
 
 import csv
 import os
 from functools import lru_cache
 from pathlib import Path
+
+from .domain_policy import MULTI_TENANT_HOSTS, NEVER_TRUST_BY_RANK, REGIONAL_WILDCARDS
+
+MAX_RANK = 10_000
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -22,7 +26,8 @@ def read_tranco(path: Path) -> list[str]:
         for row in csv.reader(fh):
             if len(row) < 2 or not row[0].strip().isdigit():
                 continue  # nagłówek albo pusty wiersz
-            out.append(row[1].strip().lower())
+            if 0 < int(row[0]) <= MAX_RANK:
+                out.append(row[1].strip().lower())
     return out
 
 
@@ -47,20 +52,29 @@ def psl_private(path: Path | None) -> set[str]:
     return out
 
 
-def ancestors(domains: set[str]) -> set[str]:
-    """Każdy wpis i wszystkie domeny nad nim (bez samej końcówki .com/.pl): s3.amazonaws.com ->
-    {s3.amazonaws.com, amazonaws.com}."""
+def icann_suffixes(path: Path | None) -> set[str]:
+    """Sufiksy rejestrów (co.uk, bank.in): sam sufiks nigdy nie jest domeną z rankingu."""
+    path = path or default_psl_path()
     out = set()
-    for d in domains:
-        parts = d.split(".")
-        for k in range(len(parts) - 1):
-            out.add(".".join(parts[k:]))
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        if "===BEGIN PRIVATE DOMAINS===" in ln:
+            break
+        if ln.strip() and not ln.startswith("//"):
+            out.add(ln.strip().lstrip("*.!").lower())
     return out
 
 
 def build_trusted(tranco: Path, manual: Path, cert: Path, psl: Path | None = None) -> frozenset[str]:
-    candidates = set(read_tranco(tranco)) | set(read_list(manual))
-    return frozenset(candidates - ancestors(psl_private(psl)) - set(read_list(cert)))
+    platforms = psl_private(psl)  # zgłasza też brak pliku PSL
+    # Sufiks rejestru odpada tylko z rankingu; ręczny wpis (gov.pl) jest świadomą decyzją.
+    candidates = (set(read_tranco(tranco)) - icann_suffixes(psl)) | set(read_list(manual))
+    # Wykluczenia są dokładne: ani docs.google.com, ani wpis PSL pro.typeform.com nie usuwa rodzica.
+    # Najemcę pod zaufanym rodzicem chroni najdłuższy sufiks w card.is_trusted.
+    # Tylko blokada CERT obejmuje także subdomeny.
+    excluded = platforms | MULTI_TENANT_HOSTS | NEVER_TRUST_BY_RANK
+    blocked = set(read_list(cert))
+    return frozenset(d for d in candidates - excluded if not any(
+        ".".join(d.split(".")[k:]) in blocked for k in range(len(d.split(".")) - 1)))
 
 
 def _stamp(path: Path):
@@ -88,6 +102,46 @@ def default_psl_path() -> Path:
     if not paths:
         raise RuntimeError("Brak Public Suffix List w pakiecie publicsuffixlist.")
     return paths[0]
+
+
+@lru_cache(maxsize=2)
+def _load_rules(path: str, stamp) -> tuple[frozenset[str], frozenset[str]]:
+    exact, wildcard, inside = set(), set(), False
+    for ln in Path(path).read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if "===BEGIN PRIVATE DOMAINS===" in ln:
+            inside = True
+        elif "===END PRIVATE DOMAINS===" in ln:
+            break
+        elif inside and ln and not ln.startswith(("//", "!")):
+            if ln.startswith("*."):
+                wildcard.add(ln[2:].lower())
+            else:
+                exact.add(ln.lower())
+    return frozenset(exact | wildcard), frozenset(wildcard & REGIONAL_WILDCARDS)
+
+
+def platform_rules() -> tuple[frozenset[str], frozenset[str]]:
+    """(sufiksy platform, wildcardy regionalne). region.run.app jest wspólny, usługa pod nim nie.
+
+    Własna lista przez FTF_TRUSTED_DOMAINS działa także bez pakietu PSL, wtedy bez tych reguł.
+    Domyślna lista zgłasza brak pakietu w load_trusted.
+    """
+    try:
+        path = default_psl_path()
+    except ImportError:
+        return frozenset(), frozenset()
+    return _load_rules(str(path), _stamp(path))
+
+
+@lru_cache(maxsize=2)
+def _load_blocked(path: str, stamp) -> frozenset[str]:
+    return frozenset(read_list(Path(path)))
+
+
+def cert_blocked() -> frozenset[str]:
+    path = DATA / "cert_domains.txt"
+    return _load_blocked(str(path), _stamp(path))
 
 
 def load_trusted(path: str | None = None) -> frozenset[str]:

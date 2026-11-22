@@ -5,8 +5,6 @@ from urllib.parse import urlunsplit
 
 import idna
 
-from graph.ftf_graph.card import is_trusted, load_trusted
-
 from .capture import capture, read_json
 from .catalog import artifact_path
 from .sources import address
@@ -103,14 +101,8 @@ def capture_url(url: str, state_dir: Path = DEFAULT_STATE) -> dict:
     ``report`` describes acquisition, not the result of campaign matching.
     """
     url = url.strip()
-    parsed = validate_url(url)
-    host = parsed.hostname.rstrip(".")
-    if ":" not in host:  # IPv6 literals are handled by the existing transport policy.
-        host = idna.encode(host, uts46=True, std3_rules=True).decode("ascii")
-    if is_trusted(host, load_trusted()):
-        return {"report": {"status": "trusted_domain", "content_status": "skipped",
-                           "reason_code": "trusted_domain", "trusted_domain": host},
-                "archive": None, "capture": None, "card": None}
+    validate_url(url)
+    # An explicit analyst request always acquires evidence, regardless of ranking.
     state = Path(state_dir).resolve()
     report = visit(state / "pages", url)
     archive = state / "pages" / report["page_id"]

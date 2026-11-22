@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Opcjonalnie eksportuje listę TXT — listę zaufanych domen, które NIE tworzą śladów ani węzłów w grafie.
+"""Opcjonalnie eksportuje listę TXT popularnych domen, które NIE tworzą śladów ani węzłów w grafie.
+
+To nie pełna lista hostów bez śladu: wspólne hosty i platformy dodaje reguła card.is_trusted.
 
 Źródła i reguły:
-  1. cały ranking Tranco (https://tranco-list.eu), plik CSV "pozycja,domena", bez limitu;
+  1. pierwsze 10 000 pozycji rankingu Tranco (https://tranco-list.eu), plik CSV "pozycja,domena", limit pozycji: 10 000;
   2. ręczne uzupełnienia z data/trusted_manual.txt (CDN-y, trackery, polskie serwisy);
-  3. WYKLUCZAMY platformy, na których każdy może założyć własną subdomenę (blogspot.com, github.io,
-     amazonaws.com, wixsite.com...). Bierzemy je z sekcji PRIVATE DOMAINS listy Public Suffix List
-     (https://publicsuffix.org, plik dołączony do pakietu `publicsuffixlist`). Domena jest wykluczona,
-     jeśli sama jest na tej liście albo jakikolwiek wpis z listy leży pod nią (np. s3.amazonaws.com
-     wyklucza amazonaws.com). Na takich platformach nazwa subdomeny jest śladem oszusta;
+  3. WYKLUCZAMY same platformy, na których każdy może założyć subdomenę (blogspot.com, wixsite.com...):
+     dokładne wpisy z sekcji PRIVATE DOMAINS listy Public Suffix List, a z rankingu także sufiksy rejestrów.
+     Rodzic wpisu zostaje, np. pro.typeform.com nie usuwa typeform.com;
   4. WYKLUCZAMY domeny z Listy Ostrzeżeń CERT Polska (--cert, plik domains.txt), jeśli jest podany.
      Pobierz:  curl -o data/cert_domains.txt https://hole.cert.pl/domains/v2/domains.txt
 
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ftf_graph.trusted import ancestors, build_trusted, psl_private, read_list, read_tranco
+from ftf_graph.trusted import build_trusted, psl_private, read_list, read_tranco
 
 
 def main() -> int:
@@ -42,7 +42,7 @@ def main() -> int:
 
     tranco = read_tranco(Path(a.tranco))
     manual = read_list(Path(a.manual))
-    hosting = ancestors(psl_private(Path(a.psl) if a.psl else None))
+    hosting = psl_private(Path(a.psl) if a.psl else None)
     cert = set(read_list(Path(a.cert)))
 
     excluded_hosting = sorted(d for d in set(tranco) | set(manual) if d in hosting)
@@ -53,7 +53,7 @@ def main() -> int:
     header = [
         "# WYGENEROWANE przez tools/build_trusted_list.py — nie edytuj ręcznie (zmiany w trusted_manual.txt).",
         f"# data: {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
-        f"# źródło: {Path(a.tranco).name}, cały ranking (bez limitu)  +  {Path(a.manual).name}",
+        f"# źródło: {Path(a.tranco).name}, ranking (limit pozycji: 10 000)  +  {Path(a.manual).name}",
         f"# wykluczone platformy z treściami użytkowników (Public Suffix List, private): {len(excluded_hosting)}",
         f"# wykluczone z Listy Ostrzeżeń CERT: {len(excluded_cert)}"
         + ("" if cert else "  (brak pliku CERT — pominięto)"),

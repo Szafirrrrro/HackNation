@@ -96,7 +96,7 @@ Rozszerzeniem jest osobny, opcjonalny plik `observations/ad_page_links.jsonl`. W
 
 Zespół przyjmuje regułę zaimplementowaną w `graph/ftf_graph` (`scoring.py`, `cluster.py`) zamiast oceny `strong`/`similar`/`none` z grupowaniem complete-link. Kryteria NASK „jakość metody korelacji i grupowania” oraz „czytelność i interpretowalność prezentowanych powiązań” (pkt 9 zadania) obsługują `reasons` każdej krawędzi i profil kampanii. Wagi i progi poniżej są punktami startowymi zespołu, nie wynikiem pomiaru. Aktualne wartości są w `Config` w `scoring.py` i opisie w [README silnika](../graph/README.md).
 
-**Ślady twarde.** Artefakt to dyskretna, znormalizowana wartość, która może powtórzyć się w innej reklamie: domena z łańcucha przekierowań lub docelowa, identyfikator śledzący, endpoint formularza, kontakt, certyfikat, favicona, szablon DOM, skrypt, IP, serwer nazw, rejestrator, słowo kluczowe, odcisk audio, transkrypcja. Wspólna wartość daje siłę `waga_rodzaju × rzadkość`, gdzie `rzadkość = log(N/df) / log(N/2)`. Artefakt obecny w jednej reklamie albo w ponad `max_df_frac` (30%) korpusu ma rzadkość 0.
+**Ślady twarde.** Artefakt to dyskretna, znormalizowana wartość, która może powtórzyć się w innej reklamie: domena z łańcucha przekierowań lub docelowa, o ile nie jest hostem wspólnym, identyfikator śledzący, endpoint formularza, kontakt, certyfikat, favicona, szablon DOM, skrypt, IP, serwer nazw, o ile nie jest hostem wspólnym, rejestrator, słowo kluczowe, odcisk audio, transkrypcja. Wspólna wartość daje siłę `waga_rodzaju × rzadkość`, gdzie `rzadkość = log(N/df) / log(N/2)`. Artefakt obecny w jednej reklamie albo w ponad `max_df_frac` (30%) korpusu ma rzadkość 0.
 
 **Ślady miękkie.** Podobieństwo w stopniu: embedding tekstu, embedding obrazu, odległość pHash, twarz ważona gorszą z dwóch jakości, hurtowa rejestracja domen, narracja lektora, głos lektora i przybliżony odcisk audio. Siła to `waga × ramp(miara, próg_dolny, próg_górny)`. Twarz sama daje najwyżej 0.5, a głos najwyżej 0.45, bo wizerunek i sklonowany głos celebryty występują w niezależnych kampaniach.
 
@@ -208,17 +208,22 @@ host/ścieżkę dopasowujemy przy braku query i redakcji ścieżki, bez rozróż
 HTTP/HTTPS. Sama zgodność domeny nie wystarcza. Po zapisie znika aktywne zapytanie,
 a wyróżniony zostaje zapisany rekord. Nie zmienia to deduplikacji emisji silnika.
 
-Przed ręczną wizytą `capture_url` sprawdza współdzieloną listę
-`ftf_graph.trusted`: cały ranking `graph/data/tranco_46YVX.csv` bez limitu,
-ręczne wpisy i dotychczasowe wykluczenia PSL/CERT. Zbiór powstaje w pamięci
-i odświeża się po zmianie źródeł, bez zapisu wygenerowanego TXT. Jawny plik
-`FTF_TRUSTED_DOMAINS` pozostaje opcjonalnym nadpisaniem. Normalizacja hosta obejmuje
-IDNA, wielkość liter i końcową kropkę; dopasowanie obejmuje subdomeny z granicą
-etykiety DNS. Trafienie zwraca `report.status = trusted_domain`,
-`content_status = skipped`, `reason_code = trusted_domain` i `trusted_domain`
-z hostem. `archive`, `capture` i `card` mają wartość `null`. Nie powstaje wizyta
-ani zapytanie; UI pokazuje komunikat o klasyfikacji według listy zaufanych.
-Sprawdzenie dotyczy początkowego URL. Polityka bazy schedulera pozostaje osobna.
+Korekta decyzji zespołu 2026-11-22: ręczne żądanie analityka zawsze uruchamia
+pobranie, niezależnie od rankingu domen. Nie zwracamy klasyfikacji bezpieczeństwa
+na podstawie popularności. Polityka automatycznego schedulera pozostaje osobna.
+Pobranie i ślad w grafie to osobne decyzje. Host wspólny nie jest śladem, co nie
+oznacza, że jest bezpieczny. Kolejność: blokada CERT zawsze daje ślad. Dalej
+rozstrzyga najdłuższy sufiks: platforma nie jest śladem, a jej subdomena jest,
+host wspólny i domena z top 10 000 lub listy ręcznej nie są śladem razem
+z subdomenami. Platformy wyznaczają `TENANT_PARENTS` i prywatna sekcja PSL
+w przypiętej wersji. Reguła dotyczy przekierowań, celu i serwerów nazw,
+nie certyfikatu, IP ani skryptów.
+
+Korekta zapisu: przycisk **Dopisz** nigdy nie zmienia wybranego źródłowego JSONL.
+Dodaje materiał do `.private-discovery/analyst/corpora/<klucz-ścieżki-korpusu>.jsonl`,
+ignorowanego przez Git. Ten prywatny dodatek jest odczytywany z wybraną referencją
+również po restarcie. Klucz rozdziela dodatki dla różnych ścieżek korpusów.
+Pełny tekst, OCR i lokalne ścieżki pozostają prywatne, tak samo jak zapis pobrania.
 
 ### Zapytanie zdjęcia w ekranie grafu (decyzja zespołu 2026-11-22)
 
