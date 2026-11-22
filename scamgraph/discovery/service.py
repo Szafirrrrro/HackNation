@@ -152,11 +152,19 @@ def collect_landing(stage, options, finding, *, defer=False):
         return {"status": "failed", "content_status": "error", "reason_code": "invalid_card_evidence",
                 "reason": "Brak poprawnego odnośnika we wskazanym elemencie karty."}
     database = options.get("domain_db")
-    host = match_url(database, url)
-    verified = match_verified_entity(url, options)
     timeout = options.get("landing_timeout", 22)
-    ranked_hit = match_authoritative_corpus(url)
-    closed_loop = match_bidirectional_verification(url)
+    # Kolejność jak dotąd: baza zaufanych, podmiot, ranking, pętla dwustronna. Kolejny filtr liczymy tylko
+    # wtedy, gdy poprzedni nie trafił. verified_entity (DNS, TLS) i bidirectional_verify (HTTP) łączą się
+    # z podejrzanym hostem z pominięciem zabezpieczeń kolektora (prywatne IP, wspólny profil przeglądarki),
+    # więc są wyłączone, dopóki profil jawnie ich nie włączy.
+    network = options.get("mode") == "live" and options.get("network_trust_checks", False)
+    host = match_url(database, url)
+    verified = match_verified_entity(url, options) if network and not host else None
+    # Ranking ocenia tylko zwykłe strony WWW. Posty, Marketplace i wideo Facebooka mają własną obsługę
+    # w landing_visit, a pozycja facebook.com w rankingu nie mówi nic o konkretnej treści.
+    web = target_identity(url)[0] == "web"
+    ranked_hit = None if host or verified or not web else match_authoritative_corpus(url)
+    closed_loop = match_bidirectional_verification(url) if network and not (host or verified or ranked_hit) else None
 
     if host:
         outcome = {"status": "trusted_domain", "content_status": "skipped", "reason_code": "trusted_domain",
