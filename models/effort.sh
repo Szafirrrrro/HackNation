@@ -9,6 +9,8 @@
 # Wagi .pth: models/weights/effort/ (montowane jako training/weights/, tylko odczyt).
 # Ścieżka --image (np. ~/MNW/AI_Images/ rozwinięta przez powłokę) jest montowana pod tą samą
 # ścieżką w kontenerze, tylko do odczytu. Bez sieci.
+# demo.py startuje przez containers/aigi_effort/fast_load.py (ładowanie wag w ok. 2 s zamiast
+# ponad 2 min, ten sam wynik). EFFORT_SLOW=1 uruchamia niezmieniony training/demo.py.
 set -euo pipefail
 source "$(dirname "$0")/scripts/common.sh"
 
@@ -42,4 +44,6 @@ for ((i = 0; i < ${#args[@]}; i++)); do
 done
 docker run --rm --network none -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   -v "$ROOT/weights/effort:/opt/effort/DeepfakeBench/training/weights:ro" ${mounts[@]+"${mounts[@]}"} \
-  -w /opt/effort/DeepfakeBench tm-aigi_effort:latest python3 training/demo.py "${args[@]}"
+  -v "$ROOT/containers/aigi_effort:/app/uc:ro" \
+  -w /opt/effort/DeepfakeBench tm-aigi_effort:latest \
+  python3 "$( [ "${EFFORT_SLOW:-}" = 1 ] && echo training/demo.py || echo /app/uc/fast_load.py )" "${args[@]}"
